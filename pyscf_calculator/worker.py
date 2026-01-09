@@ -272,6 +272,7 @@ class PySCFWorker(QThread):
                             mf.xc = functional
                         
                         # Run Energy on optimized
+                        mf.chkfile = chk_path
                         mf.kernel()
                         mol = mol_eq # Update main mol ref for checkfile
                         
@@ -290,6 +291,7 @@ class PySCFWorker(QThread):
                              results["optimized_xyz"] = "\n".join(xyz_lines)
     
                              # Recalculate energy
+                             mf.chkfile = chk_path
                              mf.kernel()
                              mol = mol_eq
                         except ImportError:
@@ -335,20 +337,14 @@ class PySCFWorker(QThread):
                     mf.kernel()
     
                 # --- SAVE CHECKPOINT (ALWAYS) ---
-                # Use specified out_dir or temp
-                out_dir = self.config.get("out_dir")
-                if not out_dir:
-                    out_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "output")
-                os.makedirs(out_dir, exist_ok=True)
+                # Checkpoint is already set to self.out_dir/pyscf.chk and written by mf.kernel()
                 
-                chk_path = os.path.join(out_dir, "checkpoint.chk")
-                mf.chkfile = chk_path
+                chk_path = os.path.join(self.out_dir, "pyscf.chk")
                 
-                results = {
+                results.update({
                     "chkfile": chk_path,
-                    "optimized_xyz": getattr(self, "optimized_xyz", None),
                     "out_dir": self.out_dir
-                }
+                })
                 
                 # Pass energy/occupancy to GUI for Diagram
                 # Handle UHF (tuple) vs RHF (array)
@@ -559,10 +555,10 @@ class PropertyWorker(QThread):
                         rel_label = "LUMO" if diff == 0 else f"LUMO+{diff}"
                         
                     # Filename
-                    fname = f"{rel_label}_{idx}.cube"
+                    fname = f"{idx}_{rel_label}.cube"
                         
                     # Sanitization: Ensure safe filenames but keep readable
-                    fname = fname.replace(" ", "")
+                    # fname = fname.replace(" ", "") # User requested spaces in name
                     f_path_base = os.path.join(self.out_dir, fname)
                     
                     from .utils import get_unique_path
@@ -586,4 +582,64 @@ class PropertyWorker(QThread):
             if 'capturer' in locals():
                 try: capturer.__exit__(None, None, None)
                 except: pass
+
+
+class LoadWorker(QThread):
+    finished_signal = pyqtSignal(dict)
+    error_signal = pyqtSignal(str)
+
+    def __init__(self, chkfile):
+        super().__init__()
+        self.chkfile = chkfile
+
+    def run(self):
+        if pyscf is None:
+            self.error_signal.emit("PySCF not found.")
+            return
+
+        try:
+            from pyscf import lib, scf
+            
+            # Load Molecule
+            mol = lib.chkfile.load_mol(self.chkfile)
+            
+            # Load SCF Data
+            scf_data = scf.chkfile.load(self.chkfile, 'scf')
+            mo_energy = scf_data.get('mo_energy')
+            mo_occ = scf_data.get('mo_occ')
+            
+            # Identify Type
+            scf_type = "RHF"
+            if isinstance(mo_energy, tuple):
+                scf_type = "UHF"
+                # Convert to lists for JSON/Qt safety
+                mo_energy = [e.tolist() for e in mo_energy]
+                mo_occ = [o.tolist() for o in mo_occ]
+            else:
+                 mo_energy = mo_energy.tolist()
+                 mo_occ = mo_occ.tolist()
+            
+            # Attempt to extract optimized XYZ if present (or just current geometry)
+            coords = mol.atom_coords(unit='Ang')
+            symbols = [mol.atom_symbol(i) for i in range(mol.natm)]
+            
+            xyz_lines = [f"{len(symbols)}", "Loaded from Checkpoint"]
+            for s, c in zip(symbols, coords):
+                xyz_lines.append(f"{s} {c[0]:.6f} {c[1]:.6f} {c[2]:.6f}")
+            
+            optimized_xyz = "\n".join(xyz_lines)
+
+            results = {
+                "mo_energy": mo_energy,
+                "mo_occ": mo_occ,
+                "scf_type": scf_type,
+                "optimized_xyz": optimized_xyz,
+                "chkfile": self.chkfile
+            }
+            
+            self.finished_signal.emit(results)
+
+        except Exception as e:
+            traceback.print_exc()
+            self.error_signal.emit(str(e))
 

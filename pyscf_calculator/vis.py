@@ -240,6 +240,27 @@ class MappedVisualizer:
         except Exception as e:
             print(f"Error loading mapped cubes: {e}")
             return False
+            
+    def get_mapped_range(self, iso_val):
+        """
+        Calculates the min/max of the property values on the isosurface.
+        Returns (min, max) or (-0.1, 0.1) if empty/error.
+        """
+        if not self.grid_surf or not self.grid_prop:
+            return (-0.1, 0.1)
+            
+        try:
+            iso = self.grid_surf.contour([iso_val], scalars="values")
+            if iso.n_points == 0: return (-0.1, 0.1)
+            
+            mapped = iso.sample(self.grid_prop)
+            mvals = mapped.point_data.get("values") # sampled data remains 'values' generally
+            
+            if mvals is not None and len(mvals) > 0:
+                return (float(mvals.min()), float(mvals.max()))
+            return (-0.1, 0.1)
+        except:
+             return (-0.1, 0.1)
 
     def update_mesh(self, iso_val, opacity, cmap="jet", clim=None):
         if not self.grid_surf or not self.grid_prop:

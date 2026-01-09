@@ -186,6 +186,20 @@ class PySCFDialog(QDialog):
 
         layout = QVBoxLayout(self.vis_tab)
         
+        # --- Result Path Section ---
+        path_layout = QHBoxLayout()
+        path_layout.addWidget(QLabel("Result Folder:"))
+        self.result_path_display = QLineEdit()
+        self.result_path_display.setReadOnly(True)
+        self.result_path_display.setPlaceholderText("No result loaded")
+        path_layout.addWidget(self.result_path_display)
+        
+        self.btn_load_result = QPushButton("Load Result Folder...")
+        self.btn_load_result.clicked.connect(self.load_result_folder)
+        path_layout.addWidget(self.btn_load_result)
+        
+        layout.addLayout(path_layout)
+        
         # Result Actions
         self.btn_load_geom = QPushButton("Load Optimized Structure")
         self.btn_load_geom.clicked.connect(self.load_optimized_geometry)
@@ -299,22 +313,38 @@ class PySCFDialog(QDialog):
         m_iso_layout.addWidget(self.m_iso_spin)
         m_layout.addLayout(m_iso_layout)
         
-        # Range
+        # Min/Max Controls
         range_layout = QHBoxLayout()
-        range_layout.addWidget(QLabel("Range +/-:"))
-        self.m_range_spin = QDoubleSpinBox()
-        self.m_range_spin.setRange(0.001, 10.0)
-        self.m_range_spin.setValue(0.05)
-        self.m_range_spin.valueChanged.connect(self.update_mapped_vis)
-        range_layout.addWidget(self.m_range_spin)
+        range_layout.addWidget(QLabel("Min/Max:"))
+        
+        self.m_min_spin = QDoubleSpinBox()
+        self.m_min_spin.setRange(-10.0, 10.0)
+        self.m_min_spin.setValue(-0.05)
+        self.m_min_spin.setSingleStep(0.01)
+        self.m_min_spin.valueChanged.connect(self.update_mapped_vis)
+        range_layout.addWidget(self.m_min_spin)
+        
+        self.m_max_spin = QDoubleSpinBox()
+        self.m_max_spin.setRange(-10.0, 10.0)
+        self.m_max_spin.setValue(0.05)
+        self.m_max_spin.setSingleStep(0.01)
+        self.m_max_spin.valueChanged.connect(self.update_mapped_vis)
+        range_layout.addWidget(self.m_max_spin)
+        
         m_layout.addLayout(range_layout)
         
         # Colormap
         cmap_layout = QHBoxLayout()
         cmap_layout.addWidget(QLabel("Colormap:"))
         self.cmap_combo = QComboBox()
-        self.cmap_combo.addItems(["jet", "bwr", "seismic", "coolwarm", "viridis"])
-        self.cmap_combo.setCurrentText("jet")
+        self.cmap_combo.addItems([
+            "jet", "jet_r", 
+            "bwr", "bwr_r", 
+            "seismic", "seismic_r", 
+            "coolwarm", "coolwarm_r", 
+            "viridis", "viridis_r"
+        ])
+        self.cmap_combo.setCurrentText("jet_r")
         self.cmap_combo.currentTextChanged.connect(self.update_mapped_vis)
         cmap_layout.addWidget(self.cmap_combo)
         m_layout.addLayout(cmap_layout)
@@ -391,6 +421,24 @@ class PySCFDialog(QDialog):
         if self.mapped_visualizer.load_files(surf_file, prop_file):
              # Auto settings
              self.m_iso_spin.setValue(0.002) # Standard for density
+             
+             # Use Mapped Range from Surface Sample (not full volume)
+             p_min, p_max = self.mapped_visualizer.get_mapped_range(0.002)
+             
+             # Expand range slightly for UI
+             if p_max - p_min < 1e-9:
+                p_max += 0.05
+                p_min -= 0.05
+             
+             ui_min = min(-0.1, p_min)
+             ui_max = max(0.1, p_max)
+             
+             self.m_min_spin.setRange(ui_min * 10, ui_max * 10)
+             self.m_max_spin.setRange(ui_min * 10, ui_max * 10)
+             
+             self.m_min_spin.setValue(p_min)
+             self.m_max_spin.setValue(p_max)
+             
              self.update_mapped_vis()
 
     def load_optimized_geometry(self):
@@ -401,13 +449,14 @@ class PySCFDialog(QDialog):
     def update_mapped_vis(self):
         if not self.mapped_visualizer: return
         iso = self.m_iso_spin.value()
-        rng = self.m_range_spin.value()
+        val_min = self.m_min_spin.value()
+        val_max = self.m_max_spin.value()
         cmap = self.cmap_combo.currentText()
         # Use main opacity slider? Yes.
         opacity = self.op_slider.value() / 100.0
         
         self.mapped_visualizer.update_mesh(
-            iso, opacity, cmap=cmap, clim=[-rng, rng]
+            iso, opacity, cmap=cmap, clim=[val_min, val_max]
         )
 
     def update_visualization(self):
@@ -703,24 +752,42 @@ class PySCFDialog(QDialog):
         files = result_data.get("files", [])
         self.log(f"Generated {len(files)} new files.")
         
+        last_added_item = None
+        new_esp_item = None
+        
         # Add to file list if not exists
         for fpath in files:
             name = os.path.basename(fpath)
-            # check duplicates
-            exists = False
+            
+            # Check/Add to list
+            found_item = None
             for i in range(self.file_list.count()):
-                if self.file_list.item(i).toolTip() == fpath:
-                    exists = True
+                it = self.file_list.item(i)
+                if it.toolTip() == fpath:
+                    found_item = it
                     break
             
-            if not exists:
+            if not found_item:
                 from PyQt6.QtWidgets import QListWidgetItem
                 item = QListWidgetItem(name)
                 item.setToolTip(fpath)
                 self.file_list.addItem(item)
-                # Auto-select the most recent one to trigger visualization?
-                self.file_list.setCurrentItem(item)
-                self.on_file_selected(item)
+                found_item = item
+            
+            last_added_item = found_item
+            
+            # Check if this NEW file is an ESP file
+            if name.startswith("esp") and name.endswith(".cube"):
+                new_esp_item = found_item
+        
+        # Auto-select prioritization
+        # Only select ESP if it was in the NEW results
+        if new_esp_item:
+             self.file_list.setCurrentItem(new_esp_item)
+             self.on_file_selected(new_esp_item)
+        elif last_added_item:
+             self.file_list.setCurrentItem(last_added_item)
+             self.on_file_selected(last_added_item)
 
     def on_results(self, result_data):
         # Handle post-processing, e.g., visualization
@@ -750,6 +817,10 @@ class PySCFDialog(QDialog):
             self.last_out_dir = result_data.get("out_dir") # Store specific job folder
             self.btn_run_analysis.setEnabled(True)
             self.log(f"Checkpoint saved: {self.chkfile_path}")
+            
+            # --- Update Result Path Display ---
+            if "out_dir" in result_data:
+                self.result_path_display.setText(result_data["out_dir"])
 
         if result_data.get("cube_files"):
             # Inform user about generated cube files
@@ -798,6 +869,87 @@ class PySCFDialog(QDialog):
              
         # Auto-Switch to Visualization Tab
         self.tabs.setCurrentIndex(1)
+
+    def load_result_folder(self):
+        d = QFileDialog.getExistingDirectory(self, "Select Result Directory")
+        if not d: return
+        
+        chk_path = os.path.join(d, "pyscf.chk")
+        if not os.path.exists(chk_path):
+             # Try generic if not found?
+             chk_path_alt = os.path.join(d, "checkpoint.chk")
+             if os.path.exists(chk_path_alt):
+                 chk_path = chk_path_alt
+             else:
+                 QMessageBox.warning(self, "Error", f"No checkpoint file (pyscf.chk) found in {d}")
+                 return
+        
+        # Set Display
+        self.result_path_display.setText(d)
+        
+        # Run LoadWorker
+        from .worker import LoadWorker
+        if 'LoadWorker' not in globals() and 'LoadWorker' not in locals():
+             # Safety import if not yet linked
+             try: from .worker import LoadWorker
+             except: pass
+        
+        self.load_worker = LoadWorker(chk_path)
+        self.load_worker.finished_signal.connect(self.on_load_finished)
+        self.load_worker.error_signal.connect(self.on_error)
+        
+        self.log(f"\nLoading result from: {d}...")
+        self.progress_bar.show()
+        self.load_worker.start()
+
+    def on_load_finished(self, result_data):
+         self.log("Result loaded successfully.")
+         self.progress_bar.hide()
+         
+         # 1. Restore Checkpoint Path
+         if result_data.get("chkfile"):
+             self.chkfile_path = result_data["chkfile"]
+             self.last_out_dir = os.path.dirname(self.chkfile_path)
+             
+         # 2. Restore Energy Data
+         if result_data.get("mo_energy"):
+             self.mo_data = {
+                 "energy": result_data["mo_energy"],
+                 "occ": result_data["mo_occ"],
+                 "type": result_data.get("scf_type", "RHF")
+             }
+             self.btn_show_diagram.setEnabled(True)
+             self.btn_run_analysis.setEnabled(True)
+             
+         # 3. Restore Geometry (Optional)
+         if result_data.get("optimized_xyz"):
+             self.optimized_xyz = result_data["optimized_xyz"]
+             self.btn_load_geom.setEnabled(True)
+             msg = QMessageBox.question(self, "Load Structure", "Do you want to update the 3D structure to the loaded geometry?", 
+                                        QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+             if msg == QMessageBox.StandardButton.Yes:
+                 self.update_geometry(self.optimized_xyz)
+         
+         # 4. Scan for Visualization Files
+         self.file_list.clear()
+         d = self.last_out_dir
+         if d and os.path.exists(d):
+             import glob
+             # Cubes
+             cubes = glob.glob(os.path.join(d, "*.cube"))
+             for c in cubes:
+                 name = os.path.basename(c)
+                 item = QListWidgetItem(name)
+                 item.setToolTip(c)
+                 self.file_list.addItem(item)
+             self.log(f"Found {len(cubes)} existing visualization files.")
+
+         # 5. Enable Checkboxes
+         for i in range(self.orb_list.count()):
+             item = self.orb_list.item(i)
+             item.setFlags(item.flags() | Qt.ItemFlag.ItemIsEnabled)
+             # Optionally uncheck all initially
+             item.setCheckState(Qt.CheckState.Unchecked)
 
     def update_geometry(self, xyz_content):
         # Use utils to update the specific molecule in context
