@@ -100,8 +100,9 @@ class FreqVisualizer(QWidget):
         
         anim_layout.addWidget(QLabel("Amplitude:"))
         self.spin_amp = QDoubleSpinBox()
-        self.spin_amp.setRange(0.1, 10.0)
-        self.spin_amp.setSingleStep(0.1)
+        self.spin_amp.setRange(0.01, 10.0)
+        self.spin_amp.setSingleStep(0.01)
+        self.spin_amp.setDecimals(2)
         self.spin_amp.setValue(1.0)
         anim_layout.addWidget(self.spin_amp)
         

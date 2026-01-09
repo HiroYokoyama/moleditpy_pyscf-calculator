@@ -158,7 +158,6 @@ class PySCFDialog(QDialog):
         if not self.context.current_molecule:
              self.run_btn.setEnabled(False)
              self.run_btn.setToolTip("Load a molecule to run calculations.")
-             self.log("Plugin started in Viewer Mode (No molecule loaded).")
         
         btn_layout.addWidget(self.run_btn)
         
@@ -274,8 +273,9 @@ class PySCFDialog(QDialog):
         iso_layout.addWidget(QLabel("Isovalue:"))
         self.iso_spin = QDoubleSpinBox()
         self.iso_spin.setRange(0.0001, 10.0)
-        self.iso_spin.setSingleStep(0.01)
-        self.iso_spin.setValue(0.05)
+        self.iso_spin.setDecimals(4) # Allow precision for 0.004
+        self.iso_spin.setSingleStep(0.001)
+        self.iso_spin.setValue(0.04)
         self.iso_spin.valueChanged.connect(self.update_visualization)
         iso_layout.addWidget(self.iso_spin)
         v_layout.addLayout(iso_layout)
@@ -317,6 +317,7 @@ class PySCFDialog(QDialog):
         self.m_iso_spin = QDoubleSpinBox()
         self.m_iso_spin.setRange(0.0001, 10.0)
         self.m_iso_spin.setDecimals(4)
+        self.m_iso_spin.setSingleStep(0.001)
         self.m_iso_spin.setValue(0.004) # Standard density iso
         self.m_iso_spin.valueChanged.connect(self.update_mapped_vis)
         m_iso_layout.addWidget(self.m_iso_spin)
@@ -328,17 +329,24 @@ class PySCFDialog(QDialog):
         
         self.m_min_spin = QDoubleSpinBox()
         self.m_min_spin.setRange(-10.0, 10.0)
+        self.m_min_spin.setDecimals(4)
+        self.m_min_spin.setSingleStep(0.001)
         self.m_min_spin.setValue(-0.05)
-        self.m_min_spin.setSingleStep(0.01)
         self.m_min_spin.valueChanged.connect(self.update_mapped_vis)
         range_layout.addWidget(self.m_min_spin)
         
         self.m_max_spin = QDoubleSpinBox()
         self.m_max_spin.setRange(-10.0, 10.0)
+        self.m_max_spin.setDecimals(4)
+        self.m_max_spin.setSingleStep(0.001)
         self.m_max_spin.setValue(0.05)
-        self.m_max_spin.setSingleStep(0.01)
         self.m_max_spin.valueChanged.connect(self.update_mapped_vis)
         range_layout.addWidget(self.m_max_spin)
+        
+        self.btn_fit_range = QPushButton("Fit")
+        self.btn_fit_range.clicked.connect(self.fit_mapped_range)
+        self.btn_fit_range.setToolTip("Auto-fit Color Range to Surface Values")
+        range_layout.addWidget(self.btn_fit_range)
         
         m_layout.addLayout(range_layout)
         
@@ -412,8 +420,18 @@ class PySCFDialog(QDialog):
         
         self.loaded_file = path
         if self.visualizer.load_file(path):
-            self.iso_spin.setRange(0.0001, self.visualizer.data_max)
-            self.iso_spin.setValue(min(0.05, self.visualizer.data_max * 0.1))
+            self.iso_spin.blockSignals(True)
+            try:
+                self.iso_spin.setRange(0.0001, max(10.0, self.visualizer.data_max))
+                
+                fname = os.path.basename(path).lower()
+                if "density" in fname:
+                     self.iso_spin.setValue(0.04)
+                else:
+                     self.iso_spin.setValue(0.04)
+            finally:
+                self.iso_spin.blockSignals(False)
+            
             self.update_visualization()
 
     def switch_to_mapped_mode(self, surf_file, prop_file):
@@ -430,12 +448,13 @@ class PySCFDialog(QDialog):
             
         if self.mapped_visualizer.load_files(surf_file, prop_file):
              # Auto settings
-             self.m_iso_spin.setValue(0.002) # Standard for density
+             self.m_iso_spin.blockSignals(True)
+             self.m_iso_spin.setValue(0.004)
+             self.m_iso_spin.blockSignals(False)
              
-             # Use Mapped Range from Surface Sample (not full volume)
-             p_min, p_max = self.mapped_visualizer.get_mapped_range(0.002)
+             # Use Mapped Range from Surface Sample
+             p_min, p_max = self.mapped_visualizer.get_mapped_range(0.004)
              
-             # Expand range slightly for UI
              if p_max - p_min < 1e-9:
                 p_max += 0.05
                 p_min -= 0.05
@@ -468,6 +487,30 @@ class PySCFDialog(QDialog):
         self.mapped_visualizer.update_mesh(
             iso, opacity, cmap=cmap, clim=[val_min, val_max]
         )
+
+    def fit_mapped_range(self):
+        if not self.mapped_visualizer: return
+        iso = self.m_iso_spin.value()
+        
+        # Get range from actual data on isosurface
+        p_min, p_max = self.mapped_visualizer.get_mapped_range(iso)
+        
+        if p_max - p_min < 1e-9:
+            p_max += 0.05
+            p_min -= 0.05
+            
+        # Update UI ranges if needed to accommodate values
+        cur_min_limit = self.m_min_spin.minimum()
+        cur_max_limit = self.m_max_spin.maximum()
+        
+        if p_min < cur_min_limit: self.m_min_spin.setMinimum(p_min - 1.0)
+        if p_max > cur_max_limit: self.m_max_spin.setMaximum(p_max + 1.0)
+        
+        self.m_min_spin.setValue(p_min)
+        self.m_max_spin.setValue(p_max)
+        
+        # Apply the new range
+        self.update_mapped_vis()
 
     def update_visualization(self):
         if self.mode == "mapped":
@@ -820,6 +863,32 @@ class PySCFDialog(QDialog):
             if name.startswith("esp") and name.endswith(".cube"):
                 new_esp_item = found_item
         
+        # Re-sort the file list alphabetically
+        all_items = []
+        for i in range(self.file_list.count()):
+            item = self.file_list.item(i)
+            all_items.append((item.text(), item.toolTip()))
+        
+        # Store paths for reference (not item objects which will be deleted)
+        last_path = last_added_item.toolTip() if last_added_item else None
+        esp_path = new_esp_item.toolTip() if new_esp_item else None
+        
+        all_items.sort(key=lambda x: x[0])  # Sort by filename
+        
+        self.file_list.clear()
+        last_added_item = None
+        new_esp_item = None
+        
+        for name, path in all_items:
+            item = QListWidgetItem(name)
+            item.setToolTip(path)
+            self.file_list.addItem(item)
+            # Update references
+            if path == last_path:
+                last_added_item = item
+            if path == esp_path:
+                new_esp_item = item
+        
         # Auto-select prioritization
         # Only select ESP if it was in the NEW results
         if new_esp_item:
@@ -911,6 +980,8 @@ class PySCFDialog(QDialog):
                  self.freq_dock.setWidget(self.freq_vis)
                  self.freq_dock.setAllowedAreas(Qt.DockWidgetArea.RightDockWidgetArea)
                  mw.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.freq_dock)
+                 self.freq_dock.show()
+                 self.freq_dock.raise_()
                  self.log("Frequency Visualizer opened in Dock.")
              except Exception as e:
                  self.log(f"Error opening Frequency Visualizer: {e}")
@@ -981,10 +1052,6 @@ class PySCFDialog(QDialog):
          if result_data.get("optimized_xyz"):
              self.optimized_xyz = result_data["optimized_xyz"]
              self.btn_load_geom.setEnabled(True)
-             msg = QMessageBox.question(self, "Load Structure", "Do you want to update the 3D structure to the loaded geometry?", 
-                                        QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
-             if msg == QMessageBox.StandardButton.Yes:
-                 self.update_geometry(self.optimized_xyz)
          
          # 4. Scan for Visualization Files
          self.file_list.clear()
@@ -1000,8 +1067,93 @@ class PySCFDialog(QDialog):
                  item.setToolTip(c)
                  self.file_list.addItem(item)
              self.log(f"Found {len(cubes)} existing visualization files.")
+             
+             # Auto-visualize ESP or last cube file
+             if cubes:
+                 target = None
+                 for c in cubes:
+                     if "esp.cube" in os.path.basename(c):
+                         target = c
+                         break
+                 if not target:
+                     target = cubes[-1]
+                 
+                 # Trigger visualization
+                 for i in range(self.file_list.count()):
+                     item = self.file_list.item(i)
+                     if item.toolTip() == target:
+                         self.file_list.setCurrentItem(item)
+                         self.on_file_selected(item)
+                         break
 
-         # 5. Enable Checkboxes
+         # 5. Restore Thermo Data
+         if result_data.get("thermo_data"):
+             self.thermo_data = result_data["thermo_data"]
+             self.btn_show_thermo.setEnabled(True)
+             self.log("Thermodynamic data restored.")
+         
+         # 6. Auto-load Geometry (no dialog)
+         if hasattr(self, 'optimized_xyz') and self.optimized_xyz:
+             self.update_geometry(self.optimized_xyz)
+             self.log("Optimized geometry loaded automatically.")
+             # Reset camera to view the loaded molecule
+             try:
+                 mw = self.context.get_main_window()
+                 if hasattr(mw, 'plotter'):
+                     mw.plotter.reset_camera()
+             except:
+                 pass
+
+         # 7. Restore Frequency Data (AFTER geometry is loaded)
+         if result_data.get("freq_data"):
+             self.log("Frequency data found in result.")
+             self.freq_data = result_data["freq_data"]
+             try:
+                 from .freq_vis import FreqVisualizer
+                 mol = self.context.current_molecule
+                 
+                 if not mol:
+                     self.log("Error: No molecule loaded for frequency visualizer.")
+                     raise Exception("No molecule loaded")
+                 
+                 self.log("Creating frequency visualizer...")
+                 self.clear_3d_actors()
+                 self.freq_vis = FreqVisualizer(
+                     self.context.get_main_window(), 
+                     mol, 
+                     self.freq_data['freqs'], 
+                     self.freq_data['modes'],
+                     intensities=self.freq_data.get('intensities')
+                 )
+                 
+                 from PyQt6.QtWidgets import QDockWidget
+                 mw = self.context.get_main_window()
+                 
+                 # Properly close and remove old dock if it exists
+                 if hasattr(self, 'freq_dock') and self.freq_dock:
+                     try:
+                         mw.removeDockWidget(self.freq_dock)
+                         self.freq_dock.close()
+                         self.freq_dock.setParent(None)
+                         self.freq_dock = None
+                     except:
+                         pass
+                 
+                 self.freq_dock = QDockWidget("PySCF Frequencies", mw)
+                 self.freq_dock.setWidget(self.freq_vis)
+                 self.freq_dock.setAllowedAreas(Qt.DockWidgetArea.RightDockWidgetArea)
+                 mw.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.freq_dock)
+                 self.freq_dock.show()
+                 self.freq_dock.raise_()
+                 self.log("Frequency Visualizer opened in Dock.")
+             except Exception as e:
+                 self.log(f"Error opening Frequency Visualizer: {e}")
+                 import traceback
+                 self.log(traceback.format_exc())
+         else:
+             self.log("No frequency data in loaded result.")
+
+         # 9. Enable Checkboxes
          for i in range(self.orb_list.count()):
              item = self.orb_list.item(i)
              item.setFlags(item.flags() | Qt.ItemFlag.ItemIsEnabled)
@@ -1166,9 +1318,17 @@ class EnergyDiagramDialog(QDialog):
         self.update()
         
     def mouseDoubleClickEvent(self, event):
-        # Reset to full view
-        self.current_min = self.full_min - 0.05 * (self.full_max - self.full_min)
-        self.current_max = self.full_max + 0.05 * (self.full_max - self.full_min)
+        # Reset to 3x HOMO-LUMO gap centered on the gap
+        if hasattr(self, 'homo_energy') and hasattr(self, 'lumo_energy'):
+            gap = abs(self.lumo_energy - self.homo_energy)
+            center = (self.homo_energy + self.lumo_energy) / 2
+            range_size = gap * 3
+            self.current_min = center - range_size / 2
+            self.current_max = center + range_size / 2
+        else:
+            # Fallback to full view if HOMO/LUMO not available
+            self.current_min = self.full_min - 0.05 * (self.full_max - self.full_min)
+            self.current_max = self.full_max + 0.05 * (self.full_max - self.full_min)
         self.update()
 
 

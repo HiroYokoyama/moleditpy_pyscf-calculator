@@ -4,6 +4,7 @@ import io
 import tempfile
 import traceback
 import numpy as np
+import math
 from PyQt6.QtCore import QThread, pyqtSignal
 
 # We import pyscf inside the thread or check availability
@@ -353,12 +354,60 @@ class PySCFWorker(QThread):
                         
                         # Store Thermo
                         if t_data:
-                            # Convert any numpy types to python native
-                            safe_t = {}
-                            for k, v in t_data.items():
-                                if hasattr(v, 'tolist'): safe_t[k] = v.tolist()
-                                else: safe_t[k] = v
-                            results["thermo_data"] = safe_t
+                            # Robust conversion function for JSON serialization
+                            def make_json_safe(obj):
+                                if obj is None:
+                                    return None
+                                if isinstance(obj, (bool, int, str)):
+                                    return obj
+                                if isinstance(obj, float):
+                                    if math.isnan(obj) or math.isinf(obj):
+                                        return None
+                                    return obj
+                                if hasattr(obj, 'tolist'):  # numpy array
+                                    obj = obj.tolist()
+                                if isinstance(obj, (list, tuple)):
+                                    return [make_json_safe(item) for item in obj]
+                                if isinstance(obj, dict):
+                                    return {k: make_json_safe(v) for k, v in obj.items()}
+                                # Fallback: convert to string
+                                return str(obj)
+                            
+                            results["thermo_data"] = make_json_safe(t_data)
+                        
+                        # Save freq_data and thermo_data to JSON file
+                        freq_json_path = os.path.join(self.out_dir, "freq_analysis.json")
+                        try:
+                            import json
+                            
+                            # Custom JSON encoder to handle all edge cases
+                            class SafeEncoder(json.JSONEncoder):
+                                def default(self, obj):
+                                    if hasattr(obj, 'tolist'):
+                                        return obj.tolist()
+                                    if isinstance(obj, (np.integer, np.floating)):
+                                        return obj.item()
+                                    if isinstance(obj, float):
+                                        if math.isnan(obj) or math.isinf(obj):
+                                            return None
+                                        return obj
+                                    if isinstance(obj, tuple):
+                                        return list(obj)
+                                    return str(obj)
+                            
+                            save_data = {}
+                            if "freq_data" in results:
+                                save_data["freq_data"] = results["freq_data"]
+                            if "thermo_data" in results:
+                                save_data["thermo_data"] = results["thermo_data"]
+                            
+                            with open(freq_json_path, 'w') as f:
+                                json.dump(save_data, f, indent=2, cls=SafeEncoder)
+                            self.log_signal.emit(f"Frequency data saved to: {freq_json_path}\n")
+                        except Exception as e_save:
+                            self.log_signal.emit(f"Warning: Failed to save frequency JSON: {e_save}\n")
+                            import traceback
+                            self.log_signal.emit(traceback.format_exc())
                             
                     except Exception as e_freq:
                         self.log_signal.emit(f"Frequency analysis failed: {e_freq}\n{traceback.format_exc()}\n")
