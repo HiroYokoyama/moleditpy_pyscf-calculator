@@ -1,4 +1,4 @@
-# PySCF Calculator Plugin
+# MoleditPy PySCF Calculator Plugin
 
 A powerful, user-friendly GUI interface for performing Quantum Chemistry calculations using PySCF. This plugin provides a seamless workflow for configuring calculations, managing jobs, and visualizing results, including a Interactive Orbital Energy Diagram.
 
@@ -55,4 +55,5 @@ pip install pyscf PyQt6 numpy geometric
 ## License
 
 This project is licensed under the **GNU General Public License v3.0 (GPLv3)**. See the [LICENSE](LICENSE) file for details.
+
 
