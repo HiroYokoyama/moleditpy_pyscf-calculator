@@ -133,9 +133,9 @@ class PySCFDialog(QDialog):
 
         # Output Directory
         self.out_dir_edit = QLineEdit()
-        # Default to Desktop/PySCF_Results or similar
-        desktop = os.path.join(os.path.expanduser("~"), "Desktop")
-        self.out_dir_edit.setText(os.path.join(desktop, "PySCF_Results"))
+        # Default to Home Directory/PySCF_Results
+        home_dir = os.path.expanduser("~")
+        self.out_dir_edit.setText(os.path.join(home_dir, "PySCF_Results"))
         
         btn_browse = QPushButton("Browse")
         btn_browse.clicked.connect(self.browse_out_dir)
@@ -317,7 +317,7 @@ class PySCFDialog(QDialog):
         self.m_iso_spin = QDoubleSpinBox()
         self.m_iso_spin.setRange(0.0001, 10.0)
         self.m_iso_spin.setDecimals(4)
-        self.m_iso_spin.setValue(0.002) # Standard density iso
+        self.m_iso_spin.setValue(0.004) # Standard density iso
         self.m_iso_spin.valueChanged.connect(self.update_mapped_vis)
         m_iso_layout.addWidget(self.m_iso_spin)
         m_layout.addLayout(m_iso_layout)
@@ -484,6 +484,19 @@ class PySCFDialog(QDialog):
     def closeEvent(self, event):
         if self.visualizer: self.visualizer.clear_actors()
         if self.mapped_visualizer: self.mapped_visualizer.clear_actors()
+        
+        # Close Dock
+        if hasattr(self, 'freq_dock') and self.freq_dock:
+             mw = self.context.get_main_window()
+             mw.removeDockWidget(self.freq_dock)
+             self.freq_dock.close()
+             self.freq_dock = None
+             
+        # Cleanup visualizer resources
+        if hasattr(self, 'freq_vis') and self.freq_vis:
+            try: self.freq_vis.cleanup()
+            except: pass
+            
         super().closeEvent(event)
 
     def update_options(self, text=None):
@@ -776,6 +789,7 @@ class PySCFDialog(QDialog):
 
     def on_prop_results(self, result_data):
         files = result_data.get("files", [])
+        files.sort() # Sort A-Z
         self.log(f"Generated {len(files)} new files.")
         
         last_added_item = None
@@ -851,6 +865,7 @@ class PySCFDialog(QDialog):
         if result_data.get("cube_files"):
             # Inform user about generated cube files
             files = result_data["cube_files"]
+            files.sort() # Sort A-Z
             self.log(f"Generated Cube Files: {len(files)}")
             
             # Add to list
@@ -885,10 +900,17 @@ class PySCFDialog(QDialog):
                  
                  from PyQt6.QtWidgets import QDockWidget
                  mw = self.context.get_main_window()
-                 dock = QDockWidget("PySCF Frequencies", mw)
-                 dock.setWidget(self.freq_vis)
-                 dock.setAllowedAreas(Qt.DockWidgetArea.RightDockWidgetArea)
-                 mw.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, dock)
+                 
+                 # Close existing dock if any
+                 if hasattr(self, 'freq_dock') and self.freq_dock:
+                     mw.removeDockWidget(self.freq_dock)
+                     self.freq_dock.deleteLater()
+                     self.freq_dock = None
+                 
+                 self.freq_dock = QDockWidget("PySCF Frequencies", mw)
+                 self.freq_dock.setWidget(self.freq_vis)
+                 self.freq_dock.setAllowedAreas(Qt.DockWidgetArea.RightDockWidgetArea)
+                 mw.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.freq_dock)
                  self.log("Frequency Visualizer opened in Dock.")
              except Exception as e:
                  self.log(f"Error opening Frequency Visualizer: {e}")
@@ -971,6 +993,7 @@ class PySCFDialog(QDialog):
              import glob
              # Cubes
              cubes = glob.glob(os.path.join(d, "*.cube"))
+             cubes.sort() # Sort A-Z
              for c in cubes:
                  name = os.path.basename(c)
                  item = QListWidgetItem(name)
