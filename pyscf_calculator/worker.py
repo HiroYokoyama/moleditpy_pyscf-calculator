@@ -243,7 +243,7 @@ class PySCFWorker(QThread):
                 job_type = self.config.get("job_type", "Energy")
                 results = {}
     
-                if "Geometry Optimization" in job_type:
+                if "Optimization" in job_type:
                     # Note: PySCF geometric optimization requires 'geometric' or 'berny'
                     self.log_signal.emit(f"Starting Geometry Optimization using {method_name}...\n")
                     try:
@@ -273,7 +273,7 @@ class PySCFWorker(QThread):
                         
                         # Run Energy on optimized
                         mf.chkfile = chk_path
-                        mf.kernel()
+                        # mf.kernel() # Will be run by next steps or explicitly
                         mol = mol_eq # Update main mol ref for checkfile
                         
                     except ImportError:
@@ -292,15 +292,30 @@ class PySCFWorker(QThread):
     
                              # Recalculate energy
                              mf.chkfile = chk_path
-                             mf.kernel()
+                             # mf.kernel()
                              mol = mol_eq
                         except ImportError:
                              self.error_signal.emit("Neither 'geometric' nor 'berny' optimizer found. Please install 'geometric' (pip install geometric).")
                              return
-                elif "Frequency" in job_type:
-                    self.log_signal.emit(f"Starting SCF & Frequency Analysis using {method_name}...\n")
-                    mf.kernel()
+
+                # Ensure Energy is calculated (if not done by Opt or if detached)
+                # Optimization updates mf but we need to ensure kernel is run for properties
+                if "Optimization" in job_type or "Energy" in job_type or "Frequency" in job_type:
+                     if not mf.e_tot: 
+                        self.log_signal.emit(f"Running partial energy calculation using {method_name}...\n")
+                        mf.kernel()
+                
+                if "Frequency" in job_type:
+                    self.log_signal.emit(f"Starting Frequency Analysis using {method_name}...\n")
                     
+                    # Ensure we have a converged SCF on the current molecule
+                    if not mf.e_tot: 
+                        self.log_signal.emit("Running SCF for Frequency Analysis...\n")
+                        mf.kernel()
+                        
+                    if not mf.converged:
+                         self.log_signal.emit("WARNING: SCF did not converge before Frequency Analysis. Results may be inaccurate.\n")
+
                     self.log_signal.emit("Calculating Hessian...\n")
                     try:
                         h_obj = mf.Hessian()
@@ -312,13 +327,29 @@ class PySCFWorker(QThread):
                         
                         # Calculate Thermo
                         self.log_signal.emit("Calculating Thermodynamic Properties...\n")
-                        t_data = thermo.thermo(mf, freq_res['freq_au'], freq_res['norm_mode'], mol)
+                        # Ensure temp/pressure are floats
+                        T = float(self.config.get("temperature", 298.15))
+                        P = float(self.config.get("pressure", 101325))
+                        t_data = thermo.thermo(mf, freq_res['freq_au'], temperature=T, pressure=P)
                         
                         # Store data for GUI Visualizer
+                        # Check for IR intensity (not always available in standard harmonic_analysis)
+                        intensities = freq_res.get("infra_red_intensity", None) 
+                        
+                        # if intensities is None:
+                        #     self.log_signal.emit("Calculating IR Intensities numerically (Finite Difference of Dipole)...\n")
+                        #     try:
+                        #         intensities = self.calculate_ir_intensities(mol, mf, freq_res["norm_mode"])
+                        #     except Exception as e_int:
+                        #         self.log_signal.emit(f"IR Intensity calculation failed: {e_int}\n")
+                        #         intensities = None
+                        
                         results["freq_data"] = {
                             "freqs": freq_res["freq_wavenumber"].tolist(),
-                            "modes": freq_res["norm_mode"].tolist()
+                            "modes": freq_res["norm_mode"].tolist(),
+                            "intensities": intensities.tolist() if hasattr(intensities, 'tolist') else intensities
                         }
+                        self.log_signal.emit("Frequency Analysis Completed.\n")
                         
                         # Store Thermo
                         if t_data:
@@ -332,9 +363,9 @@ class PySCFWorker(QThread):
                     except Exception as e_freq:
                         self.log_signal.emit(f"Frequency analysis failed: {e_freq}\n{traceback.format_exc()}\n")
                         
-                else:
-                    # Energy calculation
-                    mf.kernel()
+                if "Energy" == job_type: # Only Energy
+                    # Already handled by top block but ensuring...
+                    if not mf.e_tot: mf.kernel()
     
                 # --- SAVE CHECKPOINT (ALWAYS) ---
                 # Checkpoint is already set to self.out_dir/pyscf.chk and written by mf.kernel()
@@ -383,6 +414,147 @@ class PySCFWorker(QThread):
 
         except Exception as e:
             self.error_signal.emit(str(e) + "\n" + traceback.format_exc())
+
+
+    def calculate_ir_intensities(self, mol, mf, modes, mass_weighted_modes=False):
+        """
+        Calculate IR intensities numerically using finite difference of dipole moments.
+        
+        Args:
+            mol: PySCF Mole object
+            mf: PySCF SCF object (converged)
+            modes: List of normal mode vectors (natm, 3). 
+                   *Important*: If 'modes' are raw eigenvectors from Hessian (mass-weighted),
+                   set mass_weighted_modes=True. If they are already Cartesian displacements 
+                   (visual modes), set False.
+            mass_weighted_modes: Boolean, set True if input modes are mass-weighted eigenvectors.
+            
+        Returns:
+            np.array: List of intensities in km/mol.
+        """
+        import numpy as np
+        from pyscf import scf, dft
+        
+        # Check Unrestricted
+        is_unrestricted = False
+        if isinstance(mf, (scf.uhf.UHF, dft.uks.UKS)):
+            is_unrestricted = True
+
+        # 0. Pre-computation setup
+        dm0 = mf.make_rdm1()
+        
+        # Dipole moment getter with optimization
+        def get_dipole(mol_instance, dm_guess=None):
+            # Create a new SCF object for the displaced geometry
+            if hasattr(mf, 'xc'):
+                if is_unrestricted: mf_temp = dft.UKS(mol_instance)
+                else: mf_temp = dft.RKS(mol_instance)
+                mf_temp.xc = mf.xc
+                if hasattr(mf, 'grids'): mf_temp.grids = mf.grids
+            else:
+                if is_unrestricted: mf_temp = scf.UHF(mol_instance)
+                else: mf_temp = scf.RHF(mol_instance)
+            
+            mf_temp.verbose = 0
+            mf_temp.max_cycle = 100
+            
+            # Disable symmetry check
+            mol_instance.symmetry = False 
+            
+            # Run SCF using the previous density matrix as a guess
+            try:
+                if dm_guess is not None:
+                    mf_temp.kernel(dm0=dm_guess)
+                else:
+                    mf_temp.kernel()
+            except:
+                # Fallback to fresh start if guess fails
+                mf_temp.kernel()
+                
+            return mf_temp.dip_moment(mol=mol_instance, unit='Debye', verbose=0)
+
+        # 1. Compute Dipole Derivatives (d_mu / d_X)
+        delta = 0.005 # Bohr (Standard step size)
+        natm = mol.natm
+        dip_derivs = np.zeros((natm, 3, 3)) # (Atom, Axis, Dipole_Component)
+        
+        coords_original = mol.atom_coords(unit='Bohr')
+        
+        self.log_signal.emit(f" > Computing Dipole Derivatives (Numerical 6N={6*natm} steps)...")
+        
+        # Logging progress since this can be slow
+        steps_total = natm * 6
+        step_count = 0
+        
+        for i in range(natm):
+            for j in range(3): # x, y, z
+                # Update coords +delta
+                coords_plus = coords_original.copy()
+                coords_plus[i, j] += delta 
+                
+                mol_plus = mol.copy()
+                mol_plus.set_geom_(coords_plus, unit='Bohr')
+                # Use dm0 from the ground state as the best guess
+                mu_plus = get_dipole(mol_plus, dm_guess=dm0)
+                
+                # Update coords -delta
+                coords_minus = coords_original.copy()
+                coords_minus[i, j] -= delta
+                
+                mol_minus = mol.copy()
+                mol_minus.set_geom_(coords_minus, unit='Bohr')
+                mu_minus = get_dipole(mol_minus, dm_guess=dm0)
+                
+                # Central difference
+                deriv = (mu_plus - mu_minus) / (2.0 * delta) 
+                dip_derivs[i, j, :] = deriv 
+                
+        # 2. Project onto Normal Modes
+        intensities = []
+        
+        # Convert derivs to Debye/Angstrom
+        BOHR_TO_ANG = 0.529177210903
+        factor_bohr_ang = 1.0 / BOHR_TO_ANG
+        dip_derivs_ang = dip_derivs * factor_bohr_ang # Units: Debye / Angstrom
+        
+        # Mass handling: Need sqrt(amu) for conversion if modes are mass-weighted
+        masses = mol.atom_masses() # amu
+        
+        for k, mode_vec in enumerate(modes): # mode_vec shape: (N_atoms, 3)
+            d_mu_dQ = np.zeros(3) # Vector (mu_x, mu_y, mu_z) change
+            
+            for at in range(natm):
+                for j in range(3): # x, y, z displacement coord
+                    # Gradient: d_mu / d_R_cartesian
+                    grad_vec = dip_derivs_ang[at, j, :] 
+                    
+                    displacement = mode_vec[at][j]
+                    
+                    # CORRECTION: Coordinate Transformation
+                    # IR Intensity formula requires derivative w.r.t Normal Coordinate Q.
+                    # Q has units of [Distance * sqrt(Mass)].
+                    # If 'modes' are raw eigenvectors of Mass-Weighted Hessian (L_mw),
+                    # then Cartesian displacement dR = L_mw * dQ / sqrt(Mass).
+                    # Therefore, we must divide the mode coefficient by sqrt(mass) to get dR/dQ representation
+                    # IF the input `modes` are not already converted to Cartesian displacements.
+                    
+                    if mass_weighted_modes:
+                        # If modes are raw eigenvectors (L), divide by sqrt(mass)
+                        term = grad_vec * displacement / np.sqrt(masses[at])
+                    else:
+                        # If modes are already Cartesian displacements (visual modes), use as is
+                        term = grad_vec * displacement
+                        
+                    d_mu_dQ += term
+            
+            sq_val = np.dot(d_mu_dQ, d_mu_dQ)
+            
+            # Conversion factor: (Debye / (Angstrom * sqrt(amu)))^2 -> km/mol
+            # 42.2561 is the correct prefactor for this unit set.
+            inten = 42.2561 * sq_val
+            intensities.append(inten)
+            
+        return np.array(intensities)
 
 class PropertyWorker(QThread):
     log_signal = pyqtSignal(str)
@@ -634,8 +806,24 @@ class LoadWorker(QThread):
                 "mo_occ": mo_occ,
                 "scf_type": scf_type,
                 "optimized_xyz": optimized_xyz,
-                "chkfile": self.chkfile
+                "chkfile": self.chkfile,
+                "out_dir": os.path.dirname(self.chkfile)
             }
+            
+            # --- Load Post-Process Data (Freq/Thermo) ---
+            import json
+            base_dir = os.path.dirname(self.chkfile)
+            freq_file = os.path.join(base_dir, "freq_analysis.json")
+            
+            if os.path.exists(freq_file):
+                try:
+                    with open(freq_file, 'r') as f:
+                        data = json.load(f)
+                        # Extract and merge
+                        if "freq_data" in data: results["freq_data"] = data["freq_data"]
+                        if "thermo_data" in data: results["thermo_data"] = data["thermo_data"]
+                except Exception as e_json:
+                    print(f"Failed to load freq json: {e_json}")
             
             self.finished_signal.emit(results)
 

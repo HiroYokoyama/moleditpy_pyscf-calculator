@@ -69,7 +69,7 @@ class PySCFDialog(QDialog):
         form_layout = QFormLayout()
 
         self.job_type_combo = QComboBox()
-        self.job_type_combo.addItems(["Energy", "Geometry Optimization", "Frequency", "ESP"])
+        self.job_type_combo.addItems(["Energy", "Geometry Optimization", "Frequency", "Optimization + Frequency", "ESP"])
         self.job_type_combo.currentTextChanged.connect(self.update_options)
         form_layout.addRow("Job Type:", self.job_type_combo)
 
@@ -153,6 +153,13 @@ class PySCFDialog(QDialog):
         self.run_btn = QPushButton("Run Calculation")
         self.run_btn.clicked.connect(self.run_calculation)
         self.run_btn.setStyleSheet("font-weight: bold; padding: 5px;")
+        
+        # Disable if no molecule loaded
+        if not self.context.current_molecule:
+             self.run_btn.setEnabled(False)
+             self.run_btn.setToolTip("Load a molecule to run calculations.")
+             self.log("Plugin started in Viewer Mode (No molecule loaded).")
+        
         btn_layout.addWidget(self.run_btn)
         
         self.stop_btn = QPushButton("Stop")
@@ -173,7 +180,7 @@ class PySCFDialog(QDialog):
         layout.addWidget(self.log_text)
 
         # Set Requests Defaults
-        self.job_type_combo.setCurrentText("Geometry Optimization")
+        self.job_type_combo.setCurrentText("Optimization + Frequency")
 
     def browse_out_dir(self):
         d = QFileDialog.getExistingDirectory(self, "Select Output Directory")
@@ -241,6 +248,12 @@ class PySCFDialog(QDialog):
         self.btn_show_diagram.setEnabled(False)
         a_layout.addWidget(self.btn_show_diagram)
         
+        # Thermo Button
+        self.btn_show_thermo = QPushButton("Show Thermodynamic Properties")
+        self.btn_show_thermo.clicked.connect(self.show_thermo_data)
+        self.btn_show_thermo.setEnabled(False)
+        a_layout.addWidget(self.btn_show_thermo)
+        
         layout.addWidget(analysis_group)
         
         # File List (Results)
@@ -249,11 +262,7 @@ class PySCFDialog(QDialog):
         self.file_list.itemClicked.connect(self.on_file_selected)
         layout.addWidget(self.file_list)
         
-        # Thermo Button
-        self.btn_show_thermo = QPushButton("Show Thermodynamic Properties")
-        self.btn_show_thermo.clicked.connect(self.show_thermo_data)
-        self.btn_show_thermo.setEnabled(False)
-        layout.addWidget(self.btn_show_thermo)
+
         
         # Controls Group
         self.vis_controls = QGroupBox("Visualization Controls")
@@ -373,6 +382,7 @@ class PySCFDialog(QDialog):
             self.update_visualization()
 
     def on_file_selected(self, item):
+        self.clear_3d_actors()
         path = item.toolTip() 
         if not os.path.exists(path): return
 
@@ -573,6 +583,22 @@ class PySCFDialog(QDialog):
         self.log(f"\nERROR: {err_msg}")
         QMessageBox.critical(self, "Calculation Error", err_msg)
         self.cleanup_ui_state()
+
+    def clear_3d_actors(self):
+        # Clear generic actors (Orbitals/Density)
+        if hasattr(self, 'context') and self.context:
+             mw = self.context.get_main_window()
+             if hasattr(mw, 'plotter'):
+                mw.plotter.remove_actor("pyscf_iso_p") 
+                mw.plotter.remove_actor("pyscf_iso_n")
+                mw.plotter.remove_actor("pyscf_mapped")
+                mw.plotter.render()
+        
+        # Clear Freq Vis vectors
+        if hasattr(self, 'freq_vis') and self.freq_vis:
+            try:
+                self.freq_vis.cleanup()
+            except: pass
 
     def cleanup_ui_state(self):
         self.run_btn.setEnabled(True)
@@ -844,23 +870,31 @@ class PySCFDialog(QDialog):
              self.freq_data = result_data["freq_data"]
              
              # Create/Show Freq Visualizer
-             from .freq_vis import FreqVisualizer
-             mol = self.context.current_molecule
-             
-             self.freq_vis = FreqVisualizer(
-                 self.context.get_main_window(), 
-                 mol, 
-                 self.freq_data['freqs'], 
-                 self.freq_data['modes']
-             )
-             
-             from PyQt6.QtWidgets import QDockWidget
-             mw = self.context.get_main_window()
-             dock = QDockWidget("PySCF Frequencies", mw)
-             dock.setWidget(self.freq_vis)
-             dock.setAllowedAreas(Qt.DockWidgetArea.RightDockWidgetArea)
-             mw.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, dock)
-             self.log("Frequency Visualizer opened in Dock.")
+             try:
+                 from .freq_vis import FreqVisualizer
+                 mol = self.context.current_molecule
+                 
+                 self.clear_3d_actors()
+                 self.freq_vis = FreqVisualizer(
+                     self.context.get_main_window(), 
+                     mol, 
+                     self.freq_data['freqs'], 
+                     self.freq_data['modes'],
+                     intensities=self.freq_data.get('intensities')
+                 )
+                 
+                 from PyQt6.QtWidgets import QDockWidget
+                 mw = self.context.get_main_window()
+                 dock = QDockWidget("PySCF Frequencies", mw)
+                 dock.setWidget(self.freq_vis)
+                 dock.setAllowedAreas(Qt.DockWidgetArea.RightDockWidgetArea)
+                 mw.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, dock)
+                 self.log("Frequency Visualizer opened in Dock.")
+             except Exception as e:
+                 self.log(f"Error opening Frequency Visualizer: {e}")
+                 import traceback
+                 self.log(traceback.format_exc())
+                 QMessageBox.warning(self, "Visualizer Error", f"Failed to open Frequency Visualizer:\n{e}")
 
         if result_data.get("thermo_data"):
              self.thermo_data = result_data["thermo_data"]
@@ -963,8 +997,10 @@ class PySCFDialog(QDialog):
         dlg.exec()
 
     def show_thermo_data(self):
-        if not hasattr(self, 'thermo_data'): return
-        
+        if not hasattr(self, 'thermo_data'): 
+            QMessageBox.information(self, "Info", "No thermodynamic data available.")
+            return
+
         data = self.thermo_data
         # Format Text
         lines = []
@@ -990,8 +1026,15 @@ class PySCFDialog(QDialog):
                 v = data[k]
                 label = labels.get(k, k)
                 unit = "Ha"
-                # S is often Ha/K or similar.
-                lines.append(f"{label:<30}: {v:.6f} {unit}")
+                # Handle possible tuple or non-float
+                if isinstance(v, (tuple, list)):
+                     v = v[0] # Assume flow is (value, unit) but we force unit above
+                
+                try:
+                    vf = float(v)
+                    lines.append(f"{label:<30}: {vf:.6f} {unit}")
+                except:
+                     lines.append(f"{label:<30}: {v}")
         
         # Add others
         for k, v in data.items():
@@ -1104,6 +1147,8 @@ class EnergyDiagramDialog(QDialog):
         self.current_min = self.full_min - 0.05 * (self.full_max - self.full_min)
         self.current_max = self.full_max + 0.05 * (self.full_max - self.full_min)
         self.update()
+
+
 
     def mousePressEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
