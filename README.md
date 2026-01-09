@@ -2,6 +2,8 @@
 
 A powerful, user-friendly GUI interface for performing Quantum Chemistry calculations using PySCF. This plugin provides a seamless workflow for configuring calculations, managing jobs, and visualizing results, including a state-of-the-art Interactive Orbital Energy Diagram.
 
+![](img/img.png)
+
 ## Features
 
 ### Calculation Capabilities

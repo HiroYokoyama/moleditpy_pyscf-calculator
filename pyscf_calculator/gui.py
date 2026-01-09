@@ -1288,7 +1288,10 @@ class EnergyDiagramDialog(QDialog):
                 
             h_e = max(occupied) if occupied else self.full_min
             l_e = min(virtual) if virtual else self.full_max
-            
+        
+        # Store for double-click reset
+        self.homo_energy = h_e
+        self.lumo_energy = l_e
         gap_center = (h_e + l_e) / 2
         
         # User Request: Default view is 3x the HOMO-LUMO gap, centered on gap
@@ -1436,12 +1439,10 @@ class EnergyDiagramDialog(QDialog):
             for i, o in enumerate(occs):
                 if o > 0: homo_idx = i
             
-            # Filter visible levels and sort by energy for label collision logic
+            # Filter visible levels - only show orbitals within current view
             visible_items = []
-            # Add a buffer to min_e/max_e for levels just outside view
-            buffer = range_e * 0.1 
             for i, e, in enumerate(energies):
-                if min_e - buffer <= e <= max_e + buffer:
+                if min_e <= e <= max_e:
                      visible_items.append((i, e, occs[i]))
             
             # Sort by Energy (High to Low) for top-down label placement
