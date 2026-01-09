@@ -36,7 +36,7 @@ A powerful, user-friendly GUI interface for performing Quantum Chemistry calcula
 pip install pyscf PyQt6 numpy geometric
 ```
 > [!WARNING]
-> PySCF installation may fail, so it may only work on MacOS or Linux.
+> PySCF installation may fail on Windows, so it may only work on MacOS or Linux.
 
 ### Setup
 1. Clone this repository.
@@ -55,6 +55,7 @@ pip install pyscf PyQt6 numpy geometric
 ## License
 
 This project is licensed under the **GNU General Public License v3.0 (GPLv3)**. See the [LICENSE](LICENSE) file for details.
+
 
 
 
