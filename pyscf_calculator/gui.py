@@ -1,19 +1,31 @@
 import os
+import json
+import glob
+import traceback
+from rdkit import Chem
+
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QComboBox, 
     QPushButton, QTextEdit, QProgressBar, QCheckBox, QGroupBox,
     QFormLayout, QMessageBox, QFileDialog, QTabWidget, QWidget, QLineEdit,
-    QSpinBox, QListWidget, QListWidgetItem, QDoubleSpinBox
+    QSpinBox, QListWidget, QListWidgetItem, QDoubleSpinBox,
+    QDockWidget
 )
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, QTimer
+from PyQt6.QtGui import QPainter, QPen, QColor, QFont
+
 try:
-    from .worker import PySCFWorker
+    from .worker import PySCFWorker, LoadWorker, PropertyWorker
+    from .utils import update_molecule_from_xyz
+    from pyscf.data import nist
+    from .freq_vis import FreqVisualizer
 except ImportError:
     # Fallback for when basic imports fail or circular deps (shouldn't happen here)
     PySCFWorker = None
-
-import json
-from rdkit import Chem
+    LoadWorker = None
+    PropertyWorker = None
+    nist = None
+    FreqVisualizer = None
 
 class PySCFDialog(QDialog):
     def __init__(self, parent=None, context=None, settings=None):
@@ -35,6 +47,25 @@ class PySCFDialog(QDialog):
         self.settings["charge"] = self.charge_input.currentText()
         self.settings["spin"] = self.spin_input.currentText()
         self.settings["out_dir"] = self.out_dir_edit.text()
+        
+        # Persist History & Source
+        if hasattr(self, 'calc_history'):
+            self.settings["calc_history"] = self.calc_history
+        if hasattr(self, 'struct_source'):
+             self.settings["struct_source"] = self.struct_source
+
+        # Local JSON Save (User Request)
+        json_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "settings.json")
+        local_settings = {
+             "root_path": self.out_dir_edit.text(),
+             "threads": self.spin_threads.value(),
+             "memory": self.spin_memory.value()
+        }
+        try:
+             with open(json_path, 'w') as f:
+                 json.dump(local_settings, f, indent=4)
+        except Exception as e:
+             print(f"Failed to save local settings: {e}")
 
     def load_settings(self):
         s = self.settings
@@ -45,6 +76,38 @@ class PySCFDialog(QDialog):
         if "charge" in s: self.charge_input.setCurrentText(s["charge"])
         if "spin" in s: self.spin_input.setCurrentText(s["spin"])
         if "out_dir" in s: self.out_dir_edit.setText(s["out_dir"])
+        
+        # Load History & Source
+        self.calc_history = s.get("calc_history", [])
+        self.struct_source = s.get("struct_source", None)
+        # Update Label if UI ready (setup_ui called before load_settings)
+        if hasattr(self, 'lbl_struct_source') and self.struct_source:
+             self.lbl_struct_source.setText(f"Structure Source: {self.struct_source}")
+
+        # Local JSON Load
+        json_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "settings.json")
+        if os.path.exists(json_path):
+             try:
+                 with open(json_path, 'r') as f:
+                     local_settings = json.load(f)
+                 # Root Path
+                 rp = local_settings.get("root_path")
+                 if rp:
+                     self.out_dir_edit.setText(rp)
+                 # Threads/Memory
+                 if "threads" in local_settings and hasattr(self, 'spin_threads'):
+                     self.spin_threads.setValue(local_settings["threads"])
+                 if "memory" in local_settings and hasattr(self, 'spin_memory'):
+                     self.spin_memory.setValue(local_settings["memory"])
+             except Exception as e:
+                 print(f"Failed to load local settings: {e}")
+
+        # Auto-load latest result if available
+        if self.calc_history:
+             last_path = self.calc_history[-1]
+             if os.path.exists(last_path) and os.path.isdir(last_path):
+                 self.log(f"Auto-loading latest result from history: {last_path}")
+                 QTimer.singleShot(200, lambda: self.load_result_folder(last_path))
 
     def setup_ui(self):
         main_layout = QVBoxLayout(self)
@@ -69,7 +132,7 @@ class PySCFDialog(QDialog):
         form_layout = QFormLayout()
 
         self.job_type_combo = QComboBox()
-        self.job_type_combo.addItems(["Energy", "Geometry Optimization", "Frequency", "Optimization + Frequency", "ESP"])
+        self.job_type_combo.addItems(["Energy", "Geometry Optimization", "Frequency", "Optimization + Frequency"])
         self.job_type_combo.currentTextChanged.connect(self.update_options)
         form_layout.addRow("Job Type:", self.job_type_combo)
 
@@ -211,6 +274,11 @@ class PySCFDialog(QDialog):
         self.btn_load_geom.clicked.connect(self.load_optimized_geometry)
         self.btn_load_geom.setEnabled(False) 
         layout.addWidget(self.btn_load_geom)
+        
+        # Structure Source Label
+        self.lbl_struct_source = QLabel("")
+        self.lbl_struct_source.setStyleSheet("color: gray; font-style: italic;")
+        layout.addWidget(self.lbl_struct_source)
         
         # --- Analysis Selection ---
         analysis_group = QGroupBox("Post-Calculation Analysis")
@@ -365,6 +433,17 @@ class PySCFDialog(QDialog):
         self.cmap_combo.currentTextChanged.connect(self.update_mapped_vis)
         cmap_layout.addWidget(self.cmap_combo)
         m_layout.addLayout(cmap_layout)
+        
+        # Opacity for ESP Mapping
+        m_op_layout = QHBoxLayout()
+        m_op_layout.addWidget(QLabel("Opacity:"))
+        self.m_op_slider = QSlider(Qt.Orientation.Horizontal)
+        self.m_op_slider.setRange(0, 100)
+        self.m_op_slider.setValue(40)
+        self.m_op_slider.valueChanged.connect(self.update_mapped_vis)
+        m_op_layout.addWidget(self.m_op_slider)
+        m_layout.addLayout(m_op_layout)
+
 
         layout.addWidget(self.mapped_group)
         layout.addWidget(self.vis_controls)
@@ -481,8 +560,8 @@ class PySCFDialog(QDialog):
         val_min = self.m_min_spin.value()
         val_max = self.m_max_spin.value()
         cmap = self.cmap_combo.currentText()
-        # Use main opacity slider? Yes.
-        opacity = self.op_slider.value() / 100.0
+        # Use dedicated ESP mapping opacity slider
+        opacity = self.m_op_slider.value() / 100.0
         
         self.mapped_visualizer.update_mesh(
             iso, opacity, cmap=cmap, clim=[val_min, val_max]
@@ -525,6 +604,8 @@ class PySCFDialog(QDialog):
         self.visualizer.update_iso(val, self.color_p, self.color_n, opacity)
 
     def closeEvent(self, event):
+        self.save_settings() # Save Settings on Close
+        
         if self.visualizer: self.visualizer.clear_actors()
         if self.mapped_visualizer: self.mapped_visualizer.clear_actors()
         
@@ -770,6 +851,67 @@ class PySCFDialog(QDialog):
             item.setCheckState(Qt.CheckState.Unchecked)
             item.setData(Qt.ItemDataRole.UserRole, label)
             self.orb_list.addItem(item)
+    
+    def disable_existing_analysis_items(self, cube_files):
+        """
+        Disable checkboxes for analysis items that already have cube files.
+        
+        Args:
+            cube_files: List of cube file paths
+        """
+        if not cube_files:
+            return
+        
+        # Extract basenames for easier matching
+        basenames = [os.path.basename(f).lower() for f in cube_files]
+        
+        # Check each item in the analysis list
+        for i in range(self.orb_list.count()):
+            item = self.orb_list.item(i)
+            task_data = item.data(Qt.ItemDataRole.UserRole)
+            
+            should_disable = False
+            
+            # Check if ESP files exist
+            if task_data == "ESP":
+                if "esp.cube" in basenames and "density.cube" in basenames:
+                    should_disable = True
+            
+            # Check if orbital files exist
+            elif task_data and task_data != "ESP":
+                # For orbital tasks, we need to check if a cube file with matching label exists
+                # Cube files are named like: "15_HOMO.cube", "16_LUMO.cube", "17_LUMO+1.cube"
+                
+                # Normalize the task label
+                search_label = task_data.upper().replace(" ", "")
+                if search_label.startswith("MO"):
+                    # For "MO 15" format, extract the index
+                    try:
+                        mo_idx = search_label.replace("MO", "").strip()
+                        # Look for files starting with this index
+                        for bn in basenames:
+                            if bn.startswith(f"{mo_idx}_") and bn.endswith(".cube"):
+                                should_disable = True
+                                break
+                    except:
+                        pass
+                else:
+                    # For HOMO/LUMO format, look for matching label in filename
+                    # Files are named like "15_HOMO.cube" or "16_LUMO+1.cube"
+                    for bn in basenames:
+                        if ".cube" in bn:
+                            # Extract the label part (after underscore, before .cube)
+                            parts = bn.replace(".cube", "").split("_")
+                            if len(parts) >= 2:
+                                file_label = "_".join(parts[1:]).upper()
+                                if file_label == search_label:
+                                    should_disable = True
+                                    break
+            
+            # Disable the item if cube file exists
+            if should_disable:
+                item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEnabled)
+                item.setCheckState(Qt.CheckState.Unchecked)
             
     def run_selected_analysis(self):
         if not hasattr(self, 'chkfile_path') or not self.chkfile_path:
@@ -791,11 +933,11 @@ class PySCFDialog(QDialog):
         
         # Create PropertyWorker
         # We need to import it. It might not be imported yet if it's new in worker.py
-        from .worker import PropertyWorker
+        # Create PropertyWorker
         
         # Determine Output Directory
         # Prioritize keeping files with the checkpoint
-        import os
+        # Determine Output Directory
         out_d = getattr(self, 'last_out_dir', None)
         if not out_d and getattr(self, 'chkfile_path', None):
              out_d = os.path.dirname(self.chkfile_path)
@@ -851,7 +993,6 @@ class PySCFDialog(QDialog):
                     break
             
             if not found_item:
-                from PyQt6.QtWidgets import QListWidgetItem
                 item = QListWidgetItem(name)
                 item.setToolTip(fpath)
                 self.file_list.addItem(item)
@@ -930,6 +1071,20 @@ class PySCFDialog(QDialog):
             # --- Update Result Path Display ---
             if "out_dir" in result_data:
                 self.result_path_display.setText(result_data["out_dir"])
+                
+                # Add to History
+                d = result_data["out_dir"]
+                if not hasattr(self, 'calc_history'): self.calc_history = []
+                if d not in self.calc_history:
+                    self.calc_history.append(d)
+                
+                # Update Source if Optimization
+                if result_data.get("optimized_xyz"):
+                     self.struct_source = f"Optimized from {os.path.basename(d)}"
+                     if hasattr(self, 'lbl_struct_source'):
+                         self.lbl_struct_source.setText(f"Structure Source: {self.struct_source}")
+            
+            self.save_settings()
 
         if result_data.get("cube_files"):
             # Inform user about generated cube files
@@ -939,7 +1094,6 @@ class PySCFDialog(QDialog):
             
             # Add to list
             self.file_list.clear() 
-            from PyQt6.QtWidgets import QListWidgetItem
             for fpath in files:
                 name = os.path.basename(fpath)
                 item = QListWidgetItem(name)
@@ -955,7 +1109,6 @@ class PySCFDialog(QDialog):
              
              # Create/Show Freq Visualizer
              try:
-                 from .freq_vis import FreqVisualizer
                  mol = self.context.current_molecule
                  
                  self.clear_3d_actors()
@@ -967,7 +1120,6 @@ class PySCFDialog(QDialog):
                      intensities=self.freq_data.get('intensities')
                  )
                  
-                 from PyQt6.QtWidgets import QDockWidget
                  mw = self.context.get_main_window()
                  
                  # Close existing dock if any
@@ -997,8 +1149,11 @@ class PySCFDialog(QDialog):
         # Auto-Switch to Visualization Tab
         self.tabs.setCurrentIndex(1)
 
-    def load_result_folder(self):
-        d = QFileDialog.getExistingDirectory(self, "Select Result Directory")
+    def load_result_folder(self, path=None):
+        d = path
+        # If path is bool (from signal) or None, ask user
+        if not d or isinstance(d, bool):
+            d = QFileDialog.getExistingDirectory(self, "Select Result Directory")
         if not d: return
         
         chk_path = os.path.join(d, "pyscf.chk")
@@ -1013,14 +1168,14 @@ class PySCFDialog(QDialog):
         
         # Set Display
         self.result_path_display.setText(d)
+
+        # Add to History & Save Immediately
+        if not hasattr(self, 'calc_history'): self.calc_history = []
+        if d not in self.calc_history:
+            self.calc_history.append(d)
+        self.save_settings()
         
         # Run LoadWorker
-        from .worker import LoadWorker
-        if 'LoadWorker' not in globals() and 'LoadWorker' not in locals():
-             # Safety import if not yet linked
-             try: from .worker import LoadWorker
-             except: pass
-        
         self.load_worker = LoadWorker(chk_path)
         self.load_worker.finished_signal.connect(self.on_load_finished)
         self.load_worker.error_signal.connect(self.on_error)
@@ -1057,7 +1212,6 @@ class PySCFDialog(QDialog):
          self.file_list.clear()
          d = self.last_out_dir
          if d and os.path.exists(d):
-             import glob
              # Cubes
              cubes = glob.glob(os.path.join(d, "*.cube"))
              cubes.sort() # Sort A-Z
@@ -1085,6 +1239,9 @@ class PySCFDialog(QDialog):
                          self.file_list.setCurrentItem(item)
                          self.on_file_selected(item)
                          break
+              
+             # Disable checkboxes for existing cube files
+             self.disable_existing_analysis_items(cubes)
 
          # 5. Restore Thermo Data
          if result_data.get("thermo_data"):
@@ -1094,8 +1251,14 @@ class PySCFDialog(QDialog):
          
          # 6. Auto-load Geometry (no dialog)
          if hasattr(self, 'optimized_xyz') and self.optimized_xyz:
-             self.update_geometry(self.optimized_xyz)
+             # Add delay to prevent crash on startup/load
+             QTimer.singleShot(100, lambda: self.update_geometry(self.optimized_xyz))
              self.log("Optimized geometry loaded automatically.")
+             
+             # Update Source Label
+             self.struct_source = f"Loaded from {os.path.basename(os.path.dirname(self.chkfile_path))}"
+             if hasattr(self, 'lbl_struct_source'):
+                  self.lbl_struct_source.setText(f"Structure Source: {self.struct_source}")
              # Reset camera to view the loaded molecule
              try:
                  mw = self.context.get_main_window()
@@ -1104,12 +1267,13 @@ class PySCFDialog(QDialog):
              except:
                  pass
 
+         self.save_settings()
+
          # 7. Restore Frequency Data (AFTER geometry is loaded)
          if result_data.get("freq_data"):
              self.log("Frequency data found in result.")
              self.freq_data = result_data["freq_data"]
              try:
-                 from .freq_vis import FreqVisualizer
                  mol = self.context.current_molecule
                  
                  if not mol:
@@ -1162,8 +1326,17 @@ class PySCFDialog(QDialog):
 
     def update_geometry(self, xyz_content):
         # Use utils to update the specific molecule in context
-        from .utils import update_molecule_from_xyz
         update_molecule_from_xyz(self.context, xyz_content)
+        
+        # Push Undo State
+        # Push Undo State (Safe)
+        try:
+            mw = self.context.get_main_window()
+            if hasattr(mw, 'push_undo_state'):
+                mw.push_undo_state()
+        except Exception as e:
+            print(f"Undo push failed: {e}")
+            
         self.log("Geometry updated.")
 
     def show_energy_diagram(self):
@@ -1218,9 +1391,6 @@ class PySCFDialog(QDialog):
                 
         QMessageBox.information(self, "Thermodynamics", "\n".join(lines))
 
-from PyQt6.QtGui import QPainter, QPen, QColor, QFont
-from PyQt6.QtCore import QPointF, QRectF
-
 class EnergyDiagramDialog(QDialog):
     def __init__(self, mo_data, parent=None):
         super().__init__(parent)
@@ -1228,12 +1398,18 @@ class EnergyDiagramDialog(QDialog):
         self.resize(600, 800)
         
         # Add Save Button overlay
-        from PyQt6.QtWidgets import QPushButton, QVBoxLayout, QHBoxLayout
         layout = QVBoxLayout(self)
         layout.setContentsMargins(10, 10, 20, 20) # margins
         layout.addStretch()
         
         btn_layout = QHBoxLayout()
+        # Unit Selection
+        self.unit_combo = QComboBox()
+        self.unit_combo.addItems(["eV", "Hartree"])
+        self.unit_combo.currentTextChanged.connect(self.update_unit)
+        btn_layout.addWidget(QLabel("Unit:"))
+        btn_layout.addWidget(self.unit_combo)
+        
         btn_layout.addStretch() # Right align
         
         self.btn_save = QPushButton("Save PNG")
@@ -1372,8 +1548,6 @@ class EnergyDiagramDialog(QDialog):
             self.dragging = False
 
     def contextMenuEvent(self, event):
-        from PyQt6.QtWidgets import QMenu
-        from PyQt6.QtGui import QAction
         menu = QMenu(self)
         save_act = QAction("Save as PNG...", self)
         save_act.triggered.connect(self.save_image)
@@ -1381,11 +1555,13 @@ class EnergyDiagramDialog(QDialog):
         menu.exec(event.globalPos())
 
     def save_image(self):
-        from PyQt6.QtWidgets import QFileDialog
         fname, _ = QFileDialog.getSaveFileName(self, "Save Diagram", "orbital_diagram.png", "Images (*.png)")
         if fname:
             pix = self.grab()
             pix.save(fname)
+
+    def update_unit(self, text):
+        self.update()
 
     def paintEvent(self, event):
         painter = QPainter(self)
@@ -1393,6 +1569,14 @@ class EnergyDiagramDialog(QDialog):
         
         w = self.width()
         h = self.height()
+        
+        # Unit Conversion
+        unit = self.unit_combo.currentText()
+        factor = 1.0
+        unit_label_str = "E (Ha)"
+        if unit == "eV":
+            factor = nist.HARTREE2EV if nist else 27.211386245988
+            unit_label_str = "E (eV)"
         
         # Draw Background
         painter.fillRect(0, 0, w, h, QColor("white"))
@@ -1416,13 +1600,13 @@ class EnergyDiagramDialog(QDialog):
         painter.setPen(pen_axis)
         painter.drawLine(50, margin_top, 50, h - margin_bottom)
         
-        # Axis Labels
-        painter.drawText(5, margin_top + 10, f"{max_e:.2f}")
-        painter.drawText(5, h - margin_bottom, f"{min_e:.2f}")
-        painter.drawText(5, h//2, "E (Ha)")
+        # Axis Labels (Converted)
+        painter.drawText(5, margin_top + 10, f"{max_e * factor:.2f}")
+        painter.drawText(5, h - margin_bottom, f"{min_e * factor:.2f}")
+        painter.drawText(5, h//2, unit_label_str)
 
         # Draw Levels
-        font = QFont("Arial", 9)
+        font = QFont("Arial", 12)
         painter.setFont(font)
         
         cols = 1 if not self.is_uhf else 2
@@ -1439,66 +1623,104 @@ class EnergyDiagramDialog(QDialog):
             for i, o in enumerate(occs):
                 if o > 0: homo_idx = i
             
-            # Filter visible levels - only show orbitals within current view
-            visible_items = []
+            # Filter visible levels and split into Occupied and Virtual
+            # 1. Occupied: Sort High Energy -> Low Energy (Process HOMO first)
+            occupied_items = []
+            # 2. Virtual: Sort Low Energy -> High Energy (Process LUMO first)
+            virtual_items = []
+            
             for i, e, in enumerate(energies):
                 if min_e <= e <= max_e:
-                     visible_items.append((i, e, occs[i]))
+                     # Item tuple: (original_index, energy, occupancy)
+                     item = (i, e, occs[i])
+                     if occs[i] > 0:
+                         occupied_items.append(item)
+                     else:
+                         virtual_items.append(item)
             
-            # Sort by Energy (High to Low) for top-down label placement
-            visible_items.sort(key=lambda x: x[1], reverse=True)
+            # Sort Strategy to prioritize HOMO/LUMO labels
+            occupied_items.sort(key=lambda x: x[1], reverse=True)  # Descending (HOMO -> Core)
+            virtual_items.sort(key=lambda x: x[1], reverse=False)  # Ascending (LUMO -> Vacuum)
             
-            last_label_y = -100 # Initialize far off-screen
+            # Draw lists
+            # We must maintain collision detection state for each stack separately? 
+            # Or globally? If overlap, we skip. But virtuals move UP, occupied move DOWN.
+            # Let's reset collision Y for each stack to ensure "closest to gap" draws first.
             
-            for i_orig, e, occ_val in visible_items:
-                y = val_to_y(e)
-                
-                is_occ = (occ_val > 0)
-                color = QColor("blue") if is_occ else QColor("red")
-                pen = QPen(color, 2)
-                
-                # Highlight HOMO/LUMO
-                is_homo = (i_orig == homo_idx)
-                is_lumo = (i_orig == homo_idx + 1)
-                
-                if is_homo or is_lumo:
-                    pen.setWidth(3)
-                
-                painter.setPen(pen)
-                
-                x1 = center_x - level_w/2
-                x2 = center_x + level_w/2
-                painter.drawLine(int(x1), int(y), int(x2), int(y))
-                
-                # Label Logic with Relative Labels
-                if i_orig <= homo_idx:
-                    diff = homo_idx - i_orig
-                    rel_label = "HOMO" if diff == 0 else f"HOMO-{diff}"
-                else:
-                    diff = i_orig - (homo_idx + 1)
-                    rel_label = "LUMO" if diff == 0 else f"LUMO+{diff}"
-                
-                label_text = f"{rel_label} ({e:.3f})"
-                
-                priority_label = (is_homo or is_lumo)
-                
-                # Check Overlap for non-priority labels
-                # 12px is a rough estimate for font size 9 height + some padding
-                pixel_gap = abs(y - last_label_y)
-                
-                if priority_label or pixel_gap > 12: 
-                    painter.setPen(QColor("black"))
-                    draw_x = int(x2) + 5
+            # Draw Occupied
+            last_label_y_occ = 100000 # Bottom-most
+            last_label_y_virt = -100 # Top-most
+            
+            # Helper to draw
+            def process_list(items, last_y_ref):
+                new_last_y = last_y_ref
+                for i_orig, e, occ_val in items:
+                    y = val_to_y(e)
                     
-                    if priority_label:
-                        font_b = QFont("Arial", 9, QFont.Weight.Bold)
-                        painter.setFont(font_b)
-                        painter.drawText(draw_x, int(y)+4, label_text)
-                        painter.setFont(font) # Reset font
+                    is_occ = (occ_val > 0)
+                    color = QColor("blue") if is_occ else QColor("red")
+                    pen = QPen(color, 2)
+                    
+                    is_homo = (i_orig == homo_idx)
+                    is_lumo = (i_orig == homo_idx + 1)
+                    
+                    if is_homo or is_lumo:
+                        pen.setWidth(3)
+                    
+                    painter.setPen(pen)
+                    x1 = center_x - level_w/2
+                    x2 = center_x + level_w/2
+                    painter.drawLine(int(x1), int(y), int(x2), int(y))
+                    
+                    # Labels
+                    if i_orig <= homo_idx:
+                        diff = homo_idx - i_orig
+                        rel_label = "HOMO" if diff == 0 else f"HOMO-{diff}"
                     else:
-                        painter.drawText(draw_x, int(y)+4, label_text)
+                        diff = i_orig - (homo_idx + 1)
+                        rel_label = "LUMO" if diff == 0 else f"LUMO+{diff}"
                     
-                    last_label_y = y # Update collision reference for next label
+                    label_text = f"{rel_label} ({e * factor:.3f})"
+                    
+                    priority_label = (is_homo or is_lumo)
+                    pixel_gap = abs(y - new_last_y)
+                    
+                    if priority_label or pixel_gap > 12:
+                         painter.setPen(QColor("black"))
+                         draw_x = int(x2) + 5
+                         if priority_label:
+                             font_b = QFont("Arial", 12, QFont.Weight.Bold)
+                             painter.setFont(font_b)
+                             painter.drawText(draw_x, int(y)+4, label_text)
+                             painter.setFont(font)
+                         else:
+                             painter.drawText(draw_x, int(y)+4, label_text)
+                         new_last_y = y
+                return new_last_y
+
+            # Process independently
+            # Occupied (moving down, but val_to_y increases? No, y decreases as Energy increases)
+            # Y = H - (rel * H). High Energy = Small Y (Top). Low Energy = Large Y (Bottom).
+            # Occupied list: High E (Small Y) -> Low E (Large Y).
+            # So occupied start at Small Y. last_label_y should start at -100? No.
+            # Wait. Scan order: Top -> Bottom.
+            # Virtual List: Low E (Large Y) -> High E (Small Y).
+            # Virtuals start NEAR GAP (Large Y) and go UP (Small Y).
+            # Occupied List: High E (Small Y NEAR GAP) and fo DOWN (Large Y).
+            
+            # Since pixel_gap looks at abs diff, simply tracking the last drawn one works.
+            # Virtuals: First is LUMO (Y=500). Draws. Last=500.
+            # Next is LUMO+1 (Y=490). Gap=10. Skips.
+            # Next is LUMO+2 (Y=480). Gap=20 from 500. Draws. Last=480.
+            # Works perfectly.
+            
+            # Occupied: First is HOMO (Y=510). Draws. Last=510.
+            # Next is HOMO-1 (Y=520). Gap=10. Skips.
+            # Works perfectly.
+            
+            process_list(occupied_items, -1000) # Init far away
+            process_list(virtual_items, 10000) # Init far away
+
         
         if self.is_uhf:
             draw_levels(self.energies_a, self.occ_a, 0, "Alpha")

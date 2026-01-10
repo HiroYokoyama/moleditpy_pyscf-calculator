@@ -1,5 +1,5 @@
 PLUGIN_NAME = "PySCF Calculator"
-PLUGIN_VERSION = "1.2.2"
+PLUGIN_VERSION = "1.2.3"
 PLUGIN_AUTHOR = "HiroYokoyama"
 PLUGIN_DESCRIPTION = (
     "Perform PySCF quantum chemistry calculations directly in MoleditPy. "
@@ -32,19 +32,31 @@ def initialize(context):
     context.register_load_handler(load_project_state)
     
     # --- UI ---
+    dialog_instance = None
+    
     def show_dialog():
+        nonlocal dialog_instance
         # Get the main window to parent the dialog
         mw = context.get_main_window()
         
-        # Check if we have a molecule loaded
-        # if not context.current_molecule:
-        #     from PyQt6.QtWidgets import QMessageBox
-        #     QMessageBox.warning(mw, "No Molecule", "Please load a molecule first.")
-        #     return
+        if dialog_instance is not None:
+            try:
+                if dialog_instance.isVisible():
+                    dialog_instance.raise_()
+                    dialog_instance.activateWindow()
+                    return
+                else:
+                    # Cleanup old instance if hidden/closed
+                    dialog_instance.close()
+                    dialog_instance.deleteLater()
+                    dialog_instance = None
+            except RuntimeError:
+                # C++ object deleted
+                dialog_instance = None
 
         # Create and show the dialog, passing the shared settings dict
-        dialog = PySCFDialog(mw, context, settings=PLUGIN_SETTINGS)
-        dialog.show()
+        dialog_instance = PySCFDialog(mw, context, settings=PLUGIN_SETTINGS)
+        dialog_instance.show()
 
     # Register the menu action
     context.add_menu_action("Extensions/PySCF Calculator...", show_dialog)
