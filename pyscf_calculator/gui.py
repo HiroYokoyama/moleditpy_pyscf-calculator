@@ -68,23 +68,7 @@ class PySCFDialog(QDialog):
              print(f"Failed to save local settings: {e}")
 
     def load_settings(self):
-        s = self.settings
-        if "job_type" in s: self.job_type_combo.setCurrentText(s["job_type"])
-        if "method" in s: self.method_combo.setCurrentText(s["method"])
-        if "functional" in s: self.functional_combo.setCurrentText(s["functional"])
-        if "basis" in s: self.basis_combo.setCurrentText(s["basis"])
-        if "charge" in s: self.charge_input.setCurrentText(s["charge"])
-        if "spin" in s: self.spin_input.setCurrentText(s["spin"])
-        if "out_dir" in s: self.out_dir_edit.setText(s["out_dir"])
-        
-        # Load History & Source
-        self.calc_history = s.get("calc_history", [])
-        self.struct_source = s.get("struct_source", None)
-        # Update Label if UI ready (setup_ui called before load_settings)
-        if hasattr(self, 'lbl_struct_source') and self.struct_source:
-             self.lbl_struct_source.setText(f"Structure Source: {self.struct_source}")
-
-        # Local JSON Load
+        # Local JSON Load (Defaults)
         json_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "settings.json")
         if os.path.exists(json_path):
              try:
@@ -101,6 +85,23 @@ class PySCFDialog(QDialog):
                      self.spin_memory.setValue(local_settings["memory"])
              except Exception as e:
                  print(f"Failed to load local settings: {e}")
+
+        # Project Settings (Load Overrides)
+        s = self.settings
+        if "job_type" in s: self.job_type_combo.setCurrentText(s["job_type"])
+        if "method" in s: self.method_combo.setCurrentText(s["method"])
+        if "functional" in s: self.functional_combo.setCurrentText(s["functional"])
+        if "basis" in s: self.basis_combo.setCurrentText(s["basis"])
+        if "charge" in s: self.charge_input.setCurrentText(s["charge"])
+        if "spin" in s: self.spin_input.setCurrentText(s["spin"])
+        if "out_dir" in s: self.out_dir_edit.setText(s["out_dir"])
+        
+        # Load History & Source
+        self.calc_history = s.get("calc_history", [])
+        self.struct_source = s.get("struct_source", None)
+        # Update Label if UI ready (setup_ui called before load_settings)
+        if hasattr(self, 'lbl_struct_source') and self.struct_source:
+             self.lbl_struct_source.setText(f"Structure Source: {self.struct_source}")
 
         # Auto-load latest result if available
         if self.calc_history:

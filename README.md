@@ -41,9 +41,9 @@ pip install pyscf PyQt6 numpy geometric
 > PySCF installation may fail on Windows, so it may only work on MacOS or Linux.
 
 ### Setup
-1. Clone this repository.
-2. Ensure the `pyscf_calculator` folder is placed within your application's plugin directory or accessible path.
-3. Launch the main application to access the PySCF Calculator interface.
+1. **Download**: Download the plugin from the [Plugin Explorer](https://hiroyokoyama.github.io/moleditpy-plugins/explorer/?q=PySCF+Calculator).
+2. **Install**: Unzip the downloaded file and place the `pyscf_calculator` folder into your application's `plugins` directory.
+3. **Launch**: Start the main application, then navigate to the **Extensions** menu and select **PySCF Calculator**.
 
 ## Usage
 
