@@ -9,10 +9,10 @@ from PyQt6.QtWidgets import (
     QPushButton, QTextEdit, QProgressBar, QCheckBox, QGroupBox,
     QFormLayout, QMessageBox, QFileDialog, QTabWidget, QWidget, QLineEdit,
     QSpinBox, QListWidget, QListWidgetItem, QDoubleSpinBox,
-    QDockWidget, QApplication
+    QDockWidget, QApplication, QMenu
 )
 from PyQt6.QtCore import Qt, QTimer
-from PyQt6.QtGui import QPainter, QPen, QColor, QFont
+from PyQt6.QtGui import QPainter, QPen, QColor, QFont, QAction
 
 try:
     from .worker import PySCFWorker, LoadWorker, PropertyWorker
