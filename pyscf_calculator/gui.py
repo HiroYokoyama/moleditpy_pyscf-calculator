@@ -1389,6 +1389,9 @@ class PySCFDialog(QDialog):
                  if hasattr(self, 'lbl_struct_source'):
                       self.lbl_struct_source.setText(f"Structure Source: {self.struct_source}")
                  
+                 # Actually load the geometry into the 3D viewer
+                 self.update_geometry(self.optimized_xyz)
+                 
                  # Reset camera to view the loaded molecule
                  try:
                      mw = self.context.get_main_window()
@@ -1805,6 +1808,25 @@ class EnergyDiagramDialog(QDialog):
                      self.parent().generate_specific_orbital(mo_task_label)
 
     def mouseMoveEvent(self, event):
+        # Check if hovering over a clickable orbital level (when not dragging)
+        if not (hasattr(self, 'dragging') and self.dragging):
+            pos = event.position()
+            point = pos.toPoint()
+            
+            hovering_over_orbital = False
+            if hasattr(self, 'hit_zones'):
+                for rect, index, label in self.hit_zones:
+                    if rect.contains(point):
+                        hovering_over_orbital = True
+                        break
+            
+            # Update cursor based on hover state
+            if hovering_over_orbital:
+                self.setCursor(Qt.CursorShape.PointingHandCursor)
+            else:
+                self.setCursor(Qt.CursorShape.ArrowCursor)
+        
+        # Handle drag-to-zoom functionality
         if hasattr(self, 'dragging') and self.dragging:
             current_y = event.position().y()
             delta_y = current_y - self.last_mouse_y
@@ -1839,7 +1861,7 @@ class EnergyDiagramDialog(QDialog):
         save_act = QAction("Save as PNG...", self)
         save_act.triggered.connect(self.save_image)
         menu.addAction(save_act)
-        menu.exec(event.globalPos())
+        menu.exec(event.globalPosition().toPoint())
 
     def save_image(self):
         fname, _ = QFileDialog.getSaveFileName(self, "Save Diagram", "orbital_diagram.png", "Images (*.png)")
