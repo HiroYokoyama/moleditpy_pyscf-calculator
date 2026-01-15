@@ -1,5 +1,5 @@
 PLUGIN_NAME = "PySCF Calculator"
-PLUGIN_VERSION = "1.2.4"
+PLUGIN_VERSION = "1.3.0"
 PLUGIN_AUTHOR = "HiroYokoyama"
 PLUGIN_DESCRIPTION = (
     "Perform PySCF quantum chemistry calculations directly in MoleditPy. "
@@ -55,7 +55,7 @@ def initialize(context):
                 dialog_instance = None
 
         # Create and show the dialog, passing the shared settings dict
-        dialog_instance = PySCFDialog(mw, context, settings=PLUGIN_SETTINGS)
+        dialog_instance = PySCFDialog(mw, context, settings=PLUGIN_SETTINGS, version=PLUGIN_VERSION)
         dialog_instance.show()
 
     # Register the menu action

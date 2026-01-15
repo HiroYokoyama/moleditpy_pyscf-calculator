@@ -17,9 +17,15 @@ A powerful, user-friendly GUI interface for performing Quantum Chemistry calcula
 ### Visualization & Analysis
 - **Interactive Orbital Energy Diagram**:
   - Automatically displays HOMO/LUMO energies and gaps.
-  - **Zoom & Pan**: Scroll to zoom (default 3x gap view) and drag to pan; double-click to reset.
-  - **Adaptive Labels**: Displays orbital names (HOMO-1, LUMO+2) and energies.
-  - **Export**: Save diagrams as high-resolution PNG images.
+  - **Interactive Loading**: Click on any orbital line (e.g., HOMO) to automatically load and visualize its Electron Density (Cube file).
+  - **On-Demand Generation**: If a cube file is missing, clicking the orbital prompts you to generate it instantly without re-running the full job.
+  - **Navigation**:
+    - **Zoom**: Drag up/down to zoom in/out of energy levels.
+    - **Pan**: Scroll (Touchpad compatible) to move the energy view up/down.
+    - **Reset**: Double-click to restore the default view formatted to the HOMO-LUMO gap.
+  - **Clean UI**:
+    - Selectable units (eV / Hartree) with nice, round axis ticks.
+    - "Save to PNG" feature that automatically hides UI controls for publication-quality figures.
 - **Property Analysis**:
   - Generate standard .cube files for Molecular Orbitals (MOs).
   - Compute and visualize Electron Density and Electrostatic Potential (ESP).

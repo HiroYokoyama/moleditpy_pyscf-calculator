@@ -740,8 +740,16 @@ class PropertyWorker(QThread):
                         elif "MO" in task or task.isdigit() or task.startswith("#"):
                             # "MO 15", "15", "#15"
                             clean_task = task.replace("MO", "").replace("#", "").strip()
-                            idx = int(clean_task)
-                            label = f"MO_{idx}" # Normalized label
+                            val = int(clean_task)
+                            
+                            if task.startswith("#"):
+                                # Internal 0-based index
+                                idx = val
+                            else:
+                                # User 1-based index (MO 1 = Index 0)
+                                idx = val - 1
+                                
+                            label = f"MO_{idx+1}" # Normalized label (1-based for display)
                         else:
                             if self.job_type == "Optimization":
                                 self.log_signal.emit("Starting Geometry Optimization (geometric)...\n")
@@ -776,7 +784,7 @@ class PropertyWorker(QThread):
                         rel_label = "LUMO" if diff == 0 else f"LUMO+{diff}"
                         
                     # Filename
-                    fname = f"{idx}_{rel_label}.cube"
+                    fname = f"{idx:03d}_{rel_label}.cube"
                         
                     # Sanitization: Ensure safe filenames but keep readable
                     # fname = fname.replace(" ", "") # User requested spaces in name
@@ -854,7 +862,7 @@ class LoadWorker(QThread):
                 "mo_energy": mo_energy,
                 "mo_occ": mo_occ,
                 "scf_type": scf_type,
-                "optimized_xyz": optimized_xyz,
+                "loaded_xyz": optimized_xyz,
                 "chkfile": self.chkfile,
                 "out_dir": os.path.dirname(self.chkfile)
             }
