@@ -1572,6 +1572,9 @@ class EnergyDiagramDialog(QDialog):
         self.setWindowTitle("Orbital Energy Diagram")
         self.resize(300, 600)
         
+        # Enable mouse tracking to receive hover events
+        self.setMouseTracking(True)
+        
         # Add Save Button overlay
         layout = QVBoxLayout(self)
         layout.setContentsMargins(10, 10, 20, 20) # margins
@@ -1861,7 +1864,7 @@ class EnergyDiagramDialog(QDialog):
         save_act = QAction("Save as PNG...", self)
         save_act.triggered.connect(self.save_image)
         menu.addAction(save_act)
-        menu.exec(event.globalPosition().toPoint())
+        menu.exec(event.globalPos())
 
     def save_image(self):
         fname, _ = QFileDialog.getSaveFileName(self, "Save Diagram", "orbital_diagram.png", "Images (*.png)")
