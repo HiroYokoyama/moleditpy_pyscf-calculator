@@ -42,6 +42,8 @@ class PySCFDialog(QDialog):
         self.settings = settings if settings is not None else {}
         self.mo_data = None # Initialize to prevent AttributeError
         self.closing = False # Emergency flag to block updates during shutdown
+        self.struct_source = None
+        self.calc_history = []
         
         title = "PySCF Calculator"
         self.version = version
@@ -226,7 +228,12 @@ class PySCFDialog(QDialog):
             self.spin_cycles.setValue(int(defaults["spin_cycles"]))
             self.edit_conv.setText(defaults["conv_tol"])
 
-    def save_settings(self):
+    def update_internal_state(self):
+        """
+        Update the internal 'self.settings' dictionary with current UI values.
+        This provides the source of truth for 'on_save_project' (Project File Persistence).
+        NOTE: This does NOT save to the global 'settings.json' file.
+        """
         # Update shared dictionary
         self.settings["job_type"] = self.job_type_combo.currentText()
         self.settings["method"] = self.method_combo.currentText()
@@ -282,7 +289,9 @@ class PySCFDialog(QDialog):
                      self.settings["associated_filename"] = name
         except: pass
 
-        # Local JSON Save Removed (User Request: Manual Save Only)
+    def save_settings(self):
+        """Legacy name kept for compatibility, but just updates internal state now."""
+        self.update_internal_state()
 
 
     def save_custom_defaults(self):
@@ -346,17 +355,28 @@ class PySCFDialog(QDialog):
                 if current_path:
                     project_dir = os.path.dirname(current_path)
 
-            for h_path in raw_history:
-                # If path is relative and we have project dir, resolve it
-                if not os.path.isabs(h_path) and project_dir:
-                    abs_path = os.path.normpath(os.path.join(project_dir, h_path))
-                    self.calc_history.append(abs_path)
-                else:
-                    self.calc_history.append(h_path)
         except:
-             self.calc_history = raw_history
+             # Fallback
+             pass
 
-        self.struct_source = s.get("struct_source", None)
+        # FIX: Revert to overwrite history on load (User Request: "Delete it")
+        self.calc_history = []
+        
+        for h_path in raw_history:
+             # Resolve relative
+             final_path = h_path
+             try:
+                 if not os.path.isabs(h_path) and project_dir:
+                     final_path = os.path.normpath(os.path.join(project_dir, h_path))
+             except: pass
+             
+             self.calc_history.append(final_path)
+
+        # Structure Source: Only overwrite if stored one is valid, otherwise keep current
+        # (User Request: "structure source need to be kept if structual change does not take place")
+        loaded_source = s.get("struct_source", None)
+        if loaded_source:
+             self.struct_source = loaded_source
         # Update Label if UI ready (setup_ui called before load_settings)
         if hasattr(self, 'lbl_struct_source') and self.struct_source:
              self.lbl_struct_source.setText(f"Structure Source: {self.struct_source}")
@@ -568,7 +588,7 @@ class PySCFDialog(QDialog):
         # Default to Home Directory/PySCF_Results
         home_dir = os.path.expanduser("~")
         self.out_dir_edit.setText(os.path.join(home_dir, "PySCF_Results"))
-        self.out_dir_edit.setToolTip("Path to save results. Relative paths (e.g. 'results') will be created inside the current project folder.\nIf the project is unsaved, it defaults to the home directory.")
+        self.out_dir_edit.setToolTip("Path to save results. Relative paths (e.g. 'results') will be resolved relative to the current file location or default to the home directory.")
         
         btn_browse = QPushButton("Browse")
         btn_browse.clicked.connect(self.browse_out_dir)
@@ -1174,7 +1194,7 @@ class PySCFDialog(QDialog):
 
     def closeEvent(self, event):
         self.closing = True # BLOCK ALL UI UPDATES IMMEDIATELY
-        self.save_settings() # Save Settings on Close
+        # self.save_settings() # Removed: Global settings only saved by explicit button
         
         # Safe Thread Cleanup
         if hasattr(self, 'worker') and self.worker and self.worker.isRunning():
@@ -1262,8 +1282,6 @@ class PySCFDialog(QDialog):
             self.log(msg)
             QMessageBox.warning(self, "No Molecule", "Please load a molecule first.")
             return
-
-        self.save_settings() # Save persistence
 
         # Prepare configuration
         # Helper to resolve output directory
@@ -1395,6 +1413,17 @@ class PySCFDialog(QDialog):
 
     def on_finished(self):
         if self.closing: return
+        
+        # Capture current state for potential project save
+        self.update_internal_state()
+        
+        # Mark Project as Unsaved
+        if self.context:
+             mw = self.context.get_main_window()
+             if mw:
+                 mw.has_unsaved_changes = True
+                 mw.update_window_title()
+
         self.log("\n---------------------------------\nCalculation Finished.")
         self.cleanup_ui_state()
 
@@ -2017,13 +2046,27 @@ class PySCFDialog(QDialog):
         if out_dir:
             self.last_out_dir = out_dir
             
+            # Add to History (Fix for "Latest only" issue)
+            # Since PySCFWorker generates unique paths (job_1, job_2...),
+            # we must explicitly add this new path to our history list.
+            if not hasattr(self, 'calc_history'): self.calc_history = []
+            
+            # Ensure absolute path
+            abs_out = os.path.abspath(out_dir)
+            if abs_out not in self.calc_history:
+                self.calc_history.append(abs_out)
+                # Note: We don't save to file here (removed per user request), 
+                # but update_internal_state will capture it for Project Save.
+            
         if result_data.get("optimized_xyz"):
              self.optimized_xyz = result_data["optimized_xyz"]
              self.btn_load_geom.setEnabled(True)
              self.log("Optimization converged. Automatically updating geometry...")
              self.update_geometry(self.optimized_xyz)
              
-             # Update Source Label
+             self.update_geometry(self.optimized_xyz)
+             
+             # Update Source Label ONLY if geometry changed
              src_name = "Result"
              src_path = ""
              if self.last_out_dir:
@@ -2071,7 +2114,7 @@ class PySCFDialog(QDialog):
                 
                 # Redundant label update removed to respect correct format set earlier
             
-            self.save_settings()
+            # Redundant label update removed to respect correct format set earlier
 
         # CRITICAL FIX: Robustly scan for cube files regardless of result_data
         # This ensures we show all files even if they were pre-existing or somehow not reported
@@ -2174,10 +2217,13 @@ class PySCFDialog(QDialog):
 
         # Add to History & Save Immediately
         if not hasattr(self, 'calc_history'): self.calc_history = []
+        
         if d not in self.calc_history:
             self.calc_history.append(d)
-        self.save_settings()
-        
+            self._history_changed = True
+            
+        self.update_internal_state()
+            
         # Run LoadWorker
         if LoadWorker is None:
              QMessageBox.critical(self, "Error", "PySCF worker (LoadWorker) is not available.\nThis likely means PySCF is not installed or failed to import.")
@@ -2199,6 +2245,16 @@ class PySCFDialog(QDialog):
     def on_load_finished(self, result_data):
          self.log("Result loaded successfully.")
          self.progress_bar.hide()
+         
+         # Mark Project as Unsaved (User Request)
+         # Only if history was modified (i.e. new result folder loaded from disk that wasn't known)
+         if getattr(self, '_history_changed', False):
+             if self.context:
+                 mw = self.context.get_main_window()
+                 if mw:
+                     mw.has_unsaved_changes = True
+                     mw.update_window_title()
+             self._history_changed = False
          
          # CRITICAL: Clean up existing state FIRST to prevent segfaults
          # This is essential when loading different calculation types (RKS->UKS, etc.)
@@ -2301,16 +2357,22 @@ class PySCFDialog(QDialog):
              # CRITICAL FIX: Chain the finalize_load AFTER geometry update
              def update_and_finalize():
                  # Update Source Label
-                 if hasattr(self, 'chkfile_path') and self.chkfile_path:
-                     chk_abs = os.path.abspath(self.chkfile_path)
-                     full_path = os.path.dirname(chk_abs)
-                     basename = os.path.basename(full_path)
-                     # Differentiate label: Manual Load is just "Loaded from"
-                     # The User specifically requested "optimized from" for optimizations,
-                     # but for generic loads "Loaded from" is safer and requested implicitly.
-                     self.struct_source = f"Loaded from {basename} ({full_path})"
-                 else:
-                     self.struct_source = "Loaded from Result (Unknown)"
+                 # Check if we should overwrite. If checking explicit optimization result, 
+                 # it might have been set in `on_results`.
+                 # How to detect?
+                 # `self.struct_source` might already contain "optimized from".
+                 # If so, don't overwrite with "Loaded from".
+                 current_src = getattr(self, 'struct_source', "")
+                 is_optimization_result = current_src and "optimized from" in current_src
+                 
+                 if not is_optimization_result:
+                     if hasattr(self, 'chkfile_path') and self.chkfile_path:
+                         chk_abs = os.path.abspath(self.chkfile_path)
+                         full_path = os.path.dirname(chk_abs)
+                         basename = os.path.basename(full_path)
+                         self.struct_source = f"Loaded from {basename} ({full_path})"
+                     else:
+                         self.struct_source = "Loaded from Result (Unknown)"
 
                  if hasattr(self, 'lbl_struct_source'):
                       self.lbl_struct_source.setText(f"Structure Source: {self.struct_source}")
