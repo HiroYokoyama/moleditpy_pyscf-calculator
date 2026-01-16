@@ -6,6 +6,8 @@ A powerful, user-friendly GUI interface for performing Quantum Chemistry calcula
 
 ![](img/img2.png)
 
+![](img/img3.png)
+
 ## Features
 
 ### Calculation Capabilities
@@ -63,6 +65,7 @@ pip install pyscf PyQt6 numpy geometric
 ## License
 
 This project is licensed under the **GNU General Public License v3.0 (GPLv3)**. See the [LICENSE](LICENSE) file for details.
+
 
 
 
