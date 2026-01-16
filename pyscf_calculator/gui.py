@@ -9,7 +9,8 @@ from PyQt6.QtWidgets import (
     QPushButton, QTextEdit, QProgressBar, QCheckBox, QGroupBox,
     QFormLayout, QMessageBox, QFileDialog, QTabWidget, QWidget, QLineEdit,
     QSpinBox, QListWidget, QListWidgetItem, QDoubleSpinBox,
-    QDockWidget, QApplication, QMenu, QToolTip
+    QDockWidget, QApplication, QMenu, QToolTip,
+    QTableWidget, QTableWidgetItem, QHeaderView
 )
 from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtGui import QPainter, QPen, QColor, QFont, QAction
@@ -40,6 +41,7 @@ class PySCFDialog(QDialog):
         self.context = context
         self.settings = settings if settings is not None else {}
         self.mo_data = None # Initialize to prevent AttributeError
+        self.closing = False # Emergency flag to block updates during shutdown
         
         title = "PySCF Calculator"
         self.version = version
@@ -51,6 +53,76 @@ class PySCFDialog(QDialog):
         self.worker = None
         self.setup_ui()
         self.load_settings()
+
+    def on_document_reset(self):
+        """Callback to reset plugin state when the document is reset (File -> New)."""
+        # Abort pending workers to prevent crash or ghost updates
+        for attr in ['worker', 'prop_worker', 'load_worker']:
+            w = getattr(self, attr, None)
+            if w:
+                try: w.disconnect()
+                except: pass
+                if w.isRunning():
+                     w.terminate()
+                     w.wait(50)
+                setattr(self, attr, None)
+
+        # Clear data buffers
+        self.mo_data = None
+        self.freq_data = None
+        self.thermo_data = None
+
+        # Clear file association
+        if "associated_filename" in self.settings:
+            del self.settings["associated_filename"]
+            
+        # Clear internal state
+        self.loaded_file = None
+        self.struct_source = None
+        self.calc_history = []
+        if "calc_history" in self.settings:
+             self.settings["calc_history"] = []
+
+        
+        # Clear result folder setting
+        # Reset result folder to default/saved preference
+        # Reset Settings (OutDir, Threads, Memory) to Default/Saved
+        json_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "settings.json")
+        local_settings = {}
+        if os.path.exists(json_path):
+             try:
+                 with open(json_path, 'r') as f:
+                     local_settings = json.load(f)
+             except: pass
+        
+        # 1. Output Dir
+        if hasattr(self, 'out_dir_edit'):
+             home_dir = os.path.expanduser("~")
+             default_out = local_settings.get("root_path", os.path.join(home_dir, "PySCF_Results"))
+             self.out_dir_edit.setText(default_out)
+             
+        # 2. Threads
+        if hasattr(self, 'spin_threads'):
+             self.spin_threads.setValue(local_settings.get("threads", 0))
+             
+        # 3. Memory
+        if hasattr(self, 'spin_memory'):
+             self.spin_memory.setValue(local_settings.get("memory", 4000))
+        
+        # Clear Visualizations
+        if hasattr(self, 'clear_3d_actors'):
+             self.clear_3d_actors()
+             
+        if hasattr(self, 'file_list'):
+             self.file_list.clear()
+        if hasattr(self, 'orb_list'):
+             self.orb_list.clear()
+             
+        if hasattr(self, 'log_text'):
+             self.log_text.clear()
+        
+        if hasattr(self, 'log'):
+             self.log("Document reset: Plugin state cleared.")
 
     def save_settings(self):
         # Update shared dictionary
@@ -134,34 +206,21 @@ class PySCFDialog(QDialog):
         if self.calc_history:
              last_path = self.calc_history[-1]
              
-             # Smart Reset Logic
-             # 1. Get current file basename
-             current_filename = None
-             try:
-                 if self.context:
-                     mw = self.context.get_main_window()
-                     if hasattr(mw, 'current_file_path') and mw.current_file_path:
-                         current_filename = os.path.basename(mw.current_file_path)
-             except: pass
-             
-             # 2. Get saved associated filename
-             saved_filename = s.get("associated_filename", None)
-             
-             # 3. Determine if we should reset
-             # Reset ONLY if:
-             #   - We have a current file (not Untitled) AND Saved file matches -> Different files
-             #   - OR We have a saved file (Named) AND Current is Untitled -> Reset (User Request)
+             # Smart Reset Logic based on Associated File
+             # (User Request: Removed filename dependency - rely on document_reset handlers)
+             # current_filename = None
+             # saved_filename = s.get("associated_filename", None)
              should_reset = False
              
-             if saved_filename:
-                 if current_filename and current_filename != saved_filename:
-                     # Case 1: Different named files (A.xyz -> B.xyz)
-                     should_reset = True
-                     self.log(f"File changed ({saved_filename} -> {current_filename}). Resetting settings.")
-                 elif not current_filename:
-                     # Case 2: Named file -> Untitled (A.xyz -> Untitled / New)
-                     should_reset = True
-                     self.log(f"File closed ({saved_filename} -> Untitled). Resetting settings.")
+             # if saved_filename:
+             #     if current_filename and current_filename != saved_filename:
+             #         # Case 1: Different named files (A.xyz -> B.xyz)
+             #         should_reset = True
+             #         self.log(f"File changed ({saved_filename} -> {current_filename}). Resetting settings.")
+             #     elif not current_filename:
+             #         # Case 2: Named file -> Untitled (A.xyz -> Untitled / New)
+             #         should_reset = True
+             #         self.log(f"File closed ({saved_filename} -> Untitled). Resetting settings.")
              
              if should_reset:
                  # Clear Source Label because we are in a fresh session for a DIFFERENT file
@@ -626,6 +685,8 @@ class PySCFDialog(QDialog):
         layout.addWidget(QLabel("Visualization Files:"))
         self.file_list = QListWidget()
         self.file_list.itemClicked.connect(self.on_file_selected)
+        # Enable Arrow Key Navigation
+        self.file_list.currentItemChanged.connect(self.on_file_selected)
         layout.addWidget(self.file_list)
         
 
@@ -767,25 +828,34 @@ class PySCFDialog(QDialog):
                 self.btn_color_n.setStyleSheet(f"background-color: {name}; color: white;")
             self.update_visualization()
 
-    def on_file_selected(self, item):
+    def on_file_selected(self, item, previous=None):
+        if not item: return # currentItemChanged might pass None if cleared
         self.clear_3d_actors()
         path = item.toolTip() 
-        if not os.path.exists(path): return
+        if not path or not os.path.exists(path):
+             return
 
         # Check for ESP Pair (heuristic: if file is esp.cube, look for density.cube in same dir)
         dirname = os.path.dirname(path)
         basename = os.path.basename(path)
         
         is_esp_pair = False
-        if basename == "esp.cube" and os.path.exists(os.path.join(dirname, "density.cube")):
-            is_esp_pair = True
-            surf_file = os.path.join(dirname, "density.cube")
-            prop_file = path
+        if basename.lower() == "esp.cube":
+             # Try case-insensitive density check
+             density_path = os.path.join(dirname, "density.cube")
+             if os.path.exists(density_path):
+                is_esp_pair = True
+                surf_file = density_path
+                prop_file = path
         
-        if is_esp_pair:
-            self.switch_to_mapped_mode(surf_file, prop_file)
-        else:
-            self.switch_to_standard_mode(path)
+        try:
+            if is_esp_pair:
+                self.switch_to_mapped_mode(surf_file, prop_file)
+            else:
+                self.switch_to_standard_mode(path)
+        except Exception as e:
+            self.log(f"Error loading visualization file: {e}")
+            self.switch_to_standard_mode(path) # Fallback attempt
 
     def switch_to_standard_mode(self, path):
         self.mode = "standard"
@@ -794,19 +864,32 @@ class PySCFDialog(QDialog):
         self.mapped_group.hide()
         
         # Clean mapped
-        if self.mapped_visualizer: self.mapped_visualizer.clear_actors()
+        if self.mapped_visualizer: 
+             try: self.mapped_visualizer.clear_actors()
+             except: pass
         
         self.loaded_file = path
+        
+        # Lazy Init Visualizer if cleaned
+        if not hasattr(self, 'visualizer') or self.visualizer is None:
+            from .vis import CubeVisualizer
+            self.visualizer = CubeVisualizer(self.context.get_main_window())
+
         if self.visualizer.load_file(path):
             self.iso_spin.blockSignals(True)
             try:
-                self.iso_spin.setRange(0.0001, max(10.0, self.visualizer.data_max))
+                # Defensive range set
+                new_max = max(10.0, self.visualizer.data_max)
+                if new_max <= 0: new_max = 1.0
+                self.iso_spin.setRange(0.0001, new_max)
                 
                 fname = os.path.basename(path).lower()
                 if "density" in fname:
                      self.iso_spin.setValue(0.04)
                 else:
                      self.iso_spin.setValue(0.04)
+            except Exception as e:
+                print(f"Error setting spin range: {e}")
             finally:
                 self.iso_spin.blockSignals(False)
             
@@ -818,7 +901,9 @@ class PySCFDialog(QDialog):
         self.mapped_group.show()
         
         # Clean standard
-        self.visualizer.clear_actors()
+        if hasattr(self, 'visualizer') and self.visualizer: 
+            try: self.visualizer.clear_actors()
+            except: pass
         
         from .vis import MappedVisualizer
         if not self.mapped_visualizer:
@@ -854,6 +939,10 @@ class PySCFDialog(QDialog):
             QMessageBox.information(self, "Success", "Geometry updated with optimized structure.")
 
     def update_mapped_vis(self):
+        # Guard against missing mapped visualizer
+        if not hasattr(self, 'mapped_visualizer') or self.mapped_visualizer is None:
+            return
+        
         if not self.mapped_visualizer: return
         iso = self.m_iso_spin.value()
         val_min = self.m_min_spin.value()
@@ -895,6 +984,10 @@ class PySCFDialog(QDialog):
             self.update_mapped_vis()
             return
 
+        # Guard against missing visualizer
+        if not hasattr(self, 'visualizer') or self.visualizer is None:
+            return
+
         if not self.loaded_file: return
         
         val = self.iso_spin.value()
@@ -903,22 +996,56 @@ class PySCFDialog(QDialog):
         self.visualizer.update_iso(val, self.color_p, self.color_n, opacity)
 
     def closeEvent(self, event):
+        self.closing = True # BLOCK ALL UI UPDATES IMMEDIATELY
         self.save_settings() # Save Settings on Close
         
-        if self.visualizer: self.visualizer.clear_actors()
-        if self.mapped_visualizer: self.mapped_visualizer.clear_actors()
+        # Safe Thread Cleanup
+        if hasattr(self, 'worker') and self.worker and self.worker.isRunning():
+            self.log("Closing dialog: Stopping active calculation...")
+            # Try graceful stop first
+            if hasattr(self.worker, 'stop'):
+                 self.worker.stop()
+            
+            # Wait briefly then force if needed
+            if not self.worker.wait(2000):
+                 self.log("Force stopping worker...")
+                 self.worker.terminate()
+                 self.worker.wait()
+            
+            # Disconnect signals to prevent updates to dead UI
+            try:
+                self.worker.log_signal.disconnect()
+                self.worker.finished_signal.disconnect()
+                self.worker.error_signal.disconnect()
+                self.worker.result_signal.disconnect()
+            except:
+                pass
+            self.worker = None
+
+        if hasattr(self, 'prop_worker') and self.prop_worker and self.prop_worker.isRunning():
+             if not self.prop_worker.wait(1000):
+                 self.prop_worker.terminate()
+                 self.prop_worker.wait()
+             self.prop_worker = None
+        
+        # Cleanup Visualizers
+        self.clear_3d_actors() # This now safely checks for existence
         
         # Close Dock
         if hasattr(self, 'freq_dock') and self.freq_dock:
              mw = self.context.get_main_window()
-             mw.removeDockWidget(self.freq_dock)
+             if mw:
+                 try: mw.removeDockWidget(self.freq_dock)
+                 except: pass
              self.freq_dock.close()
+             self.freq_dock.deleteLater()
              self.freq_dock = None
              
-        # Cleanup visualizer resources
+        # Cleanup Freq Vis
         if hasattr(self, 'freq_vis') and self.freq_vis:
             try: self.freq_vis.cleanup()
             except: pass
+            self.freq_vis = None
             
         super().closeEvent(event)
 
@@ -1015,15 +1142,30 @@ class PySCFDialog(QDialog):
         self.worker.start()
 
     def stop_calculation(self):
-        if self.worker and self.worker.isRunning():
+        if hasattr(self, 'worker') and self.worker and self.worker.isRunning():
             self.log("\nStopping calculation...")
-            self.worker.terminate() # Forceful but necessary for long running C extensions sometimes
-            # Ideally we check a flag, but PySCF C-code might guard
-            # For now, simple terminate.
-            self.worker.wait()
+            
+            # Disconnect signals immediately to stop UI updates
+            try:
+                self.worker.log_signal.disconnect()
+                self.worker.finished_signal.disconnect()
+                self.worker.error_signal.disconnect()
+                self.worker.result_signal.disconnect()
+            except:
+                pass
+
+            # Graceful stop attempt (if supported by backend)
+            # PySCF doesn't have a simple interrupt, so we rely on thread termination
+            # But we can try to wait a bit
+            if not self.worker.wait(500):
+                self.worker.terminate()
+                self.worker.wait()
+            
+            self.log("Calculation stopped.")
             self.cleanup_ui_state()
 
     def log(self, message):
+        if self.closing: return
         self.log_text.append(message)
         # Scroll to bottom
         cursor = self.log_text.textCursor()
@@ -1031,6 +1173,7 @@ class PySCFDialog(QDialog):
         self.log_text.setTextCursor(cursor)
 
     def log_append(self, text):
+        if self.closing: return
         # Insert without adding extra newlines if chunks are small
         cursor = self.log_text.textCursor()
         cursor.movePosition(cursor.MoveOperation.End)
@@ -1038,34 +1181,68 @@ class PySCFDialog(QDialog):
         self.log_text.setTextCursor(cursor)
 
     def on_finished(self):
+        if self.closing: return
         self.log("\n---------------------------------\nCalculation Finished.")
         self.cleanup_ui_state()
 
     def on_error(self, err_msg):
+        if self.closing: return
         self.log(f"\nERROR: {err_msg}")
         QMessageBox.critical(self, "Calculation Error", err_msg)
         self.cleanup_ui_state()
 
     def clear_3d_actors(self):
-        # Clear generic actors (Orbitals/Density)
-        if hasattr(self, 'context') and self.context:
-             mw = self.context.get_main_window()
-             if hasattr(mw, 'plotter'):
-                mw.plotter.remove_actor("pyscf_iso_p") 
-                mw.plotter.remove_actor("pyscf_iso_n")
-                mw.plotter.remove_actor("pyscf_mapped")
-                mw.plotter.render()
+        """Safely remove all PySCF-related actors from the main window plotter."""
+        try:
+             if hasattr(self, 'context') and self.context:
+                 mw = self.context.get_main_window()
+                 # Strict check: exist, not None
+                 if not mw or not hasattr(mw, 'plotter') or mw.plotter is None:
+                     return
+                     
+                 # Direct removals (if any legacy names linger)
+                 try: mw.plotter.remove_actor("pyscf_iso_p")
+                 except: pass
+                 
+                 try: mw.plotter.remove_actor("pyscf_iso_n")
+                 except: pass
+                 
+                 try: mw.plotter.remove_actor("pyscf_mapped")
+                 except: pass
+                 
+                 # Also defer to Visualizer classes if they hold references
+                 if hasattr(self, 'visualizer') and self.visualizer:
+                     try: self.visualizer.clear_actors()
+                     except: pass
+                     self.visualizer = None
+
+                 if hasattr(self, 'mapped_visualizer') and self.mapped_visualizer:
+                     try: self.mapped_visualizer.clear_actors()
+                     except: pass
+                     self.mapped_visualizer = None
+                     
+                 # Render update
+                 # CRITICAL: Do NOT render if we are closing (Segfault risk)
+                 if not getattr(self, 'closing', False):
+                     try: mw.plotter.render()
+                     except: pass
+                 
+        except Exception as e:
+            # Do not crash on cleanup
+            pass
         
-        # Clear Freq Vis vectors
+        # Clear Freq Vis vectors (Separate Safety)
         if hasattr(self, 'freq_vis') and self.freq_vis:
             try:
                 self.freq_vis.cleanup()
             except: pass
 
     def cleanup_ui_state(self):
+        if self.closing: return
         self.run_btn.setEnabled(True)
         self.stop_btn.setEnabled(False)
         self.progress_bar.hide()
+        self.worker = None # Release worker reference
         self.worker = None
 
     def add_custom_mo(self):
@@ -1201,15 +1378,44 @@ class PySCFDialog(QDialog):
                 occupations = self.mo_data.get("occupations", [])
                 
                 # Safety flatten helper (same as in EnergyDiagram)
+                # Safety flatten helper (robust version)
                 def safe_occ(occ_list):
-                    if not occ_list: return []
-                    if isinstance(occ_list[0], (list, tuple)):
-                        return [x[0] if len(x)>0 else 0 for x in occ_list]
-                    return occ_list
+                    try:
+                        if occ_list is None: return []
+                        # Ensure it's a list/tuple
+                        if not isinstance(occ_list, (list, tuple)):
+                             return [occ_list]
+                        if not occ_list: return []
+                        
+                        # Check first element to detect nesting
+                        first = occ_list[0]
+                        if isinstance(first, (list, tuple)):
+                             # Nested column vector [[1], [2]] -> [1, 2]
+                             res = []
+                             for x in occ_list:
+                                 if isinstance(x, (list, tuple)) and len(x) > 0:
+                                     res.append(x[0])
+                                 else:
+                                     res.append(0)
+                             return res
+                             
+                        # Flat list
+                        return occ_list
+                    except:
+                        return []
 
-                if len(energies) == 2 and isinstance(energies[0], list):
+                if len(energies) >= 2 and isinstance(energies[0], list):
+                    # Standard UKS format: [[alpha], [beta]]
                     occ_a = safe_occ(occupations[0])
                     occ_b = safe_occ(occupations[1])
+                elif len(energies) == 2 and isinstance(energies, list):
+                     # Possible flat list fallback
+                     if len(occupations) >= 2:
+                         occ_a = safe_occ(occupations[0])
+                         occ_b = safe_occ(occupations[1])
+                     else:
+                         occ_a = safe_occ(occupations)
+                         occ_b = []
                 else:
                     # Fallback or RHF structure in UHF type?
                     occ_a = safe_occ(occupations)
@@ -1244,6 +1450,31 @@ class PySCFDialog(QDialog):
             except Exception as e:
                 # Safe fallback
                 occ_a = []
+        
+        else:
+            # RHF / Standard RKS
+            occs = self.mo_data.get("occupations", []) if self.mo_data else []
+            
+            # Robust extraction logic
+            if occs and isinstance(occs, list) and len(occs) > 0:
+                 # Check for nested structure (e.g. [[...]] or [[],[]])
+                 if isinstance(occs[0], (list, tuple)):
+                      # Case: Single row vector [[1, 2, 3]]
+                      if len(occs) == 1:
+                           occ_a = list(occs[0])
+                      else:
+                           # Case: Column vector or list of lists [[1], [2], ...]
+                           occ_a = []
+                           for x in occs:
+                               if isinstance(x, (list, tuple)) and len(x) > 0:
+                                   occ_a.append(x[0])
+                               else:
+                                   occ_a.append(x) # Fallback if mixed
+                 else:
+                      # Already 1D flat list [1, 2, 3]
+                      occ_a = occs
+            else:
+                 occ_a = []
 
         def add_orb_items(suffix="", label_suffix="", range_lumo=range(0, 5), range_homo=range(0, 5), check_somo=False):
              # LUMOs
@@ -1262,8 +1493,10 @@ class PySCFDialog(QDialog):
 
             # HOMOs
             # Find HOMO index for this spin channel
-            # We assume valid occupancy data is available if check_somo is True
-            current_occ = occ_a if check_somo else occ_b if "Beta" in label_suffix else []
+            if "Beta" in label_suffix:
+                current_occ = occ_b
+            else:
+                current_occ = occ_a
             # Wait, this logic for finding HOMO index inside the loop is tricky 
             # because 'i' is offset from HOMO.
             # We need the absolute HOMO index first.
@@ -1278,6 +1511,10 @@ class PySCFDialog(QDialog):
                 target_idx = my_homo_idx - i
                 if target_idx < 0: continue
                 
+                # Robust Bounds Check
+                if current_occ and target_idx >= len(current_occ):
+                     continue
+
                 label = "HOMO"
                 
                 # Check ROKS SOMO
@@ -1285,10 +1522,9 @@ class PySCFDialog(QDialog):
                 is_roks_somo = False
                 if not is_uhf and current_occ:
                     # current_occ is available, check value
-                    if target_idx < len(current_occ):
-                        val = current_occ[target_idx]
-                        if abs(val - 1.0) < 0.1:
-                            is_roks_somo = True
+                    val = current_occ[target_idx]
+                    if abs(val - 1.0) < 0.1:
+                        is_roks_somo = True
                 
                 # Construct Display Label matching Diagram Logic
                 if is_roks_somo:
@@ -1440,6 +1676,14 @@ class PySCFDialog(QDialog):
              QMessageBox.warning(self, "Error", "No checkpoint file found.")
              return
 
+        # Verification: Check if chkfile actually exists on disk
+        if not os.path.exists(self.chkfile_path):
+             QMessageBox.warning(self, "Error", f"Checkpoint file missing at: {self.chkfile_path}")
+             return
+             
+        if not tasks:
+             return
+
         self.log(f"Starting Analysis for: {', '.join(tasks)}...")
         
         # Determine Output Directory
@@ -1465,6 +1709,7 @@ class PySCFDialog(QDialog):
         self.prop_worker.start()
 
     def on_prop_finished(self):
+        if self.closing: return
         self.log("\nAnalysis Finished.")
         self.btn_run_analysis.setEnabled(True)
         self.progress_bar.hide()
@@ -1479,6 +1724,7 @@ class PySCFDialog(QDialog):
                 item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEnabled)
 
     def on_prop_results(self, result_data):
+        if self.closing: return
         files = result_data.get("files", [])
         files.sort() # Sort A-Z
         self.log(f"Generated {len(files)} new files.")
@@ -1553,6 +1799,20 @@ class PySCFDialog(QDialog):
     def on_results(self, result_data):
         # Handle post-processing, e.g., visualization
         self.log("Processing results...")
+        
+        # CRITICAL: Clean up existing 3D actors before processing new results
+        # This prevents segfaults when calculation type changes (RKS->UKS, etc.)
+        try:
+            self.clear_3d_actors()
+            
+            # Force reset visualizers to prevent RKS⇔UKS segfault
+            # Same fix as on_load_finished: destroy old visualizer instances
+            # to prevent VTK mapper inconsistencies with new calculation types
+            self.visualizer = None
+            self.mapped_visualizer = None
+            
+        except Exception as cleanup_err:
+            self.log(f"Warning during actor cleanup: {cleanup_err}")
         
         # Extract Output Directory first to ensure it's available for labels
         out_dir = result_data.get("out_dir")
@@ -1637,7 +1897,6 @@ class PySCFDialog(QDialog):
              try:
                  mol = self.context.current_molecule
                  
-                 self.clear_3d_actors()
                  self.freq_vis = FreqVisualizer(
                      self.context.get_main_window(), 
                      mol, 
@@ -1647,12 +1906,6 @@ class PySCFDialog(QDialog):
                  )
                  
                  mw = self.context.get_main_window()
-                 
-                 # Close existing dock if any
-                 if hasattr(self, 'freq_dock') and self.freq_dock:
-                     mw.removeDockWidget(self.freq_dock)
-                     self.freq_dock.deleteLater()
-                     self.freq_dock = None
                  
                  self.freq_dock = QDockWidget("PySCF Frequencies", mw)
                  self.freq_dock.setWidget(self.freq_vis)
@@ -1672,7 +1925,7 @@ class PySCFDialog(QDialog):
              self.btn_show_thermo.setEnabled(True)
              self.log("Thermodynamic data captured.")
              
-        # Auto-Switch to Visualization Tab
+        # Auto-Switch to Visualization Tab when calculation completes
         self.tabs.setCurrentIndex(1)
 
     def load_result_folder(self, path=None, update_structure=True):
@@ -1710,6 +1963,11 @@ class PySCFDialog(QDialog):
              QMessageBox.critical(self, "Error", "PySCF worker (LoadWorker) is not available.\nThis likely means PySCF is not installed or failed to import.")
              return
 
+        # Guard against double-loading
+        if hasattr(self, 'load_worker') and self.load_worker.isRunning():
+            QMessageBox.warning(self, "Busy", "A result is already loading. Please wait.")
+            return
+
         self.load_worker = LoadWorker(chk_path)
         self.load_worker.finished_signal.connect(self.on_load_finished)
         self.load_worker.error_signal.connect(self.on_error)
@@ -1721,6 +1979,38 @@ class PySCFDialog(QDialog):
     def on_load_finished(self, result_data):
          self.log("Result loaded successfully.")
          self.progress_bar.hide()
+         
+         # CRITICAL: Clean up existing state FIRST to prevent segfaults
+         # This is essential when loading different calculation types (RKS->UKS, etc.)
+         try:
+             # 1. Stop and cleanup FreqVisualizer if active
+             if hasattr(self, 'freq_vis') and self.freq_vis:
+                 try:
+                     self.freq_vis.cleanup()
+                 except: pass
+                 self.freq_vis = None
+             
+             # 2. Remove FreqVisualizer dock if exists
+             if hasattr(self, 'freq_dock') and self.freq_dock:
+                 try:
+                     mw = self.context.get_main_window()
+                     mw.removeDockWidget(self.freq_dock)
+                     self.freq_dock.deleteLater()
+                     self.freq_dock = None
+                 except: pass
+             
+             # 3. Clear all 3D actors (orbitals, density, etc.)
+             self.clear_3d_actors()
+             
+             # 4. Force reset visualizers to prevent RKS⇔UKS segfault
+             # When switching between calculation types, old Visualizer instances
+             # with incompatible VTK mappers can cause memory corruption.
+             # Setting to None ensures fresh initialization on next render.
+             self.visualizer = None
+             self.mapped_visualizer = None
+             
+         except Exception as cleanup_err:
+             self.log(f"Warning during initial cleanup: {cleanup_err}")
          
          # 1. Restore Checkpoint Path
          if result_data.get("chkfile"):
@@ -1812,18 +2102,56 @@ class PySCFDialog(QDialog):
                      mw = self.context.get_main_window()
                      if hasattr(mw, 'plotter'):
                          mw.plotter.reset_camera()
+                     
+                     # User Request: Enter 3D only mode ONLY for manual loads, not startup
+                     # Check loading_update_struct to distinguish manual vs auto-load
+                     is_manual_load = getattr(self, 'loading_update_struct', True)
+                     if is_manual_load and hasattr(mw, 'minimize_2d_panel'):
+                         mw.minimize_2d_panel()
                  except: pass
 
-                 self.finalize_load(result_data, cubes)
+                 # Wrap finalize_load in try-except for robustness
+                 try:
+                     self.finalize_load(result_data, cubes)
+                 except Exception as e:
+                     self.log(f"Warning during finalize_load: {e}")
+                     import traceback
+                     self.log(traceback.format_exc())
 
              self.log("Optimized geometry loaded automatically.")
              QTimer.singleShot(100, update_and_finalize)
              
          else:
              # No geometry update needed, proceed immediately
-             self.finalize_load(result_data, cubes)
+             try:
+                 self.finalize_load(result_data, cubes)
+             except Exception as e:
+                 self.log(f"Warning during finalize_load: {e}")
+                 import traceback
+                 self.log(traceback.format_exc())
+         
+         # User Request: Auto-switch to Visualization tab for ALL loads (startup and manual)
+         # This must be outside the if-else to work for update_structure=False case
+         QTimer.singleShot(150, lambda: self.tabs.setCurrentIndex(1))
 
     def finalize_load(self, result_data, cubes=None):
+         # Note: Primary cleanup is done at start of on_load_finished.
+         # This is a safety check in case finalize_load is called independently.
+         if hasattr(self, 'freq_vis') and self.freq_vis:
+             try: 
+                 self.freq_vis.cleanup()
+                 self.freq_vis = None
+             except: pass
+
+         # Remove old dock if it exists (safety check)
+         if hasattr(self, 'freq_dock') and self.freq_dock:
+             try:
+                 mw = self.context.get_main_window()
+                 mw.removeDockWidget(self.freq_dock)
+                 self.freq_dock.deleteLater()
+                 self.freq_dock = None
+             except: pass
+
          # 7. Restore Frequency Data (AFTER geometry is guaranteed loaded)
          if result_data.get("freq_data"):
              self.log("Frequency data found in result.")
@@ -1848,15 +2176,7 @@ class PySCFDialog(QDialog):
                      from PyQt6.QtWidgets import QDockWidget
                      mw = self.context.get_main_window()
                      
-                     # Properly close and remove old dock if it exists
-                     if hasattr(self, 'freq_dock') and self.freq_dock:
-                         try:
-                             mw.removeDockWidget(self.freq_dock)
-                             self.freq_dock.close()
-                             self.freq_dock.setParent(None)
-                             self.freq_dock = None
-                         except:
-                             pass
+                     # Dock cleanup already done at top of method
                      
                      self.freq_dock = QDockWidget("PySCF Frequencies", mw)
                      self.freq_dock.setWidget(self.freq_vis)
@@ -1880,6 +2200,14 @@ class PySCFDialog(QDialog):
              self.disable_existing_analysis_items(cubes)
 
     def update_geometry(self, xyz_content):
+        # Safely clear previous visualization
+        self.clear_3d_actors()
+        # Clean up Frequency Visualizer if active
+        if hasattr(self, 'freq_vis') and self.freq_vis:
+            try: self.freq_vis.cleanup()
+            except: pass
+            self.freq_vis = None
+            
         # Use utils to update the specific molecule in context
         update_molecule_from_xyz(self.context, xyz_content)
         
@@ -1898,10 +2226,9 @@ class PySCFDialog(QDialog):
         if not hasattr(self, 'mo_data'): return
         
         # Modeless Check
-        if hasattr(self, 'energy_dlg') and self.energy_dlg and self.energy_dlg.isVisible():
-            self.energy_dlg.raise_()
-            self.energy_dlg.activateWindow()
-            return
+        if hasattr(self, 'energy_dlg') and self.energy_dlg:
+             self.energy_dlg.close()
+             self.energy_dlg = None
 
         # Pass last_out_dir to allow loading cubes
         result_dir = getattr(self, 'last_out_dir', None)
@@ -1939,15 +2266,114 @@ class PySCFDialog(QDialog):
             return
 
         data = self.thermo_data
-        # Format Text
-        lines = []
-        lines.append("Thermodynamic Properties (standard conditions)")
-        lines.append("-" * 40)
         
-        # Typical units: E, H, G are in Hartree. S is usually cal/mol*K or similar in PySCF output structure?
-        # PySCF thermo.thermo returns E,H,G in Hartree/Particle. S in Hartree/K ?
-        # Actually PySCF docs say outputs are Hartree.
+        # Helper function to flatten nested list structures
+        def flatten_value(v):
+            """
+            Flatten nested list/tuple structures from PySCF thermo data.
+            Examples:
+            - [value, unit] -> (value, unit)
+            - [[['value1'],['value2'],['value3']],[unit]] -> ("value1, value2, value3", unit)
+            - [[value1, [value2], [value3], [Unit]]] -> flatten all numeric values
+            - Simple value -> (value, None)
+            """
+            if v is None:
+                return (None, None)
+            
+            # If it's a simple numeric type, return as-is
+            if isinstance(v, (int, float, bool)):
+                return (v, None)
+            
+            # If it's a string, return as-is
+            if isinstance(v, str):
+                return (v, None)
+            
+            # Handle list/tuple structures
+            if isinstance(v, (list, tuple)):
+                # Empty list
+                if len(v) == 0:
+                    return (None, None)
+                
+                # Single element
+                if len(v) == 1:
+                    return flatten_value(v[0])
+                
+                # Two elements: Check for special formats
+                if len(v) == 2:
+                    # Format: [[['value1'],['value2'],['value3']],[unit]]
+                    # First element is list of values, second is unit string
+                    if isinstance(v[1], str) and isinstance(v[0], (list, tuple)):
+                        # Extract all values from nested structure
+                        values_list = []
+                        for item in v[0]:
+                            val, _ = flatten_value(item)
+                            if val is not None:
+                                values_list.append(val)
+                        
+                        # Format multiple values as comma-separated string
+                        if len(values_list) > 1:
+                            formatted = ", ".join([f"{float(x):.6f}" if isinstance(x, (int, float)) else str(x) for x in values_list])
+                            return (formatted, v[1])
+                        elif len(values_list) == 1:
+                            return (values_list[0], v[1])
+                        else:
+                            return (None, v[1])
+                    
+                    # Standard [value, unit] format
+                    elif isinstance(v[1], str):
+                        # Extract numeric value from first element
+                        val, _ = flatten_value(v[0])
+                        return (val, v[1])
+                    else:
+                        # Both are values, take first
+                        val, unit = flatten_value(v[0])
+                        return (val, unit)
+                
+                # More complex nested structure: [[value1, [value2], ...]]
+                # Flatten recursively and collect all numeric values
+                flat_values = []
+                unit = None
+                
+                for item in v:
+                    val, u = flatten_value(item)
+                    if isinstance(val, (int, float)):
+                        flat_values.append(val)
+                    elif val is not None and not isinstance(val, str):
+                        flat_values.append(val)
+                    if u is not None:
+                        unit = u
+                
+                if flat_values:
+                    # If multiple values, format as comma-separated
+                    if len(flat_values) > 1:
+                        formatted = ", ".join([f"{float(x):.6f}" for x in flat_values])
+                        return (formatted, unit)
+                    else:
+                        return (flat_values[0], unit)
+                else:
+                    return (None, unit)
+            
+            # Fallback: return as string
+            return (str(v), None)
         
+        # Create a dialog with table
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Thermodynamic Properties")
+        dlg.resize(600, 400)  
+        
+        layout = QVBoxLayout(dlg)
+        
+        # Add description label
+        desc_label = QLabel("Thermodynamic Properties (standard conditions)")
+        desc_label.setStyleSheet("font-weight: bold; font-size: 12px; padding: 5px;")
+        layout.addWidget(desc_label)
+        
+        # Create table
+        table = QTableWidget()
+        table.setColumnCount(3)
+        table.setHorizontalHeaderLabels(["Property", "Value", "Unit"])
+        
+        # Property order and labels
         order = ["E_tot", "H_tot", "G_tot", "ZPE", "S_tot", "Cv_tot"]
         labels = {
             "E_tot": "Total Energy (E0 + ZPE + corrections)",
@@ -1958,27 +2384,123 @@ class PySCFDialog(QDialog):
             "Cv_tot": "Heat Capacity (Cv)"
         }
         
+        # Populate main properties
+        row = 0
         for k in order:
             if k in data:
                 v = data[k]
                 label = labels.get(k, k)
-                unit = "Ha"
-                # Handle possible tuple or non-float
-                if isinstance(v, (tuple, list)):
-                     v = v[0] # Assume flow is (value, unit) but we force unit above
                 
-                try:
-                    vf = float(v)
-                    lines.append(f"{label:<30}: {vf:.6f} {unit}")
-                except:
-                     lines.append(f"{label:<30}: {v}")
+                # Flatten nested structures
+                value, unit_from_data = flatten_value(v)
+                
+                # Default unit if not provided in data
+                unit = unit_from_data if unit_from_data else "Ha"
+                
+                # Format value
+                if value is not None:
+                    try:
+                        vf = float(value)
+                        value_str = f"{vf:.6f}"
+                    except:
+                        value_str = str(value)
+                else:
+                    value_str = "N/A"
+                
+                table.insertRow(row)
+                table.setItem(row, 0, QTableWidgetItem(label))
+                table.setItem(row, 1, QTableWidgetItem(value_str))
+                table.setItem(row, 2, QTableWidgetItem(unit))
+                row += 1
         
-        # Add others
+        # Add any other properties not in the main list
         for k, v in data.items():
             if k not in order:
-                 lines.append(f"{k}: {v}")
+                value, unit_from_data = flatten_value(v)
                 
-        QMessageBox.information(self, "Thermodynamics", "\n".join(lines))
+                # Format value
+                if value is not None:
+                    try:
+                        vf = float(value)
+                        value_str = f"{vf:.6f}"
+                    except:
+                        value_str = str(value)
+                else:
+                    value_str = str(v)
+                
+                table.insertRow(row)
+                table.setItem(row, 0, QTableWidgetItem(k))
+                table.setItem(row, 1, QTableWidgetItem(value_str))
+                table.setItem(row, 2, QTableWidgetItem(unit_from_data if unit_from_data else ""))
+                row += 1
+        
+        # Configure table appearance
+        table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
+        table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
+        table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        table.setSelectionMode(QTableWidget.SelectionMode.ExtendedSelection)  # Allow multi-select
+        table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectItems)  # Select cells not rows
+        table.setAlternatingRowColors(True)
+        
+        layout.addWidget(table)
+        
+        # Add button layout
+        btn_layout = QHBoxLayout()
+        
+        # CSV Export button
+        btn_export = QPushButton("Export CSV")
+        btn_export.clicked.connect(lambda: self.export_thermo_csv(table))
+        btn_layout.addWidget(btn_export)
+        
+        btn_layout.addStretch()
+        
+        # Close button
+        btn_close = QPushButton("Close")
+        btn_close.clicked.connect(dlg.accept)
+        btn_layout.addWidget(btn_close)
+        
+        layout.addLayout(btn_layout)
+        
+        dlg.exec()
+
+    def export_thermo_csv(self, table):
+        """Export thermodynamic properties table to CSV file."""
+        import csv
+        
+        fname, _ = QFileDialog.getSaveFileName(
+            self, 
+            "Export Thermodynamic Data", 
+            "thermodynamic_properties.csv", 
+            "CSV Files (*.csv);;All Files (*)"
+        )
+        
+        if not fname:
+            return
+        
+        try:
+            with open(fname, 'w', newline='', encoding='utf-8') as f:
+                writer = csv.writer(f)
+                
+                # Write header
+                headers = []
+                for col in range(table.columnCount()):
+                    header_item = table.horizontalHeaderItem(col)
+                    headers.append(header_item.text() if header_item else f"Column {col}")
+                writer.writerow(headers)
+                
+                # Write data rows
+                for row in range(table.rowCount()):
+                    row_data = []
+                    for col in range(table.columnCount()):
+                        item = table.item(row, col)
+                        row_data.append(item.text() if item else "")
+                    writer.writerow(row_data)
+            
+            QMessageBox.information(self, "Export Successful", f"Data exported to:\n{fname}")
+            
+        except Exception as e:
+            QMessageBox.critical(self, "Export Error", f"Failed to export CSV:\n{e}")
 
 class EnergyDiagramDialog(QDialog):
     def __init__(self, mo_data, parent=None, result_dir=None):

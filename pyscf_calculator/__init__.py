@@ -1,5 +1,5 @@
 PLUGIN_NAME = "PySCF Calculator"
-PLUGIN_VERSION = "1.4.0"
+PLUGIN_VERSION = "1.4.1"
 PLUGIN_AUTHOR = "HiroYokoyama"
 PLUGIN_DESCRIPTION = (
     "Perform PySCF quantum chemistry calculations directly in MoleditPy. "
@@ -33,6 +33,25 @@ def initialize(context):
     
     # --- UI ---
     dialog_instance = None
+    
+    def handle_reset():
+        nonlocal dialog_instance
+        # 1. Clear Global Settings (Model)
+        # Remove association with previous file
+        if "associated_filename" in PLUGIN_SETTINGS:
+            del PLUGIN_SETTINGS["associated_filename"]
+        if "calc_history" in PLUGIN_SETTINGS:
+            del PLUGIN_SETTINGS["calc_history"]
+        if "struct_source" in PLUGIN_SETTINGS:
+            del PLUGIN_SETTINGS["struct_source"]
+            
+        # 2. Reset Dialog UI (View)
+        if dialog_instance is not None:
+             if hasattr(dialog_instance, 'on_document_reset'):
+                 dialog_instance.on_document_reset()
+                 
+    context.register_document_reset_handler(handle_reset)
+    
     
     def show_dialog():
         nonlocal dialog_instance

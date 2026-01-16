@@ -79,21 +79,36 @@ class StreamToSignal(io.TextIOBase):
     def __init__(self, signal, target_stream=None):
         self.signal = signal
         self.target_stream = target_stream
+        self._destroyed = False  # Track if we should stop emitting
         
     def write(self, text):
-        self.signal.emit(text)
+        # Safety: Only emit if signal is still valid
+        if not self._destroyed and self.signal:
+            try:
+                self.signal.emit(text)
+            except (RuntimeError, AttributeError):
+                # Signal connection destroyed or Worker deleted
+                # Mark as destroyed to prevent future attempts
+                self._destroyed = True
+        
+        # Always try to write to target stream as fallback
         if self.target_stream:
             try:
                 self.target_stream.write(text)
                 self.target_stream.flush()
-            except: pass
+            except: 
+                pass
             
     def flush(self):
         if self.target_stream:
-            try: self.target_stream.flush()
-            except: pass
+            try: 
+                self.target_stream.flush()
+            except: 
+                pass
             
     def close(self):
+        # Mark as destroyed to stop signal emissions
+        self._destroyed = True
         # Do not close system stdout here
         pass
 
@@ -548,9 +563,10 @@ class PySCFWorker(QThread):
                         td_obj.kernel()
                         
                         # Reporting
+                        # Reporting
                         self.log_signal.emit("\n===== TDDFT Results =====\n")
-                        self.log_signal.emit(f"{'State':<6} {'Energy (eV)':<12} {'Osc. Str.':<10}\n")
-                        self.log_signal.emit("-" * 30 + "\n")
+                        self.log_signal.emit(f"{'State':<6} {'Energy (eV)':<12} {'Wavelen (nm)':<12} {'Osc. Str.':<10}\n")
+                        self.log_signal.emit("-" * 45 + "\n")
                         
                         # Results Extraction
                         # td_obj.e_tot are total energies of Excited States
@@ -577,19 +593,39 @@ class PySCFWorker(QThread):
                         for i, e_exc_tot in enumerate(energies_exc):
                             exc_energy_au = e_exc_tot - e_ground
                             exc_ev = exc_energy_au * HARTREE_TO_EV
+                            
+                            # Convert to nm: 1239.84193 / eV
+                            if abs(exc_ev) > 1e-6:
+                                exc_nm = 1239.84193 / exc_ev
+                            else:
+                                exc_nm = float('inf')
+                                
                             osc = oscs[i] if i < len(oscs) else 0.0
                             
-                            self.log_signal.emit(f"{i+1:<6} {exc_ev:<12.4f} {osc:<10.4f}\n")
+                            self.log_signal.emit(f"{i+1:<6} {exc_ev:<12.4f} {exc_nm:<12.2f} {osc:<10.4f}\n")
                             
                             tddft_list.append({
                                 "state": i+1,
                                 "energy_total": e_exc_tot,
                                 "excitation_energy_ev": exc_ev,
+                                "wavelength_nm": exc_nm,
                                 "oscillator_strength": osc
                             })
                             
                         results["tddft_data"] = tddft_list
-                        self.log_signal.emit("-" * 30 + "\n")
+                        self.log_signal.emit("-" * 45 + "\n")
+                        
+                        # --- Persist Results to File ---
+                        try:
+                            res_file = os.path.join(self.out_dir, "tddft_results.txt")
+                            with open(res_file, "w") as f:
+                                f.write(f"{'State':<6} {'Energy (eV)':<12} {'Wavelen (nm)':<12} {'Osc. Str.':<10}\n")
+                                f.write("-" * 45 + "\n")
+                                for item in tddft_list:
+                                    f.write(f"{item['state']:<6} {item['excitation_energy_ev']:<12.4f} {item['wavelength_nm']:<12.2f} {item['oscillator_strength']:<10.4f}\n")
+                            self.log_signal.emit(f"TDDFT results saved to: {res_file}\n")
+                        except Exception as e_save:
+                             self.log_signal.emit(f"Warning: Failed to save TDDFT text result: {e_save}\n")
                         
                     except Exception as e_td:
                         self.log_signal.emit(f"TDDFT calculation failed: {e_td}\n{traceback.format_exc()}\n")
@@ -613,38 +649,60 @@ class PySCFWorker(QThread):
                 # Note: mo_energy might be list if loaded from chkfile without full object?
                 # Check ndim or length.
                 
+                # Pass energy/occupancy to GUI for Diagram
+                # Handle UHF (tuple) vs RHF (array)
+                # Note: mo_energy might be list if loaded from chkfile without full object?
+                # Check ndim or length.
+                
                 is_uhf = False
-                if isinstance(mf.mo_energy, tuple):
-                     is_uhf = True
-                elif isinstance(mf.mo_energy, list) and len(mf.mo_energy) == 2:
-                     # Check content types?
-                     if hasattr(mf.mo_energy[0], '__len__'):
-                         is_uhf = True
-                elif hasattr(mf.mo_energy, 'ndim') and mf.mo_energy.ndim == 2:
-                     is_uhf = True
-                     
-                if is_uhf:
-                     # Convert to list of lists for JSON safety/GUI compatibility
-                     # Use safe list conversion
-                     def to_l(arr):
-                         return arr.tolist() if hasattr(arr, 'tolist') else list(arr)
-                     
-                     if isinstance(mf.mo_energy, tuple):
-                         e_a, e_b = mf.mo_energy
-                         o_a, o_b = mf.mo_occ
-                     else:
-                         e_a, e_b = mf.mo_energy[0], mf.mo_energy[1]
-                         o_a, o_b = mf.mo_occ[0], mf.mo_occ[1]
-                         
-                     results["mo_energy"] = [to_l(e_a), to_l(e_b)]
-                     results["mo_occ"] = [to_l(o_a), to_l(o_b)]
-                     results["scf_type"] = "UHF"
-                else:
-                     val = mf.mo_energy
-                     occ = mf.mo_occ
-                     results["mo_energy"] = val.tolist() if hasattr(val, 'tolist') else list(val)
-                     results["mo_occ"] = occ.tolist() if hasattr(occ, 'tolist') else list(occ)
+                
+                # Defensive check for None
+                if mf.mo_energy is None or mf.mo_occ is None:
+                     self.log_signal.emit("Warning: No MO energy/occupancy data found.\n")
+                     results["mo_energy"] = []
+                     results["mo_occ"] = []
                      results["scf_type"] = "RHF"
+                else:
+                    if isinstance(mf.mo_energy, tuple):
+                         is_uhf = True
+                    elif isinstance(mf.mo_energy, list) and len(mf.mo_energy) == 2:
+                         # Check content types?
+                         if hasattr(mf.mo_energy[0], '__len__'):
+                             is_uhf = True
+                    elif hasattr(mf.mo_energy, 'ndim') and mf.mo_energy.ndim == 2:
+                         is_uhf = True
+                         
+                    # Use safe list conversion helper
+                    def to_l(arr):
+                        if arr is None: return []
+                        return arr.tolist() if hasattr(arr, 'tolist') else list(arr)
+                    
+                    try:
+                        if is_uhf:
+                             if isinstance(mf.mo_energy, tuple):
+                                 e_a, e_b = mf.mo_energy
+                                 o_a, o_b = mf.mo_occ
+                             else:
+                                 # Access by index safely
+                                 e_a = mf.mo_energy[0]
+                                 e_b = mf.mo_energy[1] if len(mf.mo_energy) > 1 else []
+                                 o_a = mf.mo_occ[0]
+                                 o_b = mf.mo_occ[1] if len(mf.mo_occ) > 1 else []
+                                 
+                             results["mo_energy"] = [to_l(e_a), to_l(e_b)]
+                             results["mo_occ"] = [to_l(o_a), to_l(o_b)]
+                             results["scf_type"] = "UHF"
+                        else:
+                             val = mf.mo_energy
+                             occ = mf.mo_occ
+                             results["mo_energy"] = to_l(val)
+                             results["mo_occ"] = to_l(occ)
+                             results["scf_type"] = "RHF"
+                    except Exception as e_process:
+                        self.log_signal.emit(f"Error processing MO data: {e_process}\n")
+                        results["mo_energy"] = []
+                        results["mo_occ"] = []
+
                 self.log_signal.emit(f"Checkpoint saved to: {chk_path}\n")
     
                 # --- Post Analysis (Optional Auto-Vis) ---
@@ -661,14 +719,27 @@ class PySCFWorker(QThread):
                 traceback.print_exc()
                 self.error_signal.emit(str(e))
             finally:
+                # CRITICAL: Close/destroy the StreamToSignal BEFORE restoring streams
+                # This prevents delayed print() calls from trying to emit signals
+                # after Worker cleanup, which causes segmentation faults
+                if 'stream' in locals() and hasattr(stream, 'close'):
+                    try:
+                        stream.close()  # Marks _destroyed = True
+                    except:
+                        pass
+                
                 # Restore Python streams
-                if 'original_stdout' in locals(): sys.stdout = original_stdout
-                if 'original_stderr' in locals(): sys.stderr = original_stderr
+                if 'original_stdout' in locals(): 
+                    sys.stdout = original_stdout
+                if 'original_stderr' in locals(): 
+                    sys.stderr = original_stderr
                 
                 # Restore C-Level FDs
                 if 'capturer' in locals():
-                    try: capturer.__exit__(None, None, None)
-                    except: pass
+                    try: 
+                        capturer.__exit__(None, None, None)
+                    except: 
+                        pass
 
         except Exception as e:
             self.error_signal.emit(str(e) + "\n" + traceback.format_exc())

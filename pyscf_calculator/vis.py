@@ -1,12 +1,16 @@
 import numpy as np
 import pyvista as pv
+import os
 from PyQt6.QtGui import QColor
 
-# --- Parsing Logic (Adapted from Cube File Viewer Plugin) ---
 def parse_cube_data(filename):
     """
     Parses a Gaussian Cube file and returns raw data structures.
+    Robust version with strict checks for file format.
     """
+    if not filename or not os.path.exists(filename):
+        raise FileNotFoundError(f"File not found: {filename}")
+        
     with open(filename, 'r') as f:
         lines = f.readlines()
 
@@ -14,75 +18,106 @@ def parse_cube_data(filename):
         raise ValueError("File too short to be a Cube file.")
 
     # --- Header Parsing ---
-    tokens = lines[2].split()
-    n_atoms_raw = int(tokens[0])
-    n_atoms = abs(n_atoms_raw)
-    origin_raw = np.array([float(tokens[1]), float(tokens[2]), float(tokens[3])])
+    try:
+        # Line 3: Natoms, Origin
+        tokens = lines[2].split()
+        if len(tokens) < 4: raise ValueError("Invalid Origin line")
+        n_atoms_raw = int(tokens[0])
+        n_atoms = abs(n_atoms_raw)
+        origin_raw = np.array([float(tokens[1]), float(tokens[2]), float(tokens[3])])
 
-    def parse_vec(line):
-        t = line.split()
-        return int(t[0]), np.array([float(t[1]), float(t[2]), float(t[3])])
+        def parse_vec(line):
+            t = line.split()
+            if len(t) < 4: raise ValueError("Invalid Axis line")
+            return int(t[0]), np.array([float(t[1]), float(t[2]), float(t[3])])
 
-    nx, x_vec_raw = parse_vec(lines[3])
-    ny, y_vec_raw = parse_vec(lines[4])
-    nz, z_vec_raw = parse_vec(lines[5])
-    
-    is_angstrom_header = (nx < 0 or ny < 0 or nz < 0)
-    nx, ny, nz = abs(nx), abs(ny), abs(nz)
+        nx, x_vec_raw = parse_vec(lines[3])
+        ny, y_vec_raw = parse_vec(lines[4])
+        nz, z_vec_raw = parse_vec(lines[5])
+        
+        is_angstrom_header = (nx < 0 or ny < 0 or nz < 0)
+        nx, ny, nz = abs(nx), abs(ny), abs(nz)
+        
+    except Exception as e:
+        raise ValueError(f"Header parsing failed: {e}")
 
     # --- Atoms Parsing ---
     atoms = []
     current_line = 6
+    
+    # Skip extra header line if n_atoms_raw < 0 (MO info line usually)
     if n_atoms_raw < 0:
-        try:
-            parts = lines[current_line].split()
-            if len(parts) != 5: 
+        if current_line < len(lines):
+             parts = lines[current_line].split()
+             # MO info line usually has 2 integers, but strict check isn't needed, just skip it
+             try: 
+                 # Heuristic: if it looks like an atom line (5 chars), don't skip?
+                 # Standard: if N < 0, next line is MO info.
+                 # Let's verify if the *next* line looks like an atom.
+                 _ = int(parts[0]) 
+                 # Actually, standard behavior is unconditional skip
                  current_line += 1
-        except:
-             current_line += 1
+             except:
+                 current_line += 1
 
     for _ in range(n_atoms):
+        if current_line >= len(lines): break
         line = lines[current_line].split()
         current_line += 1
-        atomic_num = int(line[0])
+        
         try:
+            if len(line) < 5: 
+                # Potentially empty line or malformed
+                continue
+            atomic_num = int(line[0])
             x, y, z = float(line[2]), float(line[3]), float(line[4])
+            atoms.append((atomic_num, np.array([x, y, z])))
         except:
-            x, y, z = 0.0, 0.0, 0.0
-        atoms.append((atomic_num, np.array([x, y, z])))
+             # Skip malformed atom line
+             continue
 
     # --- Volumetric Data Parsing ---
+    # Find start of data
     while current_line < len(lines):
         line_content = lines[current_line].strip()
         parts = line_content.split()
         if not parts:
             current_line += 1
             continue
-        if len(parts) < 6:
-            current_line += 1
-            continue
+        
+        # Check if this line looks like data (float)
         try:
             float(parts[0])
+            break # Start of data found
         except ValueError:
             current_line += 1
             continue
-        break
 
-    full_str = " ".join(lines[current_line:])
-    try:
-        data_values = np.fromstring(full_str, sep=' ')
-    except:
-        data_values = np.array([])
+    if current_line >= len(lines):
+        # Allow header-only validation if explicitly requested? 
+        # But for 'data', we need data.
+        # Fallback for empty data
+        data_values = np.zeros(nx * ny * nz)
+    else:
+        full_str = " ".join(lines[current_line:])
+        try:
+            data_values = np.fromstring(full_str, sep=' ')
+        except Exception:
+            data_values = np.array([])
     
     expected_size = nx * ny * nz
     actual_size = len(data_values)
     
+    # Correct size mismatches defensively
     if actual_size > expected_size:
-        excess = actual_size - expected_size
-        data_values = data_values[excess:]
+        # Truncate
+        data_values = data_values[:expected_size]
     elif actual_size < expected_size:
-        pad = np.zeros(expected_size - actual_size)
-        data_values = np.concatenate((data_values, pad))
+        # Pad with zeros
+        pad_size = expected_size - actual_size
+        if pad_size > 0:
+             pad = np.zeros(pad_size)
+             data_values = np.concatenate((data_values, pad))
     
     return {
         "atoms": atoms,
@@ -147,10 +182,20 @@ def build_grid_from_meta(meta):
 class CubeVisualizer:
     def __init__(self, mw):
         self.mw = mw
-        self.plotter = mw.plotter
+        # self.plotter = mw.plotter # Do not cache!
         self.current_grid = None
         self.actors = {} # Store actors by key
         self.data_max = 1.0
+
+    @property
+    def plotter(self):
+        if hasattr(self.mw, 'plotter') and self.mw.plotter is not None:
+             # Strict check: Ensure RenderWindow exists
+             try:
+                 if self.mw.plotter.ren_win:
+                     return self.mw.plotter
+             except: pass
+        return None
 
     def load_file(self, filename):
         try:
@@ -172,8 +217,12 @@ class CubeVisualizer:
         if not self.current_grid:
             return
 
-        # Clean previous actors
+        # Clean previous actors safely
         self.clear_actors()
+
+        # Input Validation
+        if isovalue is None or not isinstance(isovalue, (int, float)):
+             return
 
         # Calculate colors
         if use_comp_color:
@@ -195,27 +244,60 @@ class CubeVisualizer:
                 actor = self.plotter.add_mesh(iso_n, color=color_n, opacity=opacity, name="pyscf_iso_n", reset_camera=False)
                 self.actors["n"] = actor
             
-            self.plotter.render()
+            if self.plotter:
+                self.plotter.render()
         except Exception as e:
-            print(f"Iso update error: {e}")
+            # print(f"Iso update error: {e}")
+            pass
 
     def clear_actors(self):
-        # Remove actors if they exist
-        # We can remove by name if we used name argument
-        self.plotter.remove_actor("pyscf_iso_p")
-        self.plotter.remove_actor("pyscf_iso_n")
+        # Remove actors if they exist and plotter is valid
+        if not hasattr(self, 'plotter') or self.plotter is None:
+             return
+             
+        try:
+            self.plotter.remove_actor("pyscf_iso_p")
+            self.plotter.remove_actor("pyscf_iso_n")
+        except: pass
+        
         self.actors.clear()
-        self.plotter.render()
+        # Do NOT render here. Caller handles it. Rendering on close causes crashes.
+        # try: self.plotter.render()
+        # except: pass
 
 class MappedVisualizer:
     def __init__(self, mw):
         self.mw = mw
-        self.plotter = mw.plotter
+        # self.plotter = mw.plotter # Do not cache
         self.grid_surf = None
         self.grid_prop = None
         self.actor = None
         self.data_surf_max = 1.0
         self.data_prop_range = (-0.1, 0.1)
+        
+    @property
+    def plotter(self):
+        if hasattr(self.mw, 'plotter') and self.mw.plotter is not None:
+             try:
+                 if self.mw.plotter.ren_win:
+                     return self.mw.plotter
+             except: pass
+        return None
+
+    def clear_actors(self):
+        # Remove actors if they exist and plotter is valid
+        if not self.plotter:
+             return
+
+        try:
+            if self.actor:
+                self.plotter.remove_actor(self.actor)
+                self.actor = None 
+            self.plotter.remove_actor("pyscf_mapped")
+        except: pass
+        
+        # Do NOT render here.
+        # self.plotter.render()
 
     def load_files(self, surf_file, prop_file):
         try:
@@ -268,10 +350,7 @@ class MappedVisualizer:
 
         try:
             # Clean
-            if self.actor:
-                self.plotter.remove_actor(self.actor)
-                self.actor = None 
-            self.plotter.remove_actor("pyscf_mapped")
+            self.clear_actors()
 
             # Contour Surface
             # The surface grid data is "values"
@@ -285,6 +364,10 @@ class MappedVisualizer:
             # Sample: 'resample_to_image' or 'sample'
             # grid_prop is a StructuredGrid. sample function expects DataSet.
             mapped = iso.sample(self.grid_prop)
+            
+            # Check sampling result
+            if mapped is None or mapped.n_points == 0:
+                 return
             
             # The sampled data will be in mapped.point_data["values"] (from prop grid)
             
@@ -302,7 +385,8 @@ class MappedVisualizer:
                 reset_camera=False
             )
             
-            self.plotter.render()
+            if self.plotter:
+                self.plotter.render()
             
         except Exception as e:
             print(f"Mapped update error: {e}")
@@ -310,7 +394,13 @@ class MappedVisualizer:
             traceback.print_exc()
 
     def clear_actors(self):
-        if self.actor:
-            self.plotter.remove_actor(self.actor)
-        self.plotter.remove_actor("pyscf_mapped")
-        self.plotter.render()
+        if not hasattr(self, 'plotter') or self.plotter is None: return
+
+        try:
+            if self.actor:
+                self.plotter.remove_actor(self.actor)
+                self.actor = None 
+            self.plotter.remove_actor("pyscf_mapped")
+            # Do NOT render here.
+            # self.plotter.render()
+        except: pass

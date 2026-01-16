@@ -220,23 +220,31 @@ class FreqVisualizer(QWidget):
 
     def update_vectors(self):
         # CLEANUP: Remove vectors and OTHER actors (Orbital/Mapped)
-        if hasattr(self.mw, 'plotter'):
-            if self.vector_actor:
-                self.mw.plotter.remove_actor(self.vector_actor)
-                self.vector_actor = None
-            
-            # Remove potential orbital actors to avoid interference
-            self.mw.plotter.remove_actor("pyscf_iso_p")
-            self.mw.plotter.remove_actor("pyscf_iso_n")
-            self.mw.plotter.remove_actor("pyscf_mapped")
+        if hasattr(self.mw, 'plotter') and self.mw.plotter:
+            try:
+                if self.vector_actor:
+                    self.mw.plotter.remove_actor(self.vector_actor)
+                    self.vector_actor = None
+                
+                # Remove potential orbital actors to avoid interference
+                self.mw.plotter.remove_actor("pyscf_iso_p")
+                self.mw.plotter.remove_actor("pyscf_iso_n")
+                self.mw.plotter.remove_actor("pyscf_mapped")
+            except: pass
             
         if not self.chk_vectors.isChecked(): 
-            if hasattr(self.mw, 'plotter'): self.mw.plotter.render()
+            try:
+                if hasattr(self.mw, 'plotter') and self.mw.plotter: 
+                    self.mw.plotter.render()
+            except: pass
             return
             
         item = self.list_freq.currentItem()
         if not item: # Select None case
-            if hasattr(self.mw, 'plotter'): self.mw.plotter.render()
+            try:
+                if hasattr(self.mw, 'plotter') and self.mw.plotter: 
+                    self.mw.plotter.render()
+            except: pass
             return
 
         idx = self.list_freq.indexOfTopLevelItem(item)
@@ -251,8 +259,9 @@ class FreqVisualizer(QWidget):
         
         # Add Arrows
         try:
-           self.vector_actor = self.mw.plotter.add_arrows(coords, vectors, mag=scale, color='lightgreen', show_scalar_bar=False)
-           self.mw.plotter.render()
+           if hasattr(self.mw, 'plotter') and self.mw.plotter:
+               self.vector_actor = self.mw.plotter.add_arrows(coords, vectors, mag=scale, color='lightgreen', show_scalar_bar=False)
+               self.mw.plotter.render()
         except: pass
 
     def animate_frame(self):
@@ -290,10 +299,14 @@ class FreqVisualizer(QWidget):
              self.mw.draw_molecule_3d(self.mol)
         
         # Remove vectors during animation to avoid clutter/mismatch
-        if self.vector_actor and hasattr(self.mw, 'plotter'):
-             self.mw.plotter.remove_actor(self.vector_actor)
-             self.vector_actor = None
-        self.mw.plotter.render()
+        try:
+            if self.vector_actor and hasattr(self.mw, 'plotter') and self.mw.plotter:
+                 self.mw.plotter.remove_actor(self.vector_actor)
+                 self.vector_actor = None
+            
+            if hasattr(self.mw, 'plotter') and self.mw.plotter:
+                 self.mw.plotter.render()
+        except: pass
 
 
 
@@ -425,10 +438,18 @@ class FreqVisualizer(QWidget):
             if was_playing: self.toggle_play()
 
     def cleanup(self):
-        if hasattr(self.mw, 'plotter') and self.vector_actor:
-             self.mw.plotter.remove_actor(self.vector_actor)
-             self.vector_actor = None
-             self.mw.plotter.render()
+        try:
+            # Stop Timer explicitly to prevent callbacks after destruction
+            if hasattr(self, 'timer') and self.timer.isActive():
+                self.timer.stop()
+            self.is_playing = False
+            
+            if hasattr(self.mw, 'plotter') and self.mw.plotter and self.vector_actor:
+                 self.mw.plotter.remove_actor(self.vector_actor)
+                 self.vector_actor = None
+                 # Do NOT render during cleanup. It causes Segfaults (0x100).
+                 # self.mw.plotter.render() 
+        except: pass
 
 class SpectrumDialog(QDialog):
     def __init__(self, freqs, intensities, title="IR Spectrum", parent=None):
