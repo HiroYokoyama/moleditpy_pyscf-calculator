@@ -108,6 +108,28 @@ class PySCFDialog(QDialog):
         # 3. Memory
         if hasattr(self, 'spin_memory'):
              self.spin_memory.setValue(local_settings.get("memory", 4000))
+
+        # 4. Calculation Settings Defaults
+        if hasattr(self, 'job_type_combo'):
+            self.job_type_combo.setCurrentText("Optimization + Frequency")
+        if hasattr(self, 'method_combo'):
+            self.method_combo.setCurrentText("RKS")
+        if hasattr(self, 'functional_combo'):
+            self.functional_combo.setCurrentText("b3lyp")
+        if hasattr(self, 'basis_combo'):
+            self.basis_combo.setCurrentText("sto-3g")
+        if hasattr(self, 'charge_input'):
+            self.charge_input.setCurrentText("0")
+        if hasattr(self, 'spin_input'):
+            self.spin_input.setCurrentIndex(0) # Singlet
+        if hasattr(self, 'check_symmetry'):
+            self.check_symmetry.setChecked(False)
+        if hasattr(self, 'check_break_sym'):
+            self.check_break_sym.setChecked(False)
+        if hasattr(self, 'spin_cycles'):
+            self.spin_cycles.setValue(100)
+        if hasattr(self, 'edit_conv'):
+            self.edit_conv.setText("1e-9")
         
         # Clear Visualizations
         if hasattr(self, 'clear_3d_actors'):
@@ -117,6 +139,38 @@ class PySCFDialog(QDialog):
              self.file_list.clear()
         if hasattr(self, 'orb_list'):
              self.orb_list.clear()
+
+        # Cleanup Frequency Dock
+        if hasattr(self, 'freq_vis') and self.freq_vis:
+            try: self.freq_vis.cleanup()
+            except: pass
+            self.freq_vis = None
+
+        if hasattr(self, 'freq_dock') and self.freq_dock:
+             mw = self.context.get_main_window()
+             if mw:
+                 try: mw.removeDockWidget(self.freq_dock)
+                 except: pass
+             self.freq_dock.close()
+             self.freq_dock.deleteLater()
+             self.freq_dock = None
+
+        # Clear Checkpoint Path
+        self.chkfile_path = None
+
+        # Reset Result Path Display
+        if hasattr(self, 'result_path_display'):
+             self.result_path_display.clear()
+        
+        # Disable Buttons
+        self.btn_load_geom.setEnabled(False)
+        self.btn_run_analysis.setEnabled(False) 
+        self.btn_show_diagram.setEnabled(False)
+        self.btn_show_thermo.setEnabled(False)
+
+        # Clear Structure Source Label
+        if hasattr(self, 'lbl_struct_source'):
+            self.lbl_struct_source.setText("")
              
         if hasattr(self, 'log_text'):
              self.log_text.clear()
@@ -1725,76 +1779,61 @@ class PySCFDialog(QDialog):
 
     def on_prop_results(self, result_data):
         if self.closing: return
-        files = result_data.get("files", [])
-        files.sort() # Sort A-Z
-        self.log(f"Generated {len(files)} new files.")
         
-        last_added_item = None
-        new_esp_item = None
-        
-        # Add to file list if not exists
-        for fpath in files:
-            name = os.path.basename(fpath)
+        # User Feedback
+        new_files = result_data.get("files", [])
+        if new_files:
+            self.log(f"Generated {len(new_files)} new files.")
             
-            # Check/Add to list
-            found_item = None
-            for i in range(self.file_list.count()):
-                it = self.file_list.item(i)
-                if it.toolTip() == fpath:
-                    found_item = it
-                    break
-            
-            if not found_item:
-                item = QListWidgetItem(name)
-                item.setToolTip(fpath)
-                self.file_list.addItem(item)
-                found_item = item
-            
-            last_added_item = found_item
-            
-            # Check if this NEW file is an ESP file
-            if name.startswith("esp") and name.endswith(".cube"):
-                new_esp_item = found_item
-        
-        # Re-sort the file list alphabetically
-        all_items = []
-        for i in range(self.file_list.count()):
-            item = self.file_list.item(i)
-            all_items.append((item.text(), item.toolTip()))
-        
-        # Store paths for reference (not item objects which will be deleted)
-        last_path = last_added_item.toolTip() if last_added_item else None
-        esp_path = new_esp_item.toolTip() if new_esp_item else None
-        
-        all_items.sort(key=lambda x: x[0])  # Sort by filename
-        
+        # CRITICAL FIX: Always rescan directory to ensure list is in sync with disk
+        # This handles cases where files are overwritten or existing files need to be shown
         self.file_list.clear()
-        last_added_item = None
-        new_esp_item = None
         
-        for name, path in all_items:
-            item = QListWidgetItem(name)
-            item.setToolTip(path)
-            self.file_list.addItem(item)
-            # Update references
-            if path == last_path:
-                last_added_item = item
-            if path == esp_path:
-                new_esp_item = item
-        
-        # Auto-select prioritization
-        # Only select ESP if it was in the NEW results
-        if last_added_item:
-             self.file_list.setCurrentItem(last_added_item)
-             self.file_list.scrollToItem(last_added_item)
-             # Trigger visual update (via on_file_selected)
-             self.on_file_selected(last_added_item)
-        
-        # Prioritize ESP if generated
-        if new_esp_item:
-             self.file_list.setCurrentItem(new_esp_item)
-             self.file_list.scrollToItem(new_esp_item)
-             self.on_file_selected(new_esp_item)
+        d = getattr(self, 'last_out_dir', None)
+        if not d and hasattr(self, 'chkfile_path') and self.chkfile_path:
+             d = os.path.dirname(self.chkfile_path)
+             
+        if d and os.path.exists(d):
+            import glob
+            cubes = glob.glob(os.path.join(d, "*.cube"))
+            cubes.sort() # A-Z
+            
+            last_item = None
+            target_item = None
+            
+            # Find the "most interesting" new file to select (ESP or last generated)
+            target_path = None
+            if new_files:
+                # Prefer ESP if in new files
+                for nf in new_files:
+                    if "esp" in os.path.basename(nf).lower():
+                        target_path = nf
+                        break
+                # Fallback to last new file
+                if not target_path:
+                    target_path = new_files[-1]
+
+            for c in cubes:
+                name = os.path.basename(c)
+                item = QListWidgetItem(name)
+                item.setToolTip(c)
+                self.file_list.addItem(item)
+                
+                # Check match for selection
+                if target_path and os.path.normpath(c) == os.path.normpath(target_path):
+                    target_item = item
+                
+                last_item = item
+            
+            # Auto-select
+            if target_item:
+                 self.file_list.setCurrentItem(target_item)
+                 self.file_list.scrollToItem(target_item)
+                 self.on_file_selected(target_item)
+            elif last_item and new_files: # If we made files but didn't specific match, select last
+                 self.file_list.setCurrentItem(last_item)
+                 self.file_list.scrollToItem(last_item)
+                 self.on_file_selected(last_item)
 
     def on_results(self, result_data):
         # Handle post-processing, e.g., visualization
@@ -1835,6 +1874,8 @@ class PySCFDialog(QDialog):
              self.struct_source = f"optimized from {src_name} ({src_path})"
              if hasattr(self, 'lbl_struct_source'):
                   self.lbl_struct_source.setText(f"Structure Source: {self.struct_source}")
+                  # Force repaint to ensure UI updates immediately
+                  self.lbl_struct_source.repaint()
         
         # Store Energy Data
         if result_data.get("mo_energy"):
@@ -1849,6 +1890,7 @@ class PySCFDialog(QDialog):
              # self.show_energy_diagram() # Disabled per user request
              
              # Populate Analysis Options (Crucial for SOMO/Orbital List update)
+             self.log("Updating Analysis Options List based on new results...")
              self.populate_analysis_options()
 
         # Store chkfile & path
@@ -1872,21 +1914,40 @@ class PySCFDialog(QDialog):
             
             self.save_settings()
 
-        if result_data.get("cube_files"):
-            # Inform user about generated cube files
-            files = result_data["cube_files"]
-            files.sort() # Sort A-Z
-            self.log(f"Generated Cube Files: {len(files)}")
+        # CRITICAL FIX: Robustly scan for cube files regardless of result_data
+        # This ensures we show all files even if they were pre-existing or somehow not reported
+        if self.last_out_dir and os.path.exists(self.last_out_dir):
+            import glob
+            cubes = glob.glob(os.path.join(self.last_out_dir, "*.cube"))
+            cubes.sort()
             
-            # Add to list
-            self.file_list.clear() 
-            for fpath in files:
-                name = os.path.basename(fpath)
-                item = QListWidgetItem(name)
-                item.setToolTip(fpath)
-                self.file_list.addItem(item)
-
-            self.tabs.setCurrentIndex(1)
+            if result_data.get("cube_files"):
+                 self.log(f"Generated Cube Files reported: {len(result_data['cube_files'])}")
+            
+            if cubes:
+                self.log(f"Found {len(cubes)} visualization files in output directory.")
+                self.file_list.clear()
+                for c in cubes:
+                    name = os.path.basename(c)
+                    item = QListWidgetItem(name)
+                    item.setToolTip(c)
+                    self.file_list.addItem(item)
+                
+                # Auto-select the last one if we have new files reported
+                if result_data.get("cube_files"):
+                     # Try to select the last generated file
+                     last_gen = result_data["cube_files"][-1]
+                     for i in range(self.file_list.count()):
+                         it = self.file_list.item(i)
+                         if os.path.normpath(it.toolTip()) == os.path.normpath(last_gen):
+                             self.file_list.setCurrentItem(it)
+                             self.file_list.scrollToItem(it)
+                             break
+            else:
+                 self.file_list.clear() # Clear if no cubes found
+        
+        # User Request: Auto-Switch to Visualization Tab when calculation completes
+        self.tabs.setCurrentIndex(1)
             
         if result_data.get("freq_data"):
              self.log("Frequency Analysis available.")
@@ -1964,7 +2025,7 @@ class PySCFDialog(QDialog):
              return
 
         # Guard against double-loading
-        if hasattr(self, 'load_worker') and self.load_worker.isRunning():
+        if hasattr(self, 'load_worker') and self.load_worker and self.load_worker.isRunning():
             QMessageBox.warning(self, "Busy", "A result is already loading. Please wait.")
             return
 
@@ -2048,6 +2109,7 @@ class PySCFDialog(QDialog):
          # 4. Scan for Visualization Files
          self.file_list.clear()
          d = self.last_out_dir
+         cubes = []
          if d and os.path.exists(d):
              # Cubes
              cubes = glob.glob(os.path.join(d, "*.cube"))
