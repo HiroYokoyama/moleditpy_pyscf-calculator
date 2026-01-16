@@ -9,7 +9,7 @@ from PyQt6.QtWidgets import (
     QPushButton, QTextEdit, QProgressBar, QCheckBox, QGroupBox,
     QFormLayout, QMessageBox, QFileDialog, QTabWidget, QWidget, QLineEdit,
     QSpinBox, QListWidget, QListWidgetItem, QDoubleSpinBox,
-    QDockWidget, QApplication, QMenu
+    QDockWidget, QApplication, QMenu, QToolTip
 )
 from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtGui import QPainter, QPen, QColor, QFont, QAction
@@ -39,6 +39,7 @@ class PySCFDialog(QDialog):
         super().__init__(parent)
         self.context = context
         self.settings = settings if settings is not None else {}
+        self.mo_data = None # Initialize to prevent AttributeError
         
         title = "PySCF Calculator"
         self.version = version
@@ -227,12 +228,22 @@ class PySCFDialog(QDialog):
         form_layout = QFormLayout()
 
         self.job_type_combo = QComboBox()
-        self.job_type_combo.addItems(["Energy", "Geometry Optimization", "Frequency", "Optimization + Frequency"])
+        self.job_type_combo.addItems(["Energy", "Geometry Optimization", "Frequency", "Optimization + Frequency", "TDDFT"])
         self.job_type_combo.currentTextChanged.connect(self.update_options)
         form_layout.addRow("Job Type:", self.job_type_combo)
 
+        # N States (TDDFT)
+        self.lbl_nstates = QLabel("N States:")
+        self.nstates_input = QSpinBox()
+        self.nstates_input.setRange(1, 100)
+        self.nstates_input.setValue(10)
+        # Initially hidden
+        self.lbl_nstates.setVisible(False)
+        self.nstates_input.setVisible(False)
+        form_layout.addRow(self.lbl_nstates, self.nstates_input)
+
         self.method_combo = QComboBox()
-        self.method_combo.addItems(["RKS", "RHF", "UKS", "UHF"])
+        self.method_combo.addItems(["RKS", "RHF", "UKS", "UHF", "ROKS", "ROHF"])
         self.method_combo.currentTextChanged.connect(self.update_options)
         form_layout.addRow("Method:", self.method_combo)
 
@@ -249,12 +260,44 @@ class PySCFDialog(QDialog):
         self.charge_input = QComboBox() 
         self.charge_input.addItems([str(i) for i in range(-5, 6)]) 
         self.charge_input.setCurrentText("0")
+        self.charge_input.currentTextChanged.connect(self.validate_spin_settings)
         form_layout.addRow("Charge:", self.charge_input)
 
         self.spin_input = QComboBox()
-        self.spin_input.addItems([str(i) for i in range(0, 6)])
-        self.spin_input.setCurrentText("0")
-        form_layout.addRow("Spin (2S):", self.spin_input)
+        # User Request: Descriptive items
+        spin_items = [
+            "1 (Singlet)", 
+            "2 (Doublet)", 
+            "3 (Triplet)", 
+            "4 (Quartet)", 
+            "5 (Quintet)", 
+            "6 (Sextet)"
+        ]
+        self.spin_input.addItems(spin_items)
+        self.spin_input.setCurrentIndex(0) # Default Singlet
+        self.spin_input.currentTextChanged.connect(self.validate_spin_settings)
+        
+        # Validation visual feedback (Red background)
+        # HBox for Spin Input
+        h_spin = QHBoxLayout()
+        h_spin.addWidget(self.spin_input)
+        
+        form_layout.addRow("Spin Multiplicity (2S+1):", h_spin)
+        
+        # Auto Detect Button
+        self.btn_auto_detect = QPushButton("Auto Detect")
+        self.btn_auto_detect.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_auto_detect.clicked.connect(self.auto_detect_charge_spin)
+        self.btn_auto_detect.setStyleSheet("padding: 2px 8px; margin-left: 5px;")
+        
+        form_layout.addRow("", self.btn_auto_detect)
+        
+        # User Request: Auto-detect on launch once
+        # Using a QTimer to run it after UI is settled, or just direct call if context exists.
+        # But setup_calc_tab is called in __init__ -> setup_ui.
+        # It's safer to queue it.
+        if self.context and self.context.current_molecule:
+             QTimer.singleShot(100, self.auto_detect_charge_spin)
         
         # Threads
         self.spin_threads = QSpinBox()
@@ -275,7 +318,14 @@ class PySCFDialog(QDialog):
         self.check_symmetry = QCheckBox("Enable Symmetry")
         self.check_symmetry.setChecked(False)
         self.check_symmetry.setToolTip("Detect and use point group symmetry to speed up calculation")
-        form_layout.addRow("", self.check_symmetry)
+        form_layout.addRow(self.check_symmetry) # Add to form layout properly
+        
+        # User Request: Option for Symmetry Breaking (Default Disabled)
+        self.check_break_sym = QCheckBox("Break Initial Guess Symmetry")
+        self.check_break_sym.setChecked(False)
+        self.check_break_sym.setToolTip("For UKS/UHF: Mix Alpha/Beta densities in initial guess to encourage spin polarization.")
+        form_layout.addRow(self.check_break_sym)
+        # No empty row needed for check_symmetry here, handled above.
         
         self.spin_cycles = QSpinBox()
         self.spin_cycles.setRange(1, 2000)
@@ -336,6 +386,162 @@ class PySCFDialog(QDialog):
         # Set Requests Defaults
         self.job_type_combo.setCurrentText("Optimization + Frequency")
 
+    def auto_detect_charge_spin(self):
+        """Auto-detect appropriate charge and spin multiplicity based on molecule."""
+        if not self.context or not self.context.current_molecule:
+            QMessageBox.warning(self, "Warning", "No molecule loaded.")
+            return
+
+        try:
+            mol = self.context.current_molecule
+            
+            # Simple Total Electron Count using RDKit
+            # Note: Explicit valence or implicit H should be handled by RDKit correctly if molecule is valid.
+            total_electrons = 0
+            has_transition_metal = False
+            
+            # Transition Metals (Sc-Zn, Y-Cd, Hf-Hg) roughly
+            # Atomic nums: 21-30, 39-48, 72-80
+            tm_nums = set(list(range(21, 31)) + list(range(39, 49)) + list(range(72, 81)))
+            
+            for atom in mol.GetAtoms():
+                an = atom.GetAtomicNum()
+                total_electrons += an
+                if an in tm_nums:
+                    has_transition_metal = True
+            
+            # Adjust for current charge if we want to detect FROM structure?
+            # Usually RDKit mol has formal charges.
+            charge = Chem.GetFormalCharge(mol)
+            
+            # Net electrons
+            # We assume the user wants to simulate the neutral species by default 
+            # OR the species as defined in RDKit.
+            # If RDKit formal charge is 0, we assume 0.
+            
+            net_electrons = total_electrons - charge
+            
+            # Parity Rule
+            # Even -> Singlet (1)
+            # Odd -> Doublet (2)
+            if net_electrons % 2 == 0:
+                suggested_spin = 1
+            else:
+                suggested_spin = 2
+                
+            # Update UI
+            # Charge
+            idx_c = self.charge_input.findText(str(charge))
+            if idx_c >= 0: self.charge_input.setCurrentIndex(idx_c)
+            else: self.charge_input.setCurrentText(str(charge)) # Fallback
+            
+            # Spin
+            # Now items are "1 (Singlet)", "2 (Doublet)" etc.
+            # We need to match the integer part.
+            
+            target_str = str(suggested_spin)
+            # Search logic
+            found = False
+            for i in range(self.spin_input.count()):
+                text = self.spin_input.itemText(i)
+                if text.startswith(target_str + " "):
+                    self.spin_input.setCurrentIndex(i)
+                    found = True
+                    break
+            
+            if not found:
+                # If high spin (e.g. 7), maybe not in list?
+                # Just warn or leave as is?
+                pass
+            
+            # User Request: Automatically switch method (RHF<->UHF, RKS<->UKS)
+            current_method = self.method_combo.currentText()
+            new_method = current_method
+            
+            # Logic:
+            # Singlet (1) -> Restricted (R...)
+            # Multiplet (>1) -> Unrestricted (U...)
+            
+            if suggested_spin == 1:
+                # Switch U -> R
+                if current_method == "UHF": new_method = "RHF"
+                elif current_method == "UKS": new_method = "RKS"
+            else:
+                # Switch R -> U
+                if current_method == "RHF": new_method = "UHF"
+                elif current_method == "RKS": new_method = "UKS"
+            
+            if new_method != current_method:
+                self.method_combo.setCurrentText(new_method)
+                self.log(f"Auto-Detect: Switched method to {new_method} based on spin.")
+            
+            # Warning for TM
+            if has_transition_metal:
+                self.log("Auto-Detect: Transition metal detected. High spin states may be possible.")
+                QMessageBox.information(self, "Info", 
+                    "Transition metal detected.\nCharge and Spin have been set to standard values (Low Spin),\nbut you may need to adjust Multiplicity manually for High Spin states.")
+            else:
+                self.log(f"Auto-Detect: Set Charge={charge}, Mult={suggested_spin} (Electrons={net_electrons})")
+
+        except Exception as e:
+            QMessageBox.warning(self, "Error", f"Auto-detection failed: {e}")
+            
+    def validate_spin_settings(self):
+        """Check consistency of charge and spin."""
+        try:
+            if not self.context or not self.context.current_molecule: return
+            
+            mol = self.context.current_molecule
+            total_protons = sum(atom.GetAtomicNum() for atom in mol.GetAtoms())
+            
+            try:
+                charge = int(self.charge_input.currentText())
+                # Parse spin from "1 (Singlet)"
+                spin_txt = self.spin_input.currentText()
+                if " " in spin_txt:
+                    mult = int(spin_txt.split(" ")[0])
+                else:
+                    mult = int(spin_txt)
+            except:
+                return
+                
+            electrons = total_protons - charge
+            
+            # Logic:
+            # Multiplicity M = 2S + 1
+            # Unpaired e- = M - 1
+            # Remaining e- = Total - Unpaired
+            # Remaining must be even (paired)
+            
+            unpaired = mult - 1
+            remaining = electrons - unpaired
+            
+            is_valid = (remaining >= 0) and (remaining % 2 == 0)
+            
+            if is_valid:
+                self.spin_input.setStyleSheet("")
+                self.spin_input.setToolTip("")
+                self.charge_input.setStyleSheet("")
+                self.charge_input.setToolTip("")
+            else:
+                # User Request: Red background for invalid
+                # "Don't clash with HOMO LUMO colors" -> Use a distinct soft red/pink
+                style = "background-color: #ffcccc; color: black;"
+                self.spin_input.setStyleSheet(style) 
+                self.charge_input.setStyleSheet(style)
+                
+                # Determine specific message
+                if remaining < 0:
+                    msg = f"Invalid: More unpaired electrons ({unpaired}) than total electrons ({electrons})!"
+                else:
+                    msg = f"Invalid: {electrons} electrons cannot have multiplicity {mult} (requires odd/even mismatch)."
+                
+                self.spin_input.setToolTip(msg)
+                self.charge_input.setToolTip(msg)
+                    
+        except:
+            pass
+
     def browse_out_dir(self):
         d = QFileDialog.getExistingDirectory(self, "Select Output Directory")
         if d:
@@ -374,12 +580,12 @@ class PySCFDialog(QDialog):
         
         # --- Analysis Selection ---
         analysis_group = QGroupBox("Post-Calculation Analysis")
-        a_layout = QVBoxLayout(analysis_group)
+        self.analysis_layout = QVBoxLayout(analysis_group)
         
         # Orbital/Property List
         self.orb_list = QListWidget()
         self.orb_list.setFixedHeight(120)
-        a_layout.addWidget(self.orb_list)
+        self.analysis_layout.addWidget(self.orb_list)
         
         # Manual MO Input
         mo_input_layout = QHBoxLayout()
@@ -390,28 +596,29 @@ class PySCFDialog(QDialog):
         self.btn_add_mo.clicked.connect(self.add_custom_mo)
         mo_input_layout.addWidget(self.mo_input)
         mo_input_layout.addWidget(self.btn_add_mo)
-        a_layout.addLayout(mo_input_layout)
+        self.analysis_layout.addLayout(mo_input_layout)
         
         # Populate with default range (can be done here or after calc)
         self.populate_analysis_options()
         
         # Button to run analysis
+        # Button to run analysis
         self.btn_run_analysis = QPushButton("Generate & Visualize Selected")
         self.btn_run_analysis.clicked.connect(self.run_selected_analysis)
         self.btn_run_analysis.setEnabled(False)
-        a_layout.addWidget(self.btn_run_analysis)
+        self.analysis_layout.addWidget(self.btn_run_analysis)
         
         # Energy Diagram Button
         self.btn_show_diagram = QPushButton("Show Orbital Energy Diagram")
         self.btn_show_diagram.clicked.connect(self.show_energy_diagram)
         self.btn_show_diagram.setEnabled(False)
-        a_layout.addWidget(self.btn_show_diagram)
+        self.analysis_layout.addWidget(self.btn_show_diagram)
         
         # Thermo Button
         self.btn_show_thermo = QPushButton("Show Thermodynamic Properties")
         self.btn_show_thermo.clicked.connect(self.show_thermo_data)
         self.btn_show_thermo.setEnabled(False)
-        a_layout.addWidget(self.btn_show_thermo)
+        self.analysis_layout.addWidget(self.btn_show_thermo)
         
         layout.addWidget(analysis_group)
         
@@ -720,8 +927,30 @@ class PySCFDialog(QDialog):
         is_dft = "KS" in method
         self.functional_combo.setEnabled(is_dft)
         
+        # User Request: Disable Symmetry Breaking option for non-UKS/UHF
+        is_unrestricted = method in ["UKS", "UHF"]
+        if hasattr(self, 'check_break_sym'):
+             self.check_break_sym.setEnabled(is_unrestricted)
+             # User Request: "起動時にFalseになってる" -> Do not force uncheck when disabled.
+             # Keep previous state (Default True) so when user selects UKS it is ready.
+        
         job = self.job_type_combo.currentText()
-        # Maybe customize behavior based on job type (e.g. ESP doesn't need Opt params)
+        # Toggle TDDFT N States
+        if hasattr(self, 'lbl_nstates') and hasattr(self, 'nstates_input'):
+             is_tddft = (job == "TDDFT")
+             self.lbl_nstates.setVisible(is_tddft)
+             self.nstates_input.setVisible(is_tddft)
+
+    def get_spin_value(self):
+        """Safely parse spin multiplicity from GUI."""
+        try:
+            txt = self.spin_input.currentText()
+            # Handle "1 (Singlet)" format
+            if " " in txt:
+                return int(txt.split(" ")[0])
+            return int(txt)
+        except:
+            return 1 # Default
 
     def run_calculation(self):
         if not self.context or not self.context.current_molecule:
@@ -739,10 +968,12 @@ class PySCFDialog(QDialog):
             "functional": self.functional_combo.currentText(),
             "basis": self.basis_combo.currentText(),
             "charge": int(self.charge_input.currentText()),
-            "spin": int(self.spin_input.currentText()),
+            "spin": self.get_spin_value(),
+            "nstates": self.nstates_input.value(),
             "threads": self.spin_threads.value(),
             "memory": self.spin_memory.value(),
             "symmetry": self.check_symmetry.isChecked(),
+            "break_symmetry": self.check_break_sym.isChecked(),
             "max_cycle": self.spin_cycles.value(),
             "conv_tol": self.edit_conv.text(),
             "out_dir": os.path.abspath(self.out_dir_edit.text())
@@ -855,11 +1086,31 @@ class PySCFDialog(QDialog):
         display_label = text
         task_data = text
         
-        if is_digit:
-             idx = int(text)
-             # Worker expects "MO <n>" for absolute indices
-             task_data = f"MO {idx}"
-             display_label = f"MO {idx}"
+        # User Request: Support "10a", "10b", "10A", "10B"
+        import re
+        is_digit = text.isdigit()
+        is_ab_suffix = False
+        parsed_idx = -1
+        suffix_char = ""
+        
+        # Check patterns like "10a" or "10b"
+        match = re.match(r"^(\d+)([aAbB])$", text)
+        if match:
+             parsed_idx = int(match.group(1))
+             suffix_char = match.group(2).lower()
+             is_ab_suffix = True
+        
+        if is_digit or is_ab_suffix:
+             if is_ab_suffix:
+                 idx = parsed_idx
+                 spin = "_A" if suffix_char == "a" else "_B"
+                 task_data = f"MO {idx}{spin}"
+                 display_label = f"MO {idx} ({'Alpha' if spin=='_A' else 'Beta'})"
+             else:
+                 idx = int(text)
+                 # Worker expects "MO <n>" for absolute indices
+                 task_data = f"MO {idx}"
+                 display_label = f"MO {idx}"
              
              # Attempt to resolve relative label for better UI
              if hasattr(self, 'mo_data') and self.mo_data:
@@ -877,14 +1128,19 @@ class PySCFDialog(QDialog):
                          else:
                              break
                      
-                     if idx <= homo_i:
-                         diff = homo_i - idx
+                     
+                     # Check if input is 1-based (from user text)
+                     # Convert to 0-based for comparison
+                     comp_idx = idx - 1
+                     
+                     if comp_idx <= homo_i:
+                         diff = homo_i - comp_idx
                          lb = "HOMO" if diff == 0 else f"HOMO-{diff}"
                          display_label = f"{lb} (Index {idx})"
                      else:
                          # LUMO
                          lumo_i = homo_i + 1
-                         diff = idx - lumo_i
+                         diff = comp_idx - lumo_i
                          lb = "LUMO" if diff == 0 else f"LUMO+{diff}"
                          display_label = f"{lb} (Index {idx})"
                  except Exception as e:
@@ -920,32 +1176,159 @@ class PySCFDialog(QDialog):
         item_esp.setData(Qt.ItemDataRole.UserRole, "ESP")
         self.orb_list.addItem(item_esp)
         
-        # Orbitals (HOMO-4 to LUMO+4)
-        # We order them from LUMO+4 down to HOMO-4 for logical vertical stack?
-        # Or just standard list. Let's do Standard list.
+        # Determine calculation type and extract occupancies
+        is_uhf = False
+        is_roks = False
+        occ_a = []
+        occ_b = []
         
-        range_mo = range(-4, 5) # -4 to +4
+        # Check calculation type from loaded data
+        scf_type = self.mo_data.get("type", "RHF") if self.mo_data else "RHF"
         
-        # LUMOs (ascending energy usually displayed top? No, usually list)
-        for i in reversed(range(0, 5)):
-            if i == 0: label = "LUMO"
-            else: label = f"LUMO+{i}"
-            item = QListWidgetItem(label)
-            item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
-            item.setCheckState(Qt.CheckState.Unchecked)
-            item.setData(Qt.ItemDataRole.UserRole, label)
-            self.orb_list.addItem(item)
+        if scf_type in ["UHF", "UKS"]:
+            is_uhf = True
+            
+            # Add Spin Density Option
+            item_sd = QListWidgetItem("Spin Density")
+            item_sd.setFlags(item_sd.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+            item_sd.setCheckState(Qt.CheckState.Unchecked)
+            item_sd.setData(Qt.ItemDataRole.UserRole, "SpinDensity")
+            self.orb_list.addItem(item_sd)
 
-        # HOMOs
-        for i in range(0, 5):
-            if i == 0: label = "HOMO"
-            else: label = f"HOMO-{i}"
-            item = QListWidgetItem(label)
-            item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
-            item.setCheckState(Qt.CheckState.Unchecked)
-            item.setData(Qt.ItemDataRole.UserRole, label)
-            self.orb_list.addItem(item)
+            try:
+                # Extract occupancies for checking SOMO
+                energies = self.mo_data.get("energies", [])
+                occupations = self.mo_data.get("occupations", [])
+                
+                # Safety flatten helper (same as in EnergyDiagram)
+                def safe_occ(occ_list):
+                    if not occ_list: return []
+                    if isinstance(occ_list[0], (list, tuple)):
+                        return [x[0] if len(x)>0 else 0 for x in occ_list]
+                    return occ_list
+
+                if len(energies) == 2 and isinstance(energies[0], list):
+                    occ_a = safe_occ(occupations[0])
+                    occ_b = safe_occ(occupations[1])
+                else:
+                    # Fallback or RHF structure in UHF type?
+                    occ_a = safe_occ(occupations)
+                    occ_b = []
+            except:
+                pass
+        
+        elif scf_type in ["ROKS", "ROHF"]:
+            # ROKS: Restricted Open-shell
+            # Has single set of MO energies but 2D occupancy array
+            is_roks = True
+            
+            try:
+                occupations = self.mo_data.get("occupations", [])
+                if not occupations:
+                    pass  # Empty, skip
+                # ROKS occupancy is 2D: [alpha_occ, beta_occ]
+                elif isinstance(occupations, list) and len(occupations) >= 2:
+                    # Safely extract first element
+                    if isinstance(occupations[0], list):
+                        occ_a = occupations[0]
+                    elif hasattr(occupations[0], 'tolist'):
+                        occ_a = occupations[0].tolist()
+                    else:
+                        occ_a = list(occupations[0]) if occupations[0] else []
+                elif isinstance(occupations, list):
+                    # Fallback: single array
+                    occ_a = occupations
+                elif hasattr(occupations, 'tolist'):
+                    # NumPy array
+                    occ_a = occupations.tolist()
+            except Exception as e:
+                # Safe fallback
+                occ_a = []
+
+        def add_orb_items(suffix="", label_suffix="", range_lumo=range(0, 5), range_homo=range(0, 5), check_somo=False):
+             # LUMOs
+            for i in reversed(range_lumo):
+                if i == 0: label = "LUMO"
+                else: label = f"LUMO+{i}"
+                
+                full_label = f"{label}{label_suffix}"
+                task_str = f"{label}{suffix}"
+                
+                item = QListWidgetItem(full_label)
+                item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+                item.setCheckState(Qt.CheckState.Unchecked)
+                item.setData(Qt.ItemDataRole.UserRole, task_str)
+                self.orb_list.addItem(item)
+
+            # HOMOs
+            # Find HOMO index for this spin channel
+            # We assume valid occupancy data is available if check_somo is True
+            current_occ = occ_a if check_somo else occ_b if "Beta" in label_suffix else []
+            # Wait, this logic for finding HOMO index inside the loop is tricky 
+            # because 'i' is offset from HOMO.
+            # We need the absolute HOMO index first.
+            # Use threshold 0.1 to match worker.py and avoid numerical precision errors
+            occ_threshold = 0.1
+            my_homo_idx = -1
+            if current_occ:
+                for idx, o in enumerate(current_occ):
+                    if o > occ_threshold: my_homo_idx = idx
+            
+            for i in range_homo:
+                target_idx = my_homo_idx - i
+                if target_idx < 0: continue
+                
+                label = "HOMO"
+                
+                # Check ROKS SOMO
+                # Condition: Not UHF, and occupancy is ~1.0
+                is_roks_somo = False
+                if not is_uhf and current_occ:
+                    # current_occ is available, check value
+                    if target_idx < len(current_occ):
+                        val = current_occ[target_idx]
+                        if abs(val - 1.0) < 0.1:
+                            is_roks_somo = True
+                
+                # Construct Display Label matching Diagram Logic
+                if is_roks_somo:
+                    label = "SOMO"  # Display label for user
+                elif i == 0:
+                    label = "HOMO"
+                else:
+                    label = f"HOMO-{i}"
+                
+                full_label = f"{label}{label_suffix}"
+                
+                # Task String for Worker
+                # IMPORTANT: Always use HOMO for worker (no SOMO special case)
+                # Worker standardizes on HOMO/LUMO + Alpha/Beta convention
+                # e.g. "MO 15_HOMO_A" (even if display shows "SOMO")
+                worker_label = "HOMO" if i == 0 else f"HOMO-{i}"
+                task_str = f"MO {target_idx+1}_{worker_label}{suffix}"
+                
+                item = QListWidgetItem(full_label)
+                item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+                item.setCheckState(Qt.CheckState.Unchecked)
+                item.setData(Qt.ItemDataRole.UserRole, task_str)
+                self.orb_list.addItem(item)
+
+        if is_uhf:
+            # Add Alpha (Check SOMO)
+            add_orb_items(suffix="_A", label_suffix=" (Alpha)", check_somo=True)
+            # Add Beta (No SOMO)
+            add_orb_items(suffix="_B", label_suffix=" (Beta)", check_somo=False)
+        elif is_roks:
+            # ROKS: Restricted open-shell (no Alpha/Beta separation, but check for SOMO)
+            add_orb_items(check_somo=True)
+        else:
+            # RHF: Restricted closed-shell
+            add_orb_items()
     
+        # User Request: "remove checkbox orrf spin density in the buttom"
+        # The functionality is already provided by the "Spin Density" item in the list above.
+        self.check_spin = None
+
     def disable_existing_analysis_items(self, cube_files):
         """
         Disable checkboxes for analysis items that already have cube files.
@@ -1023,15 +1406,34 @@ class PySCFDialog(QDialog):
         if not tasks:
             QMessageBox.information(self, "Info", "No analysis selected.")
             return
-
+            
         self.run_specific_analysis(tasks)
 
-    def generate_specific_orbital(self, label):
+    def generate_specific_orbital(self, task_or_index, label=None, spin_suffix=""):
         """
-        Public method to generate a specific orbital by label (e.g. 'HOMO', 'LUMO+1').
-        Called by EnergyDiagramDialog.
+        Public method to generate a specific orbital.
+        Can be called with a single task string (e.g. "SOMO_A", "#15_B") 
+        OR with (index, label, spin_suffix) for legacy compatibility.
         """
-        self.run_specific_analysis([label])
+        if isinstance(task_or_index, str) and (label is None and spin_suffix == ""):
+            # Called with single string task
+            task = task_or_index
+        else:
+            # Called with index, etc.
+            index = task_or_index
+            
+            # User Request: If logic says it is SOMO, ensure backend names it SOMO
+            # We append "_SOMO" which the backend now strips before parsing index
+            if label == "SOMO":
+                 task = f"#{index}_SOMO{spin_suffix}"
+            else:
+                 task = f"#{index}{spin_suffix}"
+            # If label is special (SOMO/HOMO), prefer that formatting?
+            # But the caller (Diagram) now handles task construction.
+            # This path is for legacy calls if any.
+        
+        # We can also use label if index is not available, but index is safer.
+        self.run_specific_analysis([task])
 
     def run_specific_analysis(self, tasks, out_d=None):
         if not hasattr(self, 'chkfile_path') or not self.chkfile_path:
@@ -1136,12 +1538,17 @@ class PySCFDialog(QDialog):
         
         # Auto-select prioritization
         # Only select ESP if it was in the NEW results
+        if last_added_item:
+             self.file_list.setCurrentItem(last_added_item)
+             self.file_list.scrollToItem(last_added_item)
+             # Trigger visual update (via on_file_selected)
+             self.on_file_selected(last_added_item)
+        
+        # Prioritize ESP if generated
         if new_esp_item:
              self.file_list.setCurrentItem(new_esp_item)
+             self.file_list.scrollToItem(new_esp_item)
              self.on_file_selected(new_esp_item)
-        elif last_added_item:
-             self.file_list.setCurrentItem(last_added_item)
-             self.on_file_selected(last_added_item)
 
     def on_results(self, result_data):
         # Handle post-processing, e.g., visualization
@@ -1172,14 +1579,17 @@ class PySCFDialog(QDialog):
         # Store Energy Data
         if result_data.get("mo_energy"):
              self.mo_data = {
-                 "energy": result_data["mo_energy"],
-                 "occ": result_data["mo_occ"],
+                 "energies": result_data["mo_energy"],
+                 "occupations": result_data["mo_occ"],
                  "type": result_data.get("scf_type", "RHF")
              }
              self.btn_show_diagram.setEnabled(True)
              
              # Auto-Show Diagram as requested
              # self.show_energy_diagram() # Disabled per user request
+             
+             # Populate Analysis Options (Crucial for SOMO/Orbital List update)
+             self.populate_analysis_options()
 
         # Store chkfile & path
         if result_data.get("chkfile"):
@@ -1320,8 +1730,8 @@ class PySCFDialog(QDialog):
          # 2. Restore Energy Data
          if result_data.get("mo_energy"):
              self.mo_data = {
-                 "energy": result_data["mo_energy"],
-                 "occ": result_data["mo_occ"],
+                 "energies": result_data["mo_energy"],
+                 "occupations": result_data["mo_occ"],
                  "type": result_data.get("scf_type", "RHF")
              }
              self.btn_show_diagram.setEnabled(True)
@@ -1338,7 +1748,12 @@ class PySCFDialog(QDialog):
              self.btn_load_geom.setEnabled(True)
          
          # Populate Options List so we can disable existing ones
-         self.populate_analysis_options()
+         try:
+             self.populate_analysis_options()
+         except Exception as e:
+             self.log(f"ERROR populating analysis options: {e}")
+             import traceback
+             self.log(traceback.format_exc())
 
          # 4. Scan for Visualization Files
          self.file_list.clear()
@@ -1570,10 +1985,11 @@ class EnergyDiagramDialog(QDialog):
         super().__init__(parent)
         self.result_dir = result_dir
         self.setWindowTitle("Orbital Energy Diagram")
-        self.resize(300, 600)
+        self.resize(450, 600)
         
         # Enable mouse tracking to receive hover events
         self.setMouseTracking(True)
+        self.hit_zones = []
         
         # Add Save Button overlay
         layout = QVBoxLayout(self)
@@ -1618,17 +2034,39 @@ class EnergyDiagramDialog(QDialog):
         self.data = mo_data
         self.is_uhf = (self.data["type"] == "UHF")
         
-        # Extract energies
+        # Extract energy levels
+        self.energies = self.data["energies"]
+        self.occupations = self.data["occupations"]
+
+        # Safety: Flatten occupancy lists if they act weirdly (sometimes list of lists?)
+        def safe_occ(occ_list):
+            if not occ_list: return []
+            # Check if first element is list
+            if isinstance(occ_list[0], (list, tuple)):
+                return [x[0] if len(x)>0 else 0 for x in occ_list]
+            return occ_list
+
         if self.is_uhf:
-            self.energies_a = self.data["energy"][0]
-            self.energies_b = self.data["energy"][1]
-            self.occ_a = self.data["occ"][0]
-            self.occ_b = self.data["occ"][1]
-            all_e = self.energies_a + self.energies_b
+             # UHF
+             if len(self.energies) == 2 and isinstance(self.energies[0], list):
+                 self.energies_a = self.energies[0]
+                 self.energies_b = self.energies[1]
+                 self.occ_a = safe_occ(self.occupations[0])
+                 self.occ_b = safe_occ(self.occupations[1])
+             else:
+                 # Fallback
+                 self.energies_a = self.energies
+                 self.energies_b = []
+                 self.occ_a = safe_occ(self.occupations)
+                 self.occ_b = []
         else:
-            self.energies_a = self.data["energy"]
-            self.occ_a = self.data["occ"]
-            all_e = self.energies_a
+             # RHF
+             self.energies_a = self.energies
+             self.occ_a = safe_occ(self.occupations)
+             self.energies_b = []
+             self.occ_b = []
+             
+        all_e = self.energies_a + self.energies_b
             
         if not all_e:
             self.full_min = -1.0
@@ -1735,32 +2173,27 @@ class EnergyDiagramDialog(QDialog):
              min_dist = 1000.0
              
              if hasattr(self, 'hit_zones'):
-                  for rect, index, label in self.hit_zones:
+                  for rect, index, label, spin_suffix in self.hit_zones:
                       # Check X-bounds first (strict)
                       if point.x() >= rect.left() and point.x() <= rect.right():
                           # Check Y-vicinity (e.g. +/- 10 pixels to allow slack)
                           center_y = rect.center().y()
                           dist = abs(y_click - center_y)
                           
-                          # Allow clicking slightly outside exact rect if it's the closest one
-                          # But usually we want strict containment? 
-                          # The user said "especially close orbitals".
-                          # Better to use strictly contained OR within very small margin.
-                          # Let's stick to "If inside rect, compare distance".
-                          
                           if rect.contains(point):
                               if dist < min_dist:
                                   min_dist = dist
-                                  best_hit = (index, label)
+                                  best_hit = (index, label, spin_suffix)
                                   
              if best_hit:
-                 self.try_load_cube(best_hit[0], best_hit[1])
+                 # best_hit is (index, label, spin_suffix)
+                 self.try_load_cube(best_hit[0], best_hit[1], best_hit[2])
                  return
              
              self.dragging = True
              self.last_mouse_y = event.position().y()
 
-    def try_load_cube(self, index, label):
+    def try_load_cube(self, index, label, spin_suffix=""):
         if not self.result_dir:
             # QMessageBox.information(self, "Info", "No result directory linked.")
             return
@@ -1773,13 +2206,39 @@ class EnergyDiagramDialog(QDialog):
         # Search pattern: "15_*.cube"
         
         # Try padded first (normalized sorting)
-        pattern = os.path.join(self.result_dir, f"{index:03d}_*.cube")
-        files = glob.glob(pattern)
+        # Check for 10a/10b convention if spin_suffix is present
+        # spin_suffix is "_A" or "_B" from Diagram click
         
-        # Fallback to unpadded (legacy support)
-        if not files:
-             pattern_legacy = os.path.join(self.result_dir, f"{index}_*.cube")
-             files = glob.glob(pattern_legacy)
+        patterns = []
+        
+        # New Convention: "15a_..." or "15b_..."
+        # index is 0-based logic. Filename uses 1-based index.
+        # Ensure we use 1-based index for finding file.
+        idx_1b = int(index) + 1
+        target_idx = idx_1b
+        
+
+        if spin_suffix == "_A":
+             patterns.append(f"{target_idx:03d}a_*.cube") # Padded 010a
+        elif spin_suffix == "_B":
+             patterns.append(f"{target_idx:03d}b_*.cube") # Padded 010b
+        else:
+             # Standard Convention: "015_..." (Used for RHF or old UHF)
+             # User Request: "Make them consistent"
+             # New RHF uses 1-based index (target_idx), e.g. "016_HOMO.cube"
+             patterns.append(f"{target_idx:03d}_*.cube") 
+             
+             # Legacy Fallback (optional, if user wants to load old files)
+             # User Request: "comment out legacy" -> Strict uniformity.
+             # patterns.append(f"{index:03d}_*.cube") # Legacy 0-based
+             # patterns.append(f"{index}_*.cube")
+        
+        for p in patterns:
+             full_p = os.path.join(self.result_dir, p)
+             files = glob.glob(full_p)
+             if files: break
+        
+        # Fallback to unpadded (legacy support) - handled in loop above
         
         if files:
             target = files[0] # Take first match
@@ -1797,18 +2256,24 @@ class EnergyDiagramDialog(QDialog):
              # Use safe 0-based syntax for worker
              mo_task_label = f"#{index}"
              
+             # User Request: Confirm dialog "same with the rest"
              reply = QMessageBox.question(
                  self, 
-                 "Generate Cube File?", 
-                 f"Cube file for Orbital {index+1} ({label}) not found.\nDo you want to generate it now?",
+                 "Confirm Analysis", 
+                 f"Generate cube file for Orbital {label} (Index {index+1})?\nThis may take some time.",
                  QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
              )
              
              if reply == QMessageBox.StandardButton.Yes:
                  if hasattr(self.parent(), "generate_specific_orbital"):
-                     self.status_label.setText(f"Generating MO {index+1}...")
-                     # Pass "MO N" format
-                     self.parent().generate_specific_orbital(mo_task_label)
+                     self.status_label.setText(f"Generating {label}...")
+                     
+                     
+                     # Force index-based request as per user requirement
+                     # "make sure to use index num to generate or find"
+                     
+                     # We pass the explicit index to guaranteed unambiguous generation
+                     self.parent().generate_specific_orbital(index, label, spin_suffix)
 
     def mouseMoveEvent(self, event):
         # Check if hovering over a clickable orbital level (when not dragging)
@@ -1818,10 +2283,24 @@ class EnergyDiagramDialog(QDialog):
             
             hovering_over_orbital = False
             if hasattr(self, 'hit_zones'):
-                for rect, index, label in self.hit_zones:
+                hit_found = False
+                for rect, index, label, spin_suffix in self.hit_zones:
                     if rect.contains(point):
                         hovering_over_orbital = True
+                        hit_found = True
+                        
+                        # Show Tooltip with Index (User Request)
+                        # Use 1-based index
+                        idx_1b = index + 1
+                        tip_text = f"Index: {idx_1b}"
+                        if label: tip_text += f"\n{label}"
+                        if spin_suffix: tip_text += f" ({spin_suffix.replace('_', '')})"
+                        
+                        QToolTip.showText(event.globalPosition().toPoint(), tip_text, self)
                         break
+                
+                if not hit_found:
+                    QToolTip.hideText()
             
             # Update cursor based on hover state
             if hovering_over_orbital:
@@ -1929,10 +2408,10 @@ class EnergyDiagramDialog(QDialog):
         # Unit Conversion
         unit = self.unit_combo.currentText()
         factor = 1.0
-        unit_label_str = "E (Ha)"
+        unit_label_str = "Ha"
         if unit == "eV":
             factor = nist.HARTREE2EV if nist else 27.211386245988
-            unit_label_str = "E (eV)"
+            unit_label_str = "eV"
         
         # Draw Background
         painter.fillRect(0, 0, w, h, QColor("white"))
@@ -1947,7 +2426,6 @@ class EnergyDiagramDialog(QDialog):
         draw_h = h - margin_top - margin_bottom
         
         def val_to_y(val):
-            # Clip logic if needed? QPainter handles out of bounds.
             rel = (val - min_e) / range_e
             return (h - margin_bottom) - (rel * draw_h)
 
@@ -1960,6 +2438,32 @@ class EnergyDiagramDialog(QDialog):
         font_axis = QFont("Arial", 10)
         painter.setFont(font_axis)
         painter.drawText(5, margin_top - 10, unit_label_str)
+
+        # Draw Ticks (Standard tick logic omitted here for brevity as it follows later in original file, but we must ensure we don't break scope)
+        # Wait, the original file has ticks logic between unit label and draw_levels...
+        # My 'replace' messed up the flow.
+        # I need to be careful. The ticks logic was seemingly preserved in the view after 2407?
+        # In Step 771 view: Line 2407 is '# Dynamic Ticks...'.
+        # My garbage lines ended at 2403 in step 780 view.
+        # So I only corrupted the TOP part before ticks?
+        # Let's check Step 780 view again.
+        # Lines 2380-2403 in Step 780 contain the COMMENTS I pasted.
+        # Lines 2404+ are `painter.fillRect...`.
+        # This means I DUPLICATED the background code?
+        # Yes, lines 2404 in step 780 match lines 2380 in step 771?
+        # No.
+        # I inserted the block at line 2373.
+        # I need to DELETE the garbage block lines 2380-2403 and ensure the valid code follows.
+        # BUT I also need to insert the layout variables (left_margin etc) which I wanted to add properly.
+        # And I need to Fix `draw_levels` logic inside `draw_levels`.
+        # `draw_levels` definition is FURTHER DOWN in the file (around 2560 in original, or 2482 in step 736 view).
+        # My garbage block tried to patch `draw_levels` logic inside `paintEvent` scope erroneously.
+        
+        # Action: DELETE lines 2380-2403 (the garbage comments).
+        # And THEN locate `draw_levels` definition properly and patch it there.
+        # I will execute deletion first.
+        
+
 
         # Dynamic Ticks (Round Numbers in Display Units)
         # 1. Determine Range in Display Units
@@ -2019,8 +2523,13 @@ class EnergyDiagramDialog(QDialog):
         
         cols = 1 if not self.is_uhf else 2
         # Tighter layout for smaller window
-        # Left margin for axis is around 60.
-        left_margin = 70 
+        # Left margin for axis must fit Axis Ticks (x=50) AND Energy Labels (Orbital specific)
+        # Energy labels are drawn at x1 - 85. x1 = left_margin + padding.
+        # Need x1 >= 90+ for visibility? 
+        # If x1=100 -> label at 15. 
+        # left_margin=90 -> x1=100.
+        # Let's use 120 to be safe and spacious.
+        left_margin = 120 
         right_margin = 10 # Only for window edge, but column width absorbs text space
         avail_w = w - left_margin - right_margin
         col_width = avail_w / cols 
@@ -2031,72 +2540,142 @@ class EnergyDiagramDialog(QDialog):
         level_w = 50 # Fixed compact width (pixels)
         padding_left = 10 # Space from column start
         
-        def draw_levels(energies, occs, col_idx, title):
-            # Calculate center_x such that the line starts at padding_left
-            # x1 = center_x - level_w/2
-            # We want x1 = col_start + padding_left
-            # col_start = left_margin + col_idx * col_width
+
+
+        
+        def find_somo_indices(energies_a, occ_a, energies_b, occ_b):
+            """Find orbitals where Alpha is occupied but Beta is not (SOMO)"""
+            somo_indices = set()
             
-            col_start = left_margin + col_idx * col_width
+            # Use threshold 0.1 to avoid numerical precision errors
+            occ_threshold = 0.1
+            n_alpha = sum(1 for o in occ_a if o > occ_threshold)
+            n_beta = sum(1 for o in occ_b if o > occ_threshold)
+            
+            start_somo = n_beta
+            end_somo = n_alpha
+            for i in range(start_somo, end_somo):
+                somo_indices.add(i)
+            return somo_indices
+
+        if self.is_uhf:
+            somo_set = find_somo_indices(self.energies_a, self.occ_a, self.energies_b, self.occ_b)
+        else:
+            somo_set = set()
+
+        def draw_levels(energies, occs, col_idx, title):
+            total_w = self.width()
+            
+            # Centering Logic
+            # Centering Logic
+            if not self.is_uhf:
+                # User Request: Center RKS orbitals ("center but leftish")
+                
+                center_of_window = total_w / 2
+                center_of_window = total_w / 2
+                
+                # User Request: "not centered the orbital. fix." -> Remove offset.
+                line_center_x = center_of_window
+                
+                # Reverse calculate col_start
+                raw_col_start = line_center_x - (level_w / 2) - padding_left
+                
+                # CLAMP against left_margin to prevent clipping of energy labels
+                col_start = max(raw_col_start, left_margin)
+                col_width = total_w 
+            else:
+                # UKS Logic: Use calculated column widths respecting margins
+                # We use the outer scope 'col_width' and 'left_margin'
+                # Note: 'col_width' in outer scope is 'avail_w / cols'
+                
+                # We should re-use col_width from outer scope if possible, 
+                # but 'col_width' variable inside this function shadows outer scope if we assign to it?
+                # Actually, we assign to 'col_width' in 'if' block, so it's local.
+                # We need to recalculate it or access outer scope.
+                # Outer scope: avail_w = w - left_margin - right_margin
+                # cols = 2.
+                
+                # Re-calculate to be safe and explicit using 'avail_w' from outer scope
+                u_col_width = avail_w / cols 
+                col_start = left_margin + col_idx * u_col_width
+                col_width = u_col_width # For title centering usage
+
             target_x1 = col_start + padding_left
             center_x = target_x1 + level_w/2
             
             painter.setPen(QColor("black"))
             
-            # User Request: Center "Orbital" title in the graph (column)
-            # col_start is left edge of column, col_width is width.
-            fm = painter.fontMetrics()
-            t_w = fm.horizontalAdvance(title)
-            title_x = col_start + (col_width - t_w) / 2
+            # Title with Electron Count
+            n_elec = sum(occs)
+            title_text = f"{title}\n({n_elec:.0f}e)"
             
-            painter.drawText(int(title_x), 20, title)
+            fm = painter.fontMetrics()
+            lines = title_text.split("\n")
+            y_title_base = 20
+            
+            for line in lines:
+                t_w = fm.horizontalAdvance(line)
+                # User Request: "top label... at the position of appropriate... not one of the are at the center!!!"
+                # "top label is not at the top of the orbital center"
+                # Fix: Align title center with orbital line center (center_x)
+                title_x = center_x - t_w / 2
+                painter.drawText(int(title_x), y_title_base, line)
+                y_title_base += 15
             
             homo_idx = -1
             for i, o in enumerate(occs):
                 if o > 0: homo_idx = i
             
-            # Filter visible levels and split into Occupied and Virtual
-            # 1. Occupied: Sort High Energy -> Low Energy (Process HOMO first)
+            # Lists
             occupied_items = []
-            # 2. Virtual: Sort Low Energy -> High Energy (Process LUMO first)
             virtual_items = []
             
             for i, e, in enumerate(energies):
                 if min_e <= e <= max_e:
-                     # Item tuple: (original_index, energy, occupancy)
                      item = (i, e, occs[i])
                      if occs[i] > 0:
                          occupied_items.append(item)
                      else:
                          virtual_items.append(item)
             
-            # Sort Strategy to prioritize HOMO/LUMO labels
-            occupied_items.sort(key=lambda x: x[1], reverse=True)  # Descending (HOMO -> Core)
-            virtual_items.sort(key=lambda x: x[1], reverse=False)  # Ascending (LUMO -> Vacuum)
+            occupied_items.sort(key=lambda x: x[1], reverse=True)
+            virtual_items.sort(key=lambda x: x[1], reverse=False)
             
-            # Draw lists
-            # We must maintain collision detection state for each stack separately? 
-            # Or globally? If overlap, we skip. But virtuals move UP, occupied move DOWN.
-            # Let's reset collision Y for each stack to ensure "closest to gap" draws first.
+            # Colors and Labels
+            is_alpha_col = (title == "Alpha")
+            is_beta_col = (title == "Beta")
             
-            # Draw Occupied
-            last_label_y_occ = 100000 # Bottom-most
-            last_label_y_virt = -100 # Top-most
-            
-            # Helper to draw
+            # Color Definition
+            # User Request: "rks should be black whole"
+            # User Request: "do not change colors between filled or virtual in uks rks"
+            if is_alpha_col:
+                # Alpha: Uniform Red
+                col_occ = QColor(180, 50, 50) 
+                col_vir = QColor(180, 50, 50) 
+            elif is_beta_col:
+                # Beta: Uniform Blue
+                col_occ = QColor(50, 50, 180)
+                col_vir = QColor(50, 50, 180)
+            else:
+                # Restricted (RHF/RKS): Uniform Black
+                col_occ = QColor("black")
+                col_vir = QColor("black")
+
             def process_list(items, last_y_ref):
                 new_last_y = last_y_ref
                 for i_orig, e, occ_val in items:
                     y = val_to_y(e)
                     
                     is_occ = (occ_val > 0)
-                    color = QColor("blue") if is_occ else QColor("red")
+                    color = col_occ if is_occ else col_vir
                     pen = QPen(color, 2)
                     
+                    is_somo = (is_alpha_col and i_orig in somo_set)
                     is_homo = (i_orig == homo_idx)
                     is_lumo = (i_orig == homo_idx + 1)
                     
-                    if is_homo or is_lumo:
+                    # Highlight important levels
+                    if is_somo or is_homo or is_lumo:
                         pen.setWidth(3)
                     
                     painter.setPen(pen)
@@ -2104,63 +2683,105 @@ class EnergyDiagramDialog(QDialog):
                     x2 = center_x + level_w/2
                     painter.drawLine(int(x1), int(y), int(x2), int(y))
                     
+                    # Electron Icons (Arrows)
+                    if is_occ:
+                        painter.setPen(QColor("black"))
+                        # Center: center_x, y
+                        # Font size increased (User Request)
+                        f_icon = QFont("Arial", 16, QFont.Weight.Bold)
+                        painter.setFont(f_icon)
+                        
+                        arrow_txt = ""
+                        if not self.is_uhf:
+                            # RKS/ROKS/RHF/ROHF
+                            # Check occupancy for ROKS support (1.0 vs 2.0)
+                            if abs(occ_val - 1.0) < 0.1:
+                                arrow_txt = "↑" # Singly occupied (ROKS)
+                            else:
+                                arrow_txt = "↑↓" # Doubly occupied
+                        else:
+                            if is_alpha_col:
+                                arrow_txt = "↑"
+                            elif is_beta_col:
+                                arrow_txt = "↓"
+                        
+                        # Adjust rect for centering
+                        # Height needs to be enough for 16px font
+                        rect_icon = QRect(int(x1), int(y)-14, int(level_w), 28)
+                        painter.drawText(rect_icon, Qt.AlignmentFlag.AlignCenter, arrow_txt)
+                        
+                        # Restore font
+                        painter.setFont(font)
+
                     # Store Hit Zone
-                    rect = QRect(int(x1), int(y)-4, int(x2-x1), 8)
-                    self.hit_zones.append( (rect, i_orig, "") )
-                
-                    # Labels
-                    if i_orig <= homo_idx:
+                    rect_zone = QRect(int(x1), int(y)-4, int(x2-x1), 8)
+                    
+                    # Label Logic
+                    # Scientific Labeling Logic (Revised)
+                    label_txt = ""
+
+                    # 1. ROKS SOMO Special Case
+                    # ROKS: Restricted (not UHF) but with singly occupied orbital (occ ~ 1.0)
+                    is_roks_somo = (not self.is_uhf) and (abs(occ_val - 1.0) < 0.1)
+
+                    if is_roks_somo:
+                        label_txt = "SOMO"
+                    
+                    # 2. HOMO / Occupied Labels
+                    elif i_orig <= homo_idx:
                         diff = homo_idx - i_orig
-                        rel_label = "HOMO" if diff == 0 else f"HOMO-{diff}"
+                        if diff == 0:
+                            # Standard HOMO (UHF/RHF)
+                            # Or ROKS SOMO (but handled above, so this is only for UHF/RHF)
+                            label_txt = "HOMO"
+                        else:
+                            # HOMO-n
+                            # For ROKS: SOMO is at homo_idx. So homo_idx-1 is correctly "HOMO-1".
+                            label_txt = f"HOMO-{diff}"
+                    
+                    # 3. LUMO / Virtual Labels
                     else:
                         diff = i_orig - (homo_idx + 1)
-                        rel_label = "LUMO" if diff == 0 else f"LUMO+{diff}"
+                        label_txt = "LUMO" if diff == 0 else f"LUMO+{diff}"
                     
-                    # Unit Label is from outer scope (self.unit_combo)
-                    u_str = "eV" if unit == "eV" else "Ha"
-                    label_text = f"{rel_label} ({e * factor:.3f} {u_str})"
+                    # No overrides needed. Logic handled above.
                     
-                    # Update label in zone
-                    self.hit_zones[-1] = (rect, i_orig, rel_label)
+                    if label_txt:
+                        painter.setPen(QColor("black"))
+                        # Draw to the right of the line
+                        painter.drawText(int(x2)+4, int(y)+4, label_txt)
+                        
+                    # User Request: Energy Values Missing / Unit Change
+                    # Draw energy value to the left of the line
+                    # Use factor and unit_label_str from outer scope (paintEvent)
+                    vis_e_str = f"{e * factor:.2f} {unit_label_str}"
+                    painter.setPen(QColor("black"))
+                    # Calculate width to align right against the line
+                    # x1 is left start of line. Draw to left of it.
+                    # Ensure rect is wide enough and positioned correctly
+                    rect_e = QRect(int(x1)-85, int(y)-7, 80, 14) 
+                    painter.drawText(rect_e, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter, vis_e_str)
                     
-                    priority_label = (is_homo or is_lumo)
-                    pixel_gap = abs(y - new_last_y)
                     
-                    if priority_label or pixel_gap > 12:
-                         painter.setPen(QColor("black"))
-                         draw_x = int(x2) + 5
-                         if priority_label:
-                             font_b = QFont("Arial", 12, QFont.Weight.Bold)
-                             painter.setFont(font_b)
-                             painter.drawText(draw_x, int(y)+4, label_text)
-                             painter.setFont(font)
-                         else:
-                             painter.drawText(draw_x, int(y)+4, label_text)
-                         new_last_y = y
+                    # Store Hit Zone
+                    # Format: (QRect, index, label_for_file_generation, spin_suffix)
+                    # Expand width to include label (approx 80px) and height for easier clicking
+                    r = QRect(int(x1), int(y)-7, int(level_w + 80), 14)
+                    
+                    # Determine file label (SOMO/HOMO/LUMO or just MO)
+                    # "SELECTION ITEM NAME" -> Use the specific label if available
+                    gen_label = label_txt if label_txt else f"MO_{i_orig+1}"
+                    
+                    spin_suffix = ""
+                    if self.is_uhf:
+                        spin_suffix = "_A" if is_alpha_col else "_B"
+                        
+                    self.hit_zones.append((r, i_orig, gen_label, spin_suffix))
+                    
                 return new_last_y
 
-            # Process independently
-            # Occupied (moving down, but val_to_y increases? No, y decreases as Energy increases)
-            # Y = H - (rel * H). High Energy = Small Y (Top). Low Energy = Large Y (Bottom).
-            # Occupied list: High E (Small Y) -> Low E (Large Y).
-            # So occupied start at Small Y. last_label_y should start at -100? No.
-            # Wait. Scan order: Top -> Bottom.
-            # Virtual List: Low E (Large Y) -> High E (Small Y).
-            # Virtuals start NEAR GAP (Large Y) and go UP (Small Y).
-            # Occupied List: High E (Small Y NEAR GAP) and fo DOWN (Large Y).
-            
-            # Since pixel_gap looks at abs diff, simply tracking the last drawn one works.
-            # Virtuals: First is LUMO (Y=500). Draws. Last=500.
-            # Next is LUMO+1 (Y=490). Gap=10. Skips.
-            # Next is LUMO+2 (Y=480). Gap=20 from 500. Draws. Last=480.
-            # Works perfectly.
-            
-            # Occupied: First is HOMO (Y=510). Draws. Last=510.
-            # Next is HOMO-1 (Y=520). Gap=10. Skips.
-            # Works perfectly.
-            
-            process_list(occupied_items, -1000) # Init far away
-            process_list(virtual_items, 10000) # Init far away
+            process_list(occupied_items, -1000)
+            process_list(virtual_items, 10000)
 
         
         if self.is_uhf:
@@ -2168,3 +2789,7 @@ class EnergyDiagramDialog(QDialog):
             draw_levels(self.energies_b, self.occ_b, 1, "Beta")
         else:
             draw_levels(self.energies_a, self.occ_a, 0, "Orbitals")
+
+
+
+

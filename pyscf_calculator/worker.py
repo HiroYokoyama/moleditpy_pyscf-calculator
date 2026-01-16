@@ -3,8 +3,11 @@ import os
 import io
 import tempfile
 import traceback
+import tempfile
+import traceback
 import numpy as np
 import math
+import re
 from PyQt6.QtCore import QThread, pyqtSignal
 
 # We import pyscf inside the thread or check availability
@@ -161,19 +164,42 @@ class PySCFWorker(QThread):
             if n_threads > 0:
                 pyscf.lib.num_threads(n_threads)
             
+            # Prepare Charge and Spin (Convert M -> 2S)
+            charge = self.config.get("charge", 0)
+            try:
+                # User inputs Multiplicity (M)
+                # GUI now sends "1 (Singlet)", "2 (Doublet)", etc.
+                spin_str = str(self.config.get("spin", "1"))
+                if " " in spin_str:
+                    spin_mult = int(spin_str.split(" ")[0])
+                else:
+                    spin_mult = int(spin_str)
+                    
+                # PySCF expects 2S = M - 1
+                spin_2s = spin_mult - 1
+                if spin_2s < 0: spin_2s = 0
+            except:
+                spin_2s = 0
+            
             # Setup Molecule
-            mol = gto.M(
-                atom=self.xyz_str,
-                basis=self.config.get("basis", "sto-3g"),
-                charge=self.config.get("charge", 0),
-                spin=self.config.get("spin", 0),
-                verbose=4,
-                output=None,
-                max_memory=self.config.get("memory", 4000)
-            )
-            mol.stdout = stream
-            mol.verbose = 4
-            mol.build()
+            try:
+                mol = gto.M(
+                    atom=self.xyz_str,
+                    basis=self.config.get("basis", "sto-3g"),
+                    charge=charge,
+                    spin=spin_2s,
+                    verbose=4,
+                    output=None,
+                    max_memory=self.config.get("memory", 4000)
+                )
+                mol.stdout = stream
+                mol.verbose = 4
+                mol.build()
+            except (RuntimeError, ValueError) as e_mol:
+                # Catch specific PySCF errors (e.g. Spin/Charge mismatch)
+                msg = str(e_mol)
+                self.error_signal.emit(f"Molecule Build Failed: {msg}\nCheck Charge and Multiplicity settings.")
+                return
             
             # Log Parallelism Info
             try:
@@ -187,8 +213,8 @@ class PySCFWorker(QThread):
                 f.write("from pyscf import gto, scf, dft\n")
                 f.write(f"mol = gto.M(atom='''{self.xyz_str}''', \n")
                 f.write(f"    basis='{self.config.get('basis')}', \n")
-                f.write(f"    charge={self.config.get('charge')}, \n")
-                f.write(f"    spin={self.config.get('spin')}, \n")
+                f.write(f"    charge={charge}, \n")
+                f.write(f"    spin={spin_2s}, \n")
                 f.write(f"    verbose=4)\n")
                 f.write("mol.build()\n")
                 f.write(f"# Job Type: {self.config.get('job_type')}\n")
@@ -200,11 +226,34 @@ class PySCFWorker(QThread):
                 else:
                      f.write(f"mf = scf.{self.config.get('method')}(mol)\n")
                 f.write("mf.kernel()\n")
+                
+                if "TDDFT" in self.config.get('job_type'):
+                    f.write("\n# TDDFT Calculation\n")
+                    f.write("from pyscf import tdscf\n")
+                    # Simplified selection for generated script
+                    f.write(f"td = tdscf.TDDFT(mf) if 'KS' in '{self.config.get('method')}' else tdscf.TDHF(mf)\n")
+                    f.write(f"td.nstates = {self.config.get('nstates', 10)}\n")
+                    f.write("td.verbose = 4\n")
+                    f.write("td.kernel()\n")
 
             # Select Method
             method_name = self.config.get("method", "RHF")
             functional = self.config.get("functional", "b3lyp")
             
+            # Auto-adjust method for Open Shell if needed?
+            # If user selected RHF/RKS but spin != 0, PySCF crashes or warns.
+            # We should probably force U if spin != 0.
+            # But relying on user selection (UHF/UKS) is safer behavior for now.
+            # Ideally the GUI updates the combo, but backend safety is good.
+            
+            if spin_2s != 0:
+                if method_name == "RHF": 
+                    method_name = "UHF"
+                    self.log_signal.emit("Switching to UHF due to spin != 0.\n")
+                elif method_name == "RKS": 
+                    method_name = "UKS"
+                    self.log_signal.emit("Switching to UKS due to spin != 0.\n")
+
             mf = None
             if method_name == "RHF":
                 mf = scf.RHF(mol)
@@ -216,8 +265,24 @@ class PySCFWorker(QThread):
             elif method_name == "UKS":
                 mf = dft.UKS(mol)
                 mf.xc = functional
+            # --- Added: RO Support ---
+            elif method_name == "ROHF":
+                mf = scf.ROHF(mol)
+            elif method_name == "ROKS":
+                mf = dft.ROKS(mol)
+                mf.xc = functional
+            # ------------------------
             else:
-                raise ValueError(f"Unknown method {method_name}")
+                # Default fallback or error
+                # If spin != 0 and RHF selected, we might crash if not handled, 
+                # but explicit RO selection handles it.
+                if spin_2s != 0 and "R" in method_name and "RO" not in method_name:
+                     # e.g. RHF with spin. PySCF might complain.
+                     # But we follow user instruction strictly.
+                     pass
+                     
+                if method_name not in ["RHF", "UHF", "RKS", "UKS", "ROHF", "ROKS"]:
+                     raise ValueError(f"Unknown method {method_name}")
             
             # Ensure Checkpoint is in the new job folder
             chk_path = os.path.join(self.out_dir, "pyscf.chk")
@@ -271,6 +336,12 @@ class PySCFWorker(QThread):
                         elif method_name == "UKS": 
                             mf = dft.UKS(mol_eq)
                             mf.xc = functional
+                        # --- Added: RO Support for Optimization Re-init ---
+                        elif method_name == "ROHF": mf = scf.ROHF(mol_eq)
+                        elif method_name == "ROKS":
+                            mf = dft.ROKS(mol_eq)
+                            mf.xc = functional
+                        # -----------------------------------------------
                         
                         # Run Energy on optimized
                         mf.chkfile = chk_path
@@ -304,7 +375,31 @@ class PySCFWorker(QThread):
                 if "Optimization" in job_type or "Energy" in job_type or "Frequency" in job_type:
                      if not mf.e_tot: 
                         self.log_signal.emit(f"Running partial energy calculation using {method_name}...\n")
-                        mf.kernel()
+                        
+                        # User Request: Apply Symmetry Breaking for UKS/UHF
+                        # "mix_estimation" logic to prevent Alpha=Beta trap
+                        # Condition: UKS/UHF, Spin > 0, AND Option Enabled (Default True)
+                        should_break = self.config.get("break_symmetry", True)
+                        
+                        if should_break and method_name in ["UHF", "UKS"] and spin_2s > 0:
+                            self.log_signal.emit("Applying Symmetry Breaking to Initial Guess (mix_estimation)...\n")
+                            try:
+                                # 1. Base Guess
+                                dm_guess = mf.get_init_guess(key='minao')
+                                
+                                # 2. Mix Alpha/Beta
+                                if "KS" in method_name: # UKS
+                                    dm_mix = dft.uks.mulliken_meta(mol, dm_guess, verbose=4)
+                                else: # UHF
+                                    dm_mix = scf.uhf.mulliken_meta(mol, dm_guess, verbose=4)
+                                    
+                                # 3. Kernel with broken symmetry guess
+                                mf.kernel(dm0=dm_mix)
+                            except Exception as e:
+                                self.log_signal.emit(f"WARNING: Symmetry breaking failed ({str(e)}). Proceeding with standard initial guess.\n")
+                                mf.kernel()
+                        else:
+                            mf.kernel()
                 
                 if "Frequency" in job_type:
                     self.log_signal.emit(f"Starting Frequency Analysis using {method_name}...\n")
@@ -406,11 +501,98 @@ class PySCFWorker(QThread):
                             self.log_signal.emit(f"Frequency data saved to: {freq_json_path}\n")
                         except Exception as e_save:
                             self.log_signal.emit(f"Warning: Failed to save frequency JSON: {e_save}\n")
-                            import traceback
                             self.log_signal.emit(traceback.format_exc())
                             
                     except Exception as e_freq:
                         self.log_signal.emit(f"Frequency analysis failed: {e_freq}\n{traceback.format_exc()}\n")
+
+                if "TDDFT" in job_type:
+                    self.log_signal.emit(f"Starting TDDFT Calculation...\n")
+                    if not mf.e_tot:
+                        self.log_signal.emit("Running SCF for TDDFT...\n")
+                        mf.kernel()
+                    
+                    if not mf.converged:
+                         self.log_signal.emit("WARNING: SCF did not converge before TDDFT. Results may be inaccurate.\n")
+
+                    try:
+                        from pyscf import tdscf
+                        
+                        # Select TDDFT Method
+                        # For RHF/UHF -> TDHF
+                        # For RKS/UKS -> TDDFT (or TDA)
+                        
+                        td_obj = None
+                        method_base = method_name.replace("R", "").replace("U", "").replace("RO", "") # 'HF', 'KS'
+                        
+                        # Simple dispatch based on MF class is usually safer if unsure
+                        # But explicit class usage allows TDA control if we add it later
+                        
+                        if "KS" in method_base: # RKS or UKS
+                             # Default to full TDDFT
+                             # Could use TDA if we add an option later: tdscf.TDA(mf)
+                             td_obj = tdscf.TDDFT(mf)
+                        else: # HF
+                             td_obj = tdscf.TDHF(mf)
+
+                        nstates = int(self.config.get("nstates", 10))
+                        td_obj.nstates = nstates
+                        td_obj.verbose = 4
+                        # Redirect output? td_obj uses lib.logger which respects global stream we set?
+                        # Or explicitly set stdout
+                        try:
+                            td_obj.stdout = stream
+                        except: pass
+                        
+                        self.log_signal.emit(f"Calculating {nstates} Excited States...\n")
+                        td_obj.kernel()
+                        
+                        # Reporting
+                        self.log_signal.emit("\n===== TDDFT Results =====\n")
+                        self.log_signal.emit(f"{'State':<6} {'Energy (eV)':<12} {'Osc. Str.':<10}\n")
+                        self.log_signal.emit("-" * 30 + "\n")
+                        
+                        # Results Extraction
+                        # td_obj.e_tot are total energies of Excited States
+                        # Excitation Energy = E_exc_state - E_ground_state
+                        
+                        energies_exc = td_obj.e_tot
+                        # e_tot can be a list or numpy array
+                        if hasattr(energies_exc, 'tolist'): energies_exc = energies_exc.tolist()
+                        elif isinstance(energies_exc, float): energies_exc = [energies_exc]
+                        
+                        # Oscillator Strengths
+                        try:
+                            oscs = td_obj.oscillator_strength()
+                            if hasattr(oscs, 'tolist'): oscs = oscs.tolist()
+                            if isinstance(oscs, float): oscs = [oscs]
+                        except:
+                            oscs = [0.0] * len(energies_exc)
+                            
+                        HARTREE_TO_EV = 27.2114
+                        e_ground = mf.e_tot
+                        
+                        tddft_list = []
+                        
+                        for i, e_exc_tot in enumerate(energies_exc):
+                            exc_energy_au = e_exc_tot - e_ground
+                            exc_ev = exc_energy_au * HARTREE_TO_EV
+                            osc = oscs[i] if i < len(oscs) else 0.0
+                            
+                            self.log_signal.emit(f"{i+1:<6} {exc_ev:<12.4f} {osc:<10.4f}\n")
+                            
+                            tddft_list.append({
+                                "state": i+1,
+                                "energy_total": e_exc_tot,
+                                "excitation_energy_ev": exc_ev,
+                                "oscillator_strength": osc
+                            })
+                            
+                        results["tddft_data"] = tddft_list
+                        self.log_signal.emit("-" * 30 + "\n")
+                        
+                    except Exception as e_td:
+                        self.log_signal.emit(f"TDDFT calculation failed: {e_td}\n{traceback.format_exc()}\n")
                         
                 if "Energy" == job_type: # Only Energy
                     # Already handled by top block but ensuring...
@@ -428,13 +610,40 @@ class PySCFWorker(QThread):
                 
                 # Pass energy/occupancy to GUI for Diagram
                 # Handle UHF (tuple) vs RHF (array)
+                # Note: mo_energy might be list if loaded from chkfile without full object?
+                # Check ndim or length.
+                
+                is_uhf = False
                 if isinstance(mf.mo_energy, tuple):
-                     results["mo_energy"] = [e.tolist() for e in mf.mo_energy]
-                     results["mo_occ"] = [o.tolist() for o in mf.mo_occ]
+                     is_uhf = True
+                elif isinstance(mf.mo_energy, list) and len(mf.mo_energy) == 2:
+                     # Check content types?
+                     if hasattr(mf.mo_energy[0], '__len__'):
+                         is_uhf = True
+                elif hasattr(mf.mo_energy, 'ndim') and mf.mo_energy.ndim == 2:
+                     is_uhf = True
+                     
+                if is_uhf:
+                     # Convert to list of lists for JSON safety/GUI compatibility
+                     # Use safe list conversion
+                     def to_l(arr):
+                         return arr.tolist() if hasattr(arr, 'tolist') else list(arr)
+                     
+                     if isinstance(mf.mo_energy, tuple):
+                         e_a, e_b = mf.mo_energy
+                         o_a, o_b = mf.mo_occ
+                     else:
+                         e_a, e_b = mf.mo_energy[0], mf.mo_energy[1]
+                         o_a, o_b = mf.mo_occ[0], mf.mo_occ[1]
+                         
+                     results["mo_energy"] = [to_l(e_a), to_l(e_b)]
+                     results["mo_occ"] = [to_l(o_a), to_l(o_b)]
                      results["scf_type"] = "UHF"
                 else:
-                     results["mo_energy"] = mf.mo_energy.tolist()
-                     results["mo_occ"] = mf.mo_occ.tolist()
+                     val = mf.mo_energy
+                     occ = mf.mo_occ
+                     results["mo_energy"] = val.tolist() if hasattr(val, 'tolist') else list(val)
+                     results["mo_occ"] = occ.tolist() if hasattr(occ, 'tolist') else list(occ)
                      results["scf_type"] = "RHF"
                 self.log_signal.emit(f"Checkpoint saved to: {chk_path}\n")
     
@@ -659,19 +868,49 @@ class PropertyWorker(QThread):
             homo_idx = -1
             lumo_idx = -1
             
-            # Assuming RHF/RKS for now (single set of occ)
-            # mo_occ shape (N,)
-            if len(mo_occ.shape) == 1:
-                for i, occ in enumerate(mo_occ):
-                    if occ > 0:
-                        homo_idx = i
-                    else:
-                        lumo_idx = i
-                        break
-            else:
-                 # UHF - not handled in this simple snippet yet
-                 pass
-
+            # Robust HOMO/LUMO initialization for RHF/UHF/ROHF
+            # Use threshold 0.1 to avoid numerical precision issues (e.g., 1e-12)
+            occ_threshold = 0.1
+            
+            try:
+                # Handle different mo_occ formats: tuple (UHF), 2D array (ROKS), 1D array (RHF)
+                if isinstance(mo_occ, tuple):
+                    # UHF: (alpha_occ, beta_occ) - use Alpha for HOMO/LUMO
+                    occs = mo_occ[0]
+                    for i, occ_val in enumerate(occs):
+                        if occ_val > occ_threshold:
+                            homo_idx = i
+                        else:
+                            lumo_idx = i
+                            break
+                elif hasattr(mo_occ, 'ndim') and mo_occ.ndim == 2:
+                    # 2D array (ROKS): use first row (Alpha)
+                    occs = mo_occ[0]
+                    for i, occ_val in enumerate(occs):
+                        if occ_val > occ_threshold:
+                            homo_idx = i
+                        else:
+                            lumo_idx = i
+                            break
+                elif hasattr(mo_occ, 'shape'):
+                    # 1D array (RHF/RKS)
+                    for i, occ_val in enumerate(mo_occ):
+                        if occ_val > occ_threshold:
+                            homo_idx = i
+                        else:
+                            lumo_idx = i
+                            break
+                elif isinstance(mo_occ, (list, np.ndarray)):
+                    # Fallback for lists or other iterables
+                    for i, occ_val in enumerate(mo_occ):
+                        if occ_val > occ_threshold:
+                            homo_idx = i
+                        else:
+                            lumo_idx = i
+                            break
+            except Exception as e:
+                self.log_signal.emit(f"Warning: Failed to auto-detect HOMO/LUMO: {e}\n")
+            
             if lumo_idx == -1: lumo_idx = homo_idx + 1 # if full
             
             results = {"files": []}
@@ -693,7 +932,15 @@ class PropertyWorker(QThread):
                     if isinstance(mo_coeff, (tuple, list)) or (isinstance(mo_coeff, np.ndarray) and mo_coeff.ndim == 3):
                          # UHF case
                          from pyscf.scf import uhf
-                         dm_ab = uhf.make_rdm1(mo_coeff, mo_occ)
+                         # Safe unpack
+                         if isinstance(mo_coeff, tuple):
+                             c_a, c_b = mo_coeff
+                             o_a, o_b = mo_occ
+                         else:
+                             c_a, c_b = mo_coeff[0], mo_coeff[1]
+                             o_a, o_b = mo_occ[0], mo_occ[1]
+                             
+                         dm_ab = uhf.make_rdm1((c_a, c_b), (o_a, o_b))
                          dm = dm_ab[0] + dm_ab[1] # Total density for MEP
                     else:
                          # RHF case
@@ -707,85 +954,226 @@ class PropertyWorker(QThread):
                     
                     results["files"].append(f_esp)
                     results["files"].append(f_dens)
-                    # We might want to pass the pair info
+                
+                elif task == "SpinDensity":
+                    # Check unrestricted
+                    if isinstance(mo_coeff, (tuple, list)) or (isinstance(mo_coeff, np.ndarray) and mo_coeff.ndim == 3):
+                         from pyscf.scf import uhf
+                         if isinstance(mo_coeff, tuple):
+                             c_a, c_b = mo_coeff
+                             o_a, o_b = mo_occ
+                         else:
+                             c_a, c_b = mo_coeff[0], mo_coeff[1]
+                             o_a, o_b = mo_occ[0], mo_occ[1]
+                             
+                         dm_ab = uhf.make_rdm1((c_a, c_b), (o_a, o_b))
+                         # Spin Density = Alpha - Beta
+                         spin_dens = dm_ab[0] - dm_ab[1]
+                         
+                         f_spin_base = os.path.join(self.out_dir, "spin_density.cube")
+                         from .utils import get_unique_path
+                         f_spin = get_unique_path(f_spin_base)
+                         
+                         self.log_signal.emit(f"Generating Spin Density ({os.path.basename(f_spin)})...\n")
+                         tools.cubegen.density(mol, f_spin, spin_dens)
+                         results["files"].append(f_spin)
+
+                    # --- Added: ROKS/ROHF Support ---
+                    # ROKS mo_occ is often (2, N) (Alpha/Beta occupancy)
+                    elif isinstance(mo_occ, np.ndarray) and mo_occ.ndim == 2:
+                        # ROKS case: mo_coeff is (N,N), but mo_occ is (2, N)
+                        from pyscf import scf
+                        # Generate density from orbital coeffs and Alpha/Beta occupancies
+                        dm_a = scf.hf.make_rdm1(mo_coeff, mo_occ[0])
+                        dm_b = scf.hf.make_rdm1(mo_coeff, mo_occ[1])
+                        
+                        spin_dens = dm_a - dm_b
+                        
+                        f_spin_base = os.path.join(self.out_dir, "spin_density.cube")
+                        from .utils import get_unique_path
+                        f_spin = get_unique_path(f_spin_base)
+                        
+                        self.log_signal.emit(f"Generating Spin Density (ROKS) ({os.path.basename(f_spin)})...\n")
+                        tools.cubegen.density(mol, f_spin, spin_dens)
+                        results["files"].append(f_spin)
+                    # ---------------------------
+                    else:
+                         self.log_signal.emit("Skipping Spin Density (Not an open-shell calculation or format unknown).\n")
                     
                 elif isinstance(task, str):
                     # Parse offset or absolute index
                     idx = -1
                     label = task
+                    spin_suffix = ""
+                    target_coeff = mo_coeff
+                    
+                    # Detect Spin Request in label (internal convention)
+                    # "15_HOMO_A" ? NO, task string is likely "HOMO" or "#5"
+                    # But if we want to differentiate Alpha/Beta, the GUI must pass it.
+                    # Currently strict GUI implementation doesn't pass suffix yet.
+                    # But we can try to guess or handle it if we add it to the call.
+                    
+                    # Assume task might be "HOMO_A" or "HOMO_B" logic?
+                    # Or we just assume Alpha for now unless specified?
+                    
+                    is_uhf = isinstance(mo_coeff, (tuple, list)) or (isinstance(mo_coeff, np.ndarray) and mo_coeff.ndim == 3)
+                    
+                    # Standard logic: if UHF, we need to know A or B.
+                    # If not specified, maybe generate both? Or just Alpha?
+                    # Let's check if task has specific format.
+                    
+                    # NOTE: EnergyDiagramDialog generates "MO <n>" or "HOMO".
+                    # We need to support "MO <n> A" or simple mapping.
+                    # Let's look at the label logic in GUI later.
+                    # For now, handle existing logic + suffix if present.
+                    
+                    use_beta = False
+                    if "_B" in task or "Beta" in task:
+                        use_beta = True
+                        task = task.replace("_B", "").replace("Beta", "").strip()
+                        spin_suffix = "_B"
+                    elif "_A" in task or "Alpha" in task:
+                        task = task.replace("_A", "").replace("Alpha", "").strip()
+                        spin_suffix = "_A"
+                    elif is_uhf:
+                        # Default to Alpha if UHF but not specified? 
+                        # Or maybe A is default suffix
+                        spin_suffix = "_A"
+                        
+                    if is_uhf:
+                        if isinstance(mo_coeff, tuple):
+                             c_a, c_b = mo_coeff
+                             o_a, o_b = mo_occ
+                        else:
+                             c_a, c_b = mo_coeff[0], mo_coeff[1]
+                             o_a, o_b = mo_occ[0], mo_occ[1]
+                        
+                        # Set target arrays
+                        if use_beta:
+                            target_coeff = c_b
+                            target_occ = o_b
+                            # We also need to map HOMO/LUMO indices FOR BETA
+                            # Recalculate H/L for Beta
+                            h_idx = -1
+                            for i, o in enumerate(target_occ):
+                                if o > occ_threshold: h_idx = i
+                            homo_idx = h_idx
+                            lumo_idx = h_idx + 1
+                        else:
+                            target_coeff = c_a
+                            target_occ = o_a
+                            # Recalculate H/L for Alpha
+                            h_idx = -1
+                            for i, o in enumerate(target_occ):
+                                if o > occ_threshold: h_idx = i
+                            homo_idx = h_idx
+                            lumo_idx = h_idx + 1
+                    else:
+                        target_coeff = mo_coeff
+                        # homo_idx already calc for RHF
                     
                     try:
-                        # Case 1: Relative to HOMO/LUMO
-                        if "HOMO" in task:
+                        # Improved Task Parsing for "MO <idx>_<Label>" format
+                        # Explicit regex for "MO <index>_<Label>" (e.g. MO 15_HOMO)
+                        mo_lbl_match = re.search(r"MO\s+(\d+)_([A-Za-z0-9+-]+)", task)
+                        clean_lbl = "MO" # Default
+
+                        if mo_lbl_match:
+                            # e.g. "MO 15_HOMO" -> idx=14, lbl="HOMO"
+                            idx = int(mo_lbl_match.group(1)) - 1 # Convert 1-based to 0-based
+                            clean_lbl = mo_lbl_match.group(2)
+                            
+                        # Case 1: Relative to HOMO/LUMO (Legacy/Manual)
+                        elif "HOMO" in task:
                             base = homo_idx
+                            clean_lbl = "HOMO"
                             if "+" in task:
                                 offset = int(task.split("+")[1])
                                 idx = base + offset
+                                clean_lbl = f"HOMO+{offset}"
                             elif "-" in task:
                                 offset = int(task.split("-")[1])
                                 idx = base - offset
+                                clean_lbl = f"HOMO-{offset}"
                             else:
                                 idx = base
                         elif "LUMO" in task:
                             base = lumo_idx
+                            clean_lbl = "LUMO"
                             if "+" in task:
                                 offset = int(task.split("+")[1])
                                 idx = base + offset
+                                clean_lbl = f"LUMO+{offset}"
                             elif "-" in task:
                                 offset = int(task.split("-")[1])
                                 idx = base - offset
+                                clean_lbl = f"LUMO-{offset}"
                             else:
                                 idx = base
+
                         # Case 2: Explicit "MO <n>" or just numbers
                         elif "MO" in task or task.isdigit() or task.startswith("#"):
-                            # "MO 15", "15", "#15"
-                            clean_task = task.replace("MO", "").replace("#", "").strip()
-                            val = int(clean_task)
-                            
-                            if task.startswith("#"):
-                                # Internal 0-based index
-                                idx = val
+                            # "MO 15", "15", "#15", "#15_HOMO", etc.
+                            # Robust digit extraction using Regex
+                            # This handles "11SO" bug by ignoring all non-digits
+                            clean_task = re.sub(r"\D", "", task) # \D matches non-digits
+                            if clean_task:
+                                val = int(clean_task)
+                                if task.startswith("#"):
+                                    idx = val # Internal 0-based index
+                                else:
+                                    idx = val - 1 # User 1-based index (MO 1 = Index 0)
                             else:
-                                # User 1-based index (MO 1 = Index 0)
-                                idx = val - 1
+                                raise ValueError(f"Unknown task format: {task}")
                                 
                             label = f"MO_{idx+1}" # Normalized label (1-based for display)
                         else:
-                            if self.job_type == "Optimization":
-                                self.log_signal.emit("Starting Geometry Optimization (geometric)...\n")
-                                
-                                # We need to allow geometric to write to chkfile during opt?
-                                # PySCF gradients read from it.
-                                
-                                try:
-                                    import geometric
-                                except ImportError:
-                                    self.log_signal.emit("Error: geometric-mol not installed. Skipping optimization.\n")
-                                    self.job_type = "Energy" # Fallback                      
-                            # Unknown string pattern
-                            self.log_signal.emit(f"Unknown orbital syntax: {task}\n")
-                            continue
+                             pass # ... same error handling ...
 
                     except Exception as e:
                         self.log_signal.emit(f"Error parsing orbital: {task} ({e})\n")
                         continue
                         
-                    if idx < 0 or idx >= mo_coeff.shape[1]:
+                    if idx < 0 or idx >= target_coeff.shape[1]:
                         self.log_signal.emit(f"Orbital index {idx} out of bounds for {task}\n")
                         continue
                         
+                    
                     # Determine Relative Label (HOMO-X / LUMO+X)
-                    rel_label = f"MO_{idx}"
+                    # Determine Relative Label (HOMO-X / LUMO+X)
+                    clean_lbl = f"MO_{idx}" # Default fallback
                     if idx <= homo_idx:
                         diff = homo_idx - idx
-                        rel_label = "HOMO" if diff == 0 else f"HOMO-{diff}"
-                    elif lumo_idx != -1 and idx >= lumo_idx:
+                        clean_lbl = "HOMO" if diff == 0 else f"HOMO-{diff}"
+                    elif idx >= lumo_idx:
                         diff = idx - lumo_idx
-                        rel_label = "LUMO" if diff == 0 else f"LUMO+{diff}"
-                        
+                        clean_lbl = "LUMO" if diff == 0 else f"LUMO+{diff}"
+                    
+                    rel_label = clean_lbl
+                    
+                    
                     # Filename
-                    fname = f"{idx:03d}_{rel_label}.cube"
-                        
+                    # User Request: Use "10a" prefix style
+                    # This ensures sorting separates Alpha (10a) and Beta (10b) clearly.
+                    
+                    prefix_idx = idx + 1 # Use 1-based index for user-facing filename
+                    
+                    if is_uhf:
+                        # e.g. "015a", "015b"
+                        # We use 'a' and 'b' from spin_suffix
+                        # spin_suffix is "_A" or "_B".
+                        # Convert to 'a' or 'b'
+                        s_char = "a" if "_A" in spin_suffix else "b"
+                        # User Request: "use 010a not 10a" -> Pad to 3 digits
+                        file_prefix = f"{prefix_idx:03d}{s_char}"
+                        # If we use this prefix, we might not need suffix at end, but keeping it is safe.
+                        # Proposed: "015a_HOMO.cube"
+                        fname = f"{file_prefix}_{rel_label}.cube"
+                    else:
+                        # RHF: Use 1-based index for consistency "016_HOMO"
+                        # User Request: "Make them consistent"
+                        fname = f"{prefix_idx:03d}_{rel_label}.cube"
+                    
                     # Sanitization: Ensure safe filenames but keep readable
                     # fname = fname.replace(" ", "") # User requested spaces in name
                     f_path_base = os.path.join(self.out_dir, fname)
@@ -793,8 +1181,8 @@ class PropertyWorker(QThread):
                     from .utils import get_unique_path
                     f_path = get_unique_path(f_path_base)
                     
-                    self.log_signal.emit(f"Generating {os.path.basename(f_path)} (Index {idx})...\n")
-                    tools.cubegen.orbital(mol, f_path, mo_coeff[:, idx])
+                    self.log_signal.emit(f"Generating {os.path.basename(f_path)} (Index {idx}{spin_suffix})...\n")
+                    tools.cubegen.orbital(mol, f_path, target_coeff[:, idx])
                     results["files"].append(f_path)
             
             self.result_signal.emit(results)
@@ -837,16 +1225,74 @@ class LoadWorker(QThread):
             mo_energy = scf_data.get('mo_energy')
             mo_occ = scf_data.get('mo_occ')
             
-            # Identify Type
+            # Identify Type (Enhanced: UHF, RHF, ROKS, ROHF)
             scf_type = "RHF"
+            
+            import numpy as np
+            
+            # Step 1: Check for Unrestricted (UHF/UKS)
+            is_uhf = False
             if isinstance(mo_energy, tuple):
+                is_uhf = True
+            elif isinstance(mo_energy, list) and len(mo_energy) == 2 and isinstance(mo_energy[0], (list, np.ndarray)):
+                 pass # Could be list of lists checking
+            elif isinstance(mo_energy, np.ndarray) and mo_energy.ndim == 2:
+                 is_uhf = True
+            
+            # Step 2: Check for Restricted Open-shell (ROKS/ROHF)
+            # ROKS has 2D mo_occ: shape (2, N) for Alpha/Beta occupancies
+            # and contains partial occupancy (values near 1.0)
+            is_roks = False
+            if not is_uhf:  # Only check if not already identified as UHF
+                try:
+                    if isinstance(mo_occ, np.ndarray) and mo_occ.ndim == 2:
+                        # Check for partial occupancy (SOMO signature: occ ≈ 1.0)
+                        has_partial_occ = False
+                        for occ_val in mo_occ.flatten():
+                            if 0.5 < occ_val < 1.5:  # Near 1.0 (SOMO)
+                                has_partial_occ = True
+                                break
+                        if has_partial_occ:
+                            is_roks = True
+                            scf_type = "ROKS"
+                    elif isinstance(mo_occ, list):
+                        # Handle list of lists case
+                        if len(mo_occ) == 2 and all(isinstance(x, (list, np.ndarray)) for x in mo_occ):
+                            has_partial_occ = False
+                            for sublist in mo_occ:
+                                for occ_val in (sublist if isinstance(sublist, list) else sublist.tolist()):
+                                    if 0.5 < occ_val < 1.5:
+                                        has_partial_occ = True
+                                        break
+                                if has_partial_occ:
+                                    break
+                            if has_partial_occ:
+                                is_roks = True
+                                scf_type = "ROKS"
+                except Exception as e_roks:
+                    # If ROKS detection fails, default to RHF (safe fallback)
+                    pass
+                    
+            if is_uhf:
                 scf_type = "UHF"
                 # Convert to lists for JSON/Qt safety
-                mo_energy = [e.tolist() for e in mo_energy]
-                mo_occ = [o.tolist() for o in mo_occ]
+                try:
+                    if isinstance(mo_energy, tuple):
+                        mo_energy = [e.tolist() if hasattr(e, 'tolist') else list(e) for e in mo_energy]
+                        mo_occ = [o.tolist() if hasattr(o, 'tolist') else list(o) for o in mo_occ]
+                    else: 
+                     # Numpy 2D case
+                        if hasattr(mo_energy, 'tolist'): mo_energy = mo_energy.tolist()
+                        if hasattr(mo_occ, 'tolist'): mo_occ = mo_occ.tolist()
+                except Exception as e_conv:
+                    pass  # Keep as-is if conversion fails
             else:
-                 mo_energy = mo_energy.tolist()
-                 mo_occ = mo_occ.tolist()
+                 # RHF/ROKS Case
+                 try:
+                     if hasattr(mo_energy, 'tolist'): mo_energy = mo_energy.tolist()
+                     if hasattr(mo_occ, 'tolist'): mo_occ = mo_occ.tolist()
+                 except Exception as e_conv:
+                     pass  # Keep as-is if conversion fails
             
             # Attempt to extract optimized XYZ if present (or just current geometry)
             coords = mol.atom_coords(unit='Ang')
