@@ -178,6 +178,54 @@ class PySCFDialog(QDialog):
         if hasattr(self, 'log'):
              self.log("Document reset: Plugin state cleared.")
 
+        # User Request: Apply Saved Defaults on New File
+        self.apply_defaults()
+
+    def apply_defaults(self):
+        """Load and apply default settings (User Defaults or Factory Defaults)."""
+        # Factory Defaults
+        defaults = {
+            "job_type": "Optimization + Frequency",
+            "method": "RKS",
+            "functional": "b3lyp",
+            "basis": "sto-3g",
+            "charge": "0",
+            "spin": "0",
+            "root_path": os.path.join(os.path.expanduser("~"), "PySCF_Results"),
+            "threads": 0,
+            "memory": 4000,
+            "check_symmetry": False,
+            "spin_cycles": 100,
+            "conv_tol": "1e-9"
+        }
+
+        # Load User Defaults (settings.json)
+        json_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "settings.json")
+        if os.path.exists(json_path):
+             try:
+                 with open(json_path, 'r') as f:
+                     user_defaults = json.load(f)
+                     defaults.update(user_defaults)
+             except: pass
+        
+        # Apply to UI
+        if hasattr(self, 'job_type_combo'):
+            self.job_type_combo.setCurrentText(defaults["job_type"])
+            self.method_combo.setCurrentText(defaults["method"])
+            self.functional_combo.setCurrentText(defaults["functional"])
+            self.basis_combo.setCurrentText(defaults["basis"])
+            self.charge_input.setCurrentText(str(defaults["charge"]))
+            self.spin_input.setCurrentText(str(defaults["spin"]))
+            
+            self.out_dir_edit.setText(defaults["root_path"])
+            
+            self.spin_threads.setValue(int(defaults["threads"]))
+            self.spin_memory.setValue(int(defaults["memory"]))
+            
+            self.check_symmetry.setChecked(defaults["check_symmetry"])
+            self.spin_cycles.setValue(int(defaults["spin_cycles"]))
+            self.edit_conv.setText(defaults["conv_tol"])
+
     def save_settings(self):
         # Update shared dictionary
         self.settings["job_type"] = self.job_type_combo.currentText()
@@ -189,9 +237,36 @@ class PySCFDialog(QDialog):
         self.settings["out_dir"] = self.out_dir_edit.text()
         self.settings["version"] = self.version # Save version to project file
         
-        # Persist History & Source
+        # Persist History (Handle Relative Paths)
         if hasattr(self, 'calc_history'):
-            self.settings["calc_history"] = self.calc_history
+            history_to_save = self.calc_history
+            
+            # Check if user is using relative path setting
+            out_dir_val = self.out_dir_edit.text().strip()
+            is_relative_setting = not os.path.isabs(out_dir_val)
+            
+            if is_relative_setting:
+                try:
+                    # Resolve project directory
+                    mw = self.context.get_main_window()
+                    current_path = getattr(mw, 'current_file_path', None)
+                    if current_path:
+                        project_dir = os.path.dirname(current_path)
+                        # Convert history to relative
+                        relative_history = []
+                        for h_path in self.calc_history:
+                            try:
+                                # Only convert if on same drive/valid
+                                rel = os.path.relpath(h_path, project_dir)
+                                relative_history.append(rel)
+                            except:
+                                relative_history.append(h_path)
+                        history_to_save = relative_history
+                except:
+                    pass
+            
+            self.settings["calc_history"] = history_to_save
+
         if hasattr(self, 'struct_source'):
              self.settings["struct_source"] = self.struct_source
         
@@ -207,38 +282,43 @@ class PySCFDialog(QDialog):
                      self.settings["associated_filename"] = name
         except: pass
 
-        # Local JSON Save (User Request)
+        # Local JSON Save Removed (User Request: Manual Save Only)
+
+
+    def save_custom_defaults(self):
+        """Save current UI settings as default for future new projects."""
         json_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "settings.json")
         local_settings = {
              "root_path": self.out_dir_edit.text(),
              "threads": self.spin_threads.value(),
-             "memory": self.spin_memory.value()
+             "memory": self.spin_memory.value(),
+             # Calc Settings
+             "job_type": self.job_type_combo.currentText(),
+             "method": self.method_combo.currentText(),
+             "functional": self.functional_combo.currentText(),
+             "basis": self.basis_combo.currentText(),
+             "check_symmetry": self.check_symmetry.isChecked(),
+             "spin_cycles": self.spin_cycles.value(),
+             "conv_tol": self.edit_conv.text()
         }
         try:
              with open(json_path, 'w') as f:
                  json.dump(local_settings, f, indent=4)
+             
+             # Feedback
+             # self.statusBar() might not be available if not QMainWindow, but qdialog doesn't have it by default unless added?
+             # gui.py inherits QDialog? 
+             # Use log or tooltip or simple message box?
+             # Simple transient message box or log is better.
+             self.log("Default settings saved.")
+             QToolTip.showText(self.cursor().pos(), "Defaults Saved!", self)
+             
         except Exception as e:
-             print(f"Failed to save local settings: {e}")
+             self.log(f"Failed to save default settings: {e}")
 
     def load_settings(self):
-        # Local JSON Load (Defaults)
-        local_settings = {}
-        json_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "settings.json")
-        if os.path.exists(json_path):
-             try:
-                 with open(json_path, 'r') as f:
-                     local_settings = json.load(f)
-                 # Root Path
-                 rp = local_settings.get("root_path")
-                 if rp:
-                     self.out_dir_edit.setText(rp)
-                 # Threads/Memory
-                 if "threads" in local_settings and hasattr(self, 'spin_threads'):
-                     self.spin_threads.setValue(local_settings["threads"])
-                 if "memory" in local_settings and hasattr(self, 'spin_memory'):
-                     self.spin_memory.setValue(local_settings["memory"])
-             except Exception as e:
-                 print(f"Failed to load local settings: {e}")
+        # Apply Defaults First (User or Factory)
+        self.apply_defaults()
 
         # Project Settings (Load Overrides)
         s = self.settings
@@ -250,8 +330,32 @@ class PySCFDialog(QDialog):
         if "spin" in s: self.spin_input.setCurrentText(s["spin"])
         if "out_dir" in s: self.out_dir_edit.setText(s["out_dir"])
         
+        
         # Load History & Source
-        self.calc_history = s.get("calc_history", [])
+        raw_history = s.get("calc_history", [])
+        self.calc_history = []
+        
+        # Resolve History Paths
+        try:
+            # Attempt to resolve against current project path
+            # (Context usually set before settings loaded, or we check if we can get it)
+            project_dir = None
+            if self.context:
+                mw = self.context.get_main_window()
+                current_path = getattr(mw, 'current_file_path', None)
+                if current_path:
+                    project_dir = os.path.dirname(current_path)
+
+            for h_path in raw_history:
+                # If path is relative and we have project dir, resolve it
+                if not os.path.isabs(h_path) and project_dir:
+                    abs_path = os.path.normpath(os.path.join(project_dir, h_path))
+                    self.calc_history.append(abs_path)
+                else:
+                    self.calc_history.append(h_path)
+        except:
+             self.calc_history = raw_history
+
         self.struct_source = s.get("struct_source", None)
         # Update Label if UI ready (setup_ui called before load_settings)
         if hasattr(self, 'lbl_struct_source') and self.struct_source:
@@ -289,10 +393,12 @@ class PySCFDialog(QDialog):
                      
                  # Reset All Calculation Settings to Defaults
                  self.log("Resetting calculation parameters for new file.")
-                 self.job_type_combo.setCurrentText("Optimization + Frequency")
-                 self.method_combo.setCurrentIndex(0) # RKS
-                 self.functional_combo.setCurrentIndex(0) # b3lyp
-                 self.basis_combo.setCurrentIndex(0) # sto-3g
+                 
+                 # Apply Defaults (Local or Hardcoded)
+                 self.job_type_combo.setCurrentText(local_settings.get("job_type", "Optimization + Frequency"))
+                 self.method_combo.setCurrentText(local_settings.get("method", "RKS"))
+                 self.functional_combo.setCurrentText(local_settings.get("functional", "b3lyp")) 
+                 self.basis_combo.setCurrentText(local_settings.get("basis", "sto-3g"))
                  self.charge_input.setCurrentText("0")
                  self.spin_input.setCurrentText("0")
                  
@@ -302,9 +408,9 @@ class PySCFDialog(QDialog):
                  if "root_path" in local_settings:
                      self.out_dir_edit.setText(local_settings["root_path"])
                      
-                 self.check_symmetry.setChecked(False)
-                 self.spin_cycles.setValue(100)
-                 self.edit_conv.setText("1e-9")
+                 self.check_symmetry.setChecked(local_settings.get("check_symmetry", False))
+                 self.spin_cycles.setValue(local_settings.get("spin_cycles", 100))
+                 self.edit_conv.setText(local_settings.get("conv_tol", "1e-9"))
                  
                  # Clear shared settings to prevent persistence from previous session
                  keys_to_clear = ["job_type", "method", "functional", "basis", 
@@ -312,11 +418,16 @@ class PySCFDialog(QDialog):
                  for k in keys_to_clear:
                      if k in self.settings: del self.settings[k]
                      
-             elif os.path.exists(last_path) and os.path.isdir(last_path):
-                 # Auto-load if we decide NOT to reset (Same file OR Untitled)
-                 self.log(f"Auto-loading latest result from history: {last_path}")
-                 # Pass update_structure=False to prevent overwriting current molecule
-                 QTimer.singleShot(200, lambda: self.load_result_folder(last_path, update_structure=False))
+             else:
+                 # Attempt Auto-load
+                 if os.path.exists(last_path) and os.path.isdir(last_path):
+                     self.log(f"Auto-loading latest result from history: {last_path}")
+                     # Pass update_structure=False to prevent overwriting current molecule
+                     QTimer.singleShot(200, lambda: self.load_result_folder(last_path, update_structure=False))
+                 else:
+                     # Warn if missing
+                     self.log(f"Warning: Last result folder not found: {last_path}")
+                     QTimer.singleShot(500, lambda: QMessageBox.warning(self, "Result Not Found", f"Calculation result was not found:\n{last_path}"))
 
     def setup_ui(self):
         main_layout = QVBoxLayout(self)
@@ -457,6 +568,7 @@ class PySCFDialog(QDialog):
         # Default to Home Directory/PySCF_Results
         home_dir = os.path.expanduser("~")
         self.out_dir_edit.setText(os.path.join(home_dir, "PySCF_Results"))
+        self.out_dir_edit.setToolTip("Path to save results. Relative paths (e.g. 'results') will be created inside the current project folder.\nIf the project is unsaved, it defaults to the home directory.")
         
         btn_browse = QPushButton("Browse")
         btn_browse.clicked.connect(self.browse_out_dir)
@@ -466,16 +578,26 @@ class PySCFDialog(QDialog):
         h_box.addWidget(btn_browse)
         form_layout.addRow("Output Dir:", h_box)
 
+        # User Request: "Save as Default" button (Inside Config Group, Right Aligned)
+        h_default = QHBoxLayout()
+        h_default.addStretch()
+        self.btn_save_default = QPushButton("Save as Default")
+        self.btn_save_default.setStyleSheet("padding: 5px;") 
+        self.btn_save_default.clicked.connect(self.save_custom_defaults)
+        self.btn_save_default.setToolTip("Save current settings (Job, Method, Path, etc.) as default for new projects.")
+        h_default.addWidget(self.btn_save_default)
+        
+        form_layout.addRow(h_default)
+
         config_group.setLayout(form_layout)
         layout.addWidget(config_group)
 
         # --- Actions ---
+        
         btn_layout = QHBoxLayout()
         self.run_btn = QPushButton("Run Calculation")
         self.run_btn.clicked.connect(self.run_calculation)
         self.run_btn.setStyleSheet("font-weight: bold; padding: 5px;")
-        
-
         
         btn_layout.addWidget(self.run_btn)
         
@@ -483,6 +605,7 @@ class PySCFDialog(QDialog):
         self.stop_btn.clicked.connect(self.stop_calculation)
         self.stop_btn.setEnabled(False)
         btn_layout.addWidget(self.stop_btn)
+
         
         layout.addLayout(btn_layout)
         
@@ -1143,6 +1266,42 @@ class PySCFDialog(QDialog):
         self.save_settings() # Save persistence
 
         # Prepare configuration
+        # Helper to resolve output directory
+        raw_out_dir = self.out_dir_edit.text().strip()
+        final_out_dir = raw_out_dir
+        
+        if not os.path.isabs(raw_out_dir):
+            # Check context for current file
+            mw = self.context.get_main_window()
+            current_path = getattr(mw, 'current_file_path', None)
+            
+            # If unsaved, prompt user
+            if not current_path:
+                fallback_base = os.path.expanduser("~")
+                fallback_path = os.path.abspath(os.path.join(fallback_base, raw_out_dir))
+                
+                msg = (f"You are using a relative path ('{raw_out_dir}') with an unsaved project.\n"
+                       "Do you want to save the project first to establish a base directory?\n\n"
+                       f"Clicking 'No' will save results to: {fallback_path}")
+                
+                reply = QMessageBox.question(self, "Unsaved Project", msg, 
+                                             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+                
+                if reply == QMessageBox.StandardButton.Yes:
+                    # Trigger save
+                    if hasattr(mw, 'save_project'):
+                        mw.save_project()
+                    # Re-check path
+                    current_path = getattr(mw, 'current_file_path', None)
+            
+            # Resolve path
+            if current_path:
+                base_dir = os.path.dirname(current_path)
+                final_out_dir = os.path.join(base_dir, raw_out_dir)
+            else:
+                # Fallback to home
+                final_out_dir = os.path.join(os.path.expanduser("~"), raw_out_dir)
+
         config = {
             "job_type": self.job_type_combo.currentText(),
             "method": self.method_combo.currentText(),
@@ -1157,7 +1316,7 @@ class PySCFDialog(QDialog):
             "break_symmetry": self.check_break_sym.isChecked(),
             "max_cycle": self.spin_cycles.value(),
             "conv_tol": self.edit_conv.text(),
-            "out_dir": os.path.abspath(self.out_dir_edit.text())
+            "out_dir": os.path.abspath(final_out_dir)
         }
         
         # Ensure dir exists
