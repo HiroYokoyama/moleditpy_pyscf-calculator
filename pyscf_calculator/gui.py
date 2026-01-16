@@ -42,7 +42,7 @@ class PySCFDialog(QDialog):
         self.settings = settings if settings is not None else {}
         self.mo_data = None # Initialize to prevent AttributeError
         self.closing = False # Emergency flag to block updates during shutdown
-        self.struct_source = None
+        self.struct_source = "Current Editor"
         self.calc_history = []
         
         title = "PySCF Calculator"
@@ -80,7 +80,7 @@ class PySCFDialog(QDialog):
             
         # Clear internal state
         self.loaded_file = None
-        self.struct_source = None
+        self.struct_source = "Current Editor"
         self.calc_history = []
         if "calc_history" in self.settings:
              self.settings["calc_history"] = []
@@ -149,12 +149,10 @@ class PySCFDialog(QDialog):
             self.freq_vis = None
 
         if hasattr(self, 'freq_dock') and self.freq_dock:
-             mw = self.context.get_main_window()
-             if mw:
-                 try: mw.removeDockWidget(self.freq_dock)
-                 except: pass
-             self.freq_dock.close()
-             self.freq_dock.deleteLater()
+             try:
+                 self.freq_dock.close()
+                 self.freq_dock.deleteLater()
+             except: pass
              self.freq_dock = None
 
         # Clear Checkpoint Path
@@ -1229,13 +1227,12 @@ class PySCFDialog(QDialog):
         self.clear_3d_actors() # This now safely checks for existence
         
         # Close Dock
+        # Close Dock
         if hasattr(self, 'freq_dock') and self.freq_dock:
-             mw = self.context.get_main_window()
-             if mw:
-                 try: mw.removeDockWidget(self.freq_dock)
-                 except: pass
-             self.freq_dock.close()
-             self.freq_dock.deleteLater()
+             try:
+                 self.freq_dock.close()
+                 self.freq_dock.deleteLater()
+             except: pass
              self.freq_dock = None
              
         # Cleanup Freq Vis
@@ -2058,15 +2055,19 @@ class PySCFDialog(QDialog):
                 # Note: We don't save to file here (removed per user request), 
                 # but update_internal_state will capture it for Project Save.
             
-        if result_data.get("optimized_xyz"):
-             self.optimized_xyz = result_data["optimized_xyz"]
+        # --- Handle Optimized Geometry ---
+        # Robustly check for optimized geometry data
+        opt_xyz = result_data.get("optimized_xyz")
+        if opt_xyz:
+             self.optimized_xyz = opt_xyz
              self.btn_load_geom.setEnabled(True)
              self.log("Optimization converged. Automatically updating geometry...")
+             
+             # Actually update the geometry in the view
              self.update_geometry(self.optimized_xyz)
              
-             self.update_geometry(self.optimized_xyz)
-             
-             # Update Source Label ONLY if geometry changed
+             # --- Update Source Label ---
+             # Explicitly construct the label text
              src_name = "Result"
              src_path = ""
              if self.last_out_dir:
@@ -2074,10 +2075,22 @@ class PySCFDialog(QDialog):
                  src_path = self.last_out_dir
              
              self.struct_source = f"optimized from {src_name} ({src_path})"
+             
+             # Directly update the label and force UI refresh
              if hasattr(self, 'lbl_struct_source'):
                   self.lbl_struct_source.setText(f"Structure Source: {self.struct_source}")
-                  # Force repaint to ensure UI updates immediately
                   self.lbl_struct_source.repaint()
+                  self.log(f"Updated Structure Source to: {self.struct_source}") # LOGGING
+
+        else:
+             # For Energy/Property/Freq only (geometry didn't change), 
+             # If struct_source is missing, revert to default. 
+             # Otherwise leave it (e.g. "Loaded from...")
+             if not self.struct_source:
+                 self.struct_source = "Current Editor"
+             
+             if hasattr(self, 'lbl_struct_source'):
+                  self.lbl_struct_source.setText(f"Structure Source: {self.struct_source}")
         
         # Store Energy Data
         if result_data.get("mo_energy"):
@@ -2187,6 +2200,9 @@ class PySCFDialog(QDialog):
              self.thermo_data = result_data["thermo_data"]
              self.btn_show_thermo.setEnabled(True)
              self.log("Thermodynamic data captured.")
+             
+        # Ensure all data (Structure Source, History, etc.) is persisted to settings
+        self.update_internal_state()
              
         # Auto-Switch to Visualization Tab when calculation completes
         self.tabs.setCurrentIndex(1)
@@ -2357,22 +2373,27 @@ class PySCFDialog(QDialog):
              # CRITICAL FIX: Chain the finalize_load AFTER geometry update
              def update_and_finalize():
                  # Update Source Label
-                 # Check if we should overwrite. If checking explicit optimization result, 
-                 # it might have been set in `on_results`.
-                 # How to detect?
-                 # `self.struct_source` might already contain "optimized from".
-                 # If so, don't overwrite with "Loaded from".
-                 current_src = getattr(self, 'struct_source', "")
-                 is_optimization_result = current_src and "optimized from" in current_src
+                 # Smart Labeling: If we loaded an optimized geometry, say so.
+                 # Otherwise, just "Loaded from".
                  
-                 if not is_optimization_result:
-                     if hasattr(self, 'chkfile_path') and self.chkfile_path:
-                         chk_abs = os.path.abspath(self.chkfile_path)
-                         full_path = os.path.dirname(chk_abs)
-                         basename = os.path.basename(full_path)
-                         self.struct_source = f"Loaded from {basename} ({full_path})"
+                 has_opt_geom = False
+                 if result_data.get("optimized_xyz"):
+                     has_opt_geom = True
+                 elif hasattr(self, 'optimized_xyz') and self.optimized_xyz:
+                     # Fallback check if it was set earlier in this method
+                     has_opt_geom = True
+                     
+                 if hasattr(self, 'chkfile_path') and self.chkfile_path:
+                     chk_abs = os.path.abspath(self.chkfile_path)
+                     full_path = os.path.dirname(chk_abs)
+                     basename = os.path.basename(full_path)
+                     
+                     if has_opt_geom:
+                         self.struct_source = f"optimized from {basename} ({full_path})"
                      else:
-                         self.struct_source = "Loaded from Result (Unknown)"
+                         self.struct_source = f"Loaded from {basename} ({full_path})"
+                 else:
+                     self.struct_source = "Loaded from Result (Unknown)"
 
                  if hasattr(self, 'lbl_struct_source'):
                       self.lbl_struct_source.setText(f"Structure Source: {self.struct_source}")
@@ -2429,11 +2450,10 @@ class PySCFDialog(QDialog):
          # Remove old dock if it exists (safety check)
          if hasattr(self, 'freq_dock') and self.freq_dock:
              try:
-                 mw = self.context.get_main_window()
-                 mw.removeDockWidget(self.freq_dock)
+                 self.freq_dock.close()
                  self.freq_dock.deleteLater()
-                 self.freq_dock = None
              except: pass
+             self.freq_dock = None
 
          # 7. Restore Frequency Data (AFTER geometry is guaranteed loaded)
          if result_data.get("freq_data"):
