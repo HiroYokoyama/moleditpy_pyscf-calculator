@@ -30,7 +30,7 @@ A powerful, user-friendly GUI interface for performing Quantum Chemistry calcula
     - "Save to PNG" feature that automatically hides UI controls for publication-quality figures.
 - **Property Analysis**:
   - Generate standard .cube files for Molecular Orbitals (MOs).
-  - Compute and visualize Electron Density and Electrostatic Potential (ESP).
+  - Compute and visualize Electron Density, Spin Density, and Electrostatic Potential (ESP).
   - Handles Open-Shell (UHF) density correctly.
 - **Thermodynamic Properties**: Calculate and view Enthalpy, Entropy, Gibbs Free Energy, and ZPE from frequency jobs.
 
@@ -65,6 +65,7 @@ pip install pyscf PyQt6 numpy geometric
 ## License
 
 This project is licensed under the **GNU General Public License v3.0 (GPLv3)**. See the [LICENSE](LICENSE) file for details.
+
 
 
 
