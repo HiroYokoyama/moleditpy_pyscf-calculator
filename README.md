@@ -1,6 +1,8 @@
 # MoleditPy PySCF Calculator Plugin
 
-A powerful, user-friendly GUI interface for performing Quantum Chemistry calculations using PySCF. This plugin provides a seamless workflow for configuring calculations, managing jobs, and visualizing results, including a Interactive Orbital Energy Diagram.
+A powerful, user-friendly GUI interface for performing quantum chemistry calculations using PySCF. This plugin provides an intuitive workflow for configuring calculations, managing jobs, and visualizing molecular electronic structure.
+
+**Excellent for learning molecular orbital theory, DFT calculations, and organic chemistry**: The interactive orbital energy diagram lets you click on any orbital (HOMO, LUMO, etc.) to instantly visualize its 3D shape and electron distribution. Easily switch between HF and DFT methods, compare different functionals (B3LYP, PBE, etc.), and explore various basis sets to understand the trade-offs between accuracy and computational cost. Beyond orbitals, visualize electrostatic potential (ESP) maps to understand reactive sites and intermolecular interactions, electron density to see bonding patterns, and spin density for radical species. These visual tools make abstract quantum chemistry concepts tangible and help students connect theory to real chemical behavior. Perfect for students exploring computational chemistry and researchers needing quick visual analysis.
 
 ![](img/img.png)
 
