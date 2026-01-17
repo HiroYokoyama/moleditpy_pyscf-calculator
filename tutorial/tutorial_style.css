@@ -30,6 +30,12 @@ body {
     padding: 0;
 }
 
+*,
+*::before,
+*::after {
+    box-sizing: border-box;
+}
+
 .container {
     max-width: 800px;
     margin: 2rem auto;
@@ -391,8 +397,8 @@ a:hover {
 /* Orbital Grid */
 .orbital-grid {
     display: grid;
-    grid-template-columns: repeat(2, 1fr);
-    gap: 1.5rem;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 2rem;
     margin-top: 1.5rem;
 }
 

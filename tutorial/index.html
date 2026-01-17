@@ -36,8 +36,8 @@
 
         .card-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-            gap: 2rem;
+            grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+            gap: 2.5rem;
             margin-top: 2rem;
             text-align: left;
         }
@@ -51,15 +51,21 @@
             box-shadow: var(--shadow-md);
             display: flex;
             flex-direction: column;
-            height: 100%;
             position: relative;
             overflow: hidden;
+        }
+
+        *,
+        *::before,
+        *::after {
+            box-sizing: border-box;
         }
 
         .tutorial-card:hover {
             transform: translateY(-5px);
             box-shadow: var(--shadow-xl);
             border-color: var(--accent-color);
+            z-index: 10;
         }
 
         .card-number {
