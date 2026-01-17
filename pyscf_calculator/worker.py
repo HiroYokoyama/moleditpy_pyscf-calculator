@@ -8,12 +8,19 @@ import traceback
 import numpy as np
 import math
 import re
+import copy
 from PyQt6.QtCore import QThread, pyqtSignal
+try:
+    from rdkit import Chem
+    from rdkit.Chem import rdMolTransforms
+except ImportError:
+    pass
 
 # We import pyscf inside the thread or check availability
 try:
     import pyscf
-    from pyscf import gto, scf, dft, tools, lo
+    from pyscf import gto, scf, dft, lib, tools
+    from pyscf.tools import cubegen
 except ImportError:
     pyscf = None
 
@@ -198,8 +205,18 @@ class PySCFWorker(QThread):
             
             # Setup Molecule
             try:
+                # Compatibility: PySCF atom= expects raw atoms, not XYZ file format with headers.
+                # Strip header if present.
+                raw_xyz = self.xyz_str.strip()
+                lines = raw_xyz.split('\n')
+                if len(lines) > 2 and lines[0].strip().isdigit():
+                    # Standard XYZ: Skip Count and Comment
+                    clean_atom_str = "\n".join(lines[2:])
+                else:
+                    clean_atom_str = raw_xyz
+
                 mol = gto.M(
-                    atom=self.xyz_str,
+                    atom=clean_atom_str,
                     basis=self.config.get("basis", "sto-3g"),
                     charge=charge,
                     spin=spin_2s,
@@ -221,46 +238,11 @@ class PySCFWorker(QThread):
                 n_threads = pyscf.lib.num_threads()
                 self.log_signal.emit(f"PySCF running with {n_threads} OpenMP threads.\n")
             except: pass
-            
-            # Save Input Log
-            inp_file = os.path.join(out_dir, "pyscf_input.py")
-            with open(inp_file, "w") as f:
-                f.write("from pyscf import gto, scf, dft\n")
-                f.write(f"mol = gto.M(atom='''{self.xyz_str}''', \n")
-                f.write(f"    basis='{self.config.get('basis')}', \n")
-                f.write(f"    charge={charge}, \n")
-                f.write(f"    spin={spin_2s}, \n")
-                f.write(f"    verbose=4)\n")
-                f.write("mol.build()\n")
-                f.write(f"# Job Type: {self.config.get('job_type')}\n")
-                f.write(f"# Method: {self.config.get('method')}\n")
-                if "KS" in self.config.get("method"):
-                     f.write(f"# Functional: {self.config.get('functional')}\n")
-                     f.write(f"mf = dft.{self.config.get('method')}(mol)\n")
-                     f.write(f"mf.xc = '{self.config.get('functional')}'\n")
-                else:
-                     f.write(f"mf = scf.{self.config.get('method')}(mol)\n")
-                f.write("mf.kernel()\n")
-                
-                if "TDDFT" in self.config.get('job_type'):
-                    f.write("\n# TDDFT Calculation\n")
-                    f.write("from pyscf import tdscf\n")
-                    # Simplified selection for generated script
-                    f.write(f"td = tdscf.TDDFT(mf) if 'KS' in '{self.config.get('method')}' else tdscf.TDHF(mf)\n")
-                    f.write(f"td.nstates = {self.config.get('nstates', 10)}\n")
-                    f.write("td.verbose = 4\n")
-                    f.write("td.kernel()\n")
-
             # Select Method
             method_name = self.config.get("method", "RHF")
             functional = self.config.get("functional", "b3lyp")
             
-            # Auto-adjust method for Open Shell if needed?
-            # If user selected RHF/RKS but spin != 0, PySCF crashes or warns.
-            # We should probably force U if spin != 0.
-            # But relying on user selection (UHF/UKS) is safer behavior for now.
-            # Ideally the GUI updates the combo, but backend safety is good.
-            
+            # Auto-adjust method for Open Shell if needed
             if spin_2s != 0:
                 if method_name == "RHF": 
                     method_name = "UHF"
@@ -268,6 +250,63 @@ class PySCFWorker(QThread):
                 elif method_name == "RKS": 
                     method_name = "UKS"
                     self.log_signal.emit("Switching to UKS due to spin != 0.\n")
+            
+            # Save Input Log
+            inp_file = os.path.join(out_dir, "pyscf_input.py")
+            with open(inp_file, "w") as f:
+                f.write("# PySCF Input for MoleditPy PySCF Calculator plugin\n")
+                f.write(f"# Plugin Version: {self.config.get('plugin_version', '0.0.0')}\n")
+                f.write(f"# Job Type: {self.config.get('job_type')}\n")
+                f.write(f"# Method: {method_name}\n")
+                if "KS" in method_name:
+                     f.write(f"# Functional: {functional}\n")
+                f.write(f"# Basis: {self.config.get('basis')}\n")
+                f.write(f"# Charge: {charge}\n")
+                f.write(f"# Multiplicity: {spin_mult if 'spin_mult' in locals() else spin_2s + 1}\n")
+                f.write(f"# Threads: {n_threads}\n")
+                f.write(f"# Memory: {self.config.get('memory')} MB\n")
+                if "TDDFT" in self.config.get('job_type'):
+                    f.write(f"# TDN States: {self.config.get('nstates')}\n")
+                f.write(f"# Max Cycle: {self.config.get('max_cycle')}\n")
+                f.write(f"# Conv Tol: {self.config.get('conv_tol')}\n")
+                
+                scan_params = self.config.get("scan_params")
+                if scan_params:
+                    f.write("# Scan Parameters:\n")
+                    for k, v in scan_params.items():
+                        f.write(f"#   {k}: {v}\n")
+                
+                f.write("\n")
+                f.write("from pyscf import gto, scf, dft\n")
+                f.write(f"mol = gto.M(atom='''{self.xyz_str}''', \n")
+                f.write(f"    basis='{self.config.get('basis')}', \n")
+                f.write(f"    charge={charge}, \n")
+                f.write(f"    spin={spin_2s}, \n")
+                f.write(f"    verbose=4)\n")
+                f.write("mol.build()\n")
+                
+                if "KS" in method_name:
+                     f.write(f"mf = dft.{method_name}(mol)\n")
+                     f.write(f"mf.xc = '{functional}'\n")
+                else:
+                     f.write(f"mf = scf.{method_name}(mol)\n")
+                
+                f.write(f"mf.max_cycle = {self.config.get('max_cycle', 100)}\n")
+                try:
+                    tol = float(self.config.get('conv_tol', '1e-9'))
+                    f.write(f"mf.conv_tol = {tol}\n")
+                except: pass
+
+                f.write("mf.kernel()\n")
+                
+                if "TDDFT" in self.config.get('job_type'):
+                    f.write("\n# TDDFT Calculation\n")
+                    f.write("from pyscf import tdscf\n")
+                    f.write(f"td = tdscf.TDDFT(mf) if 'KS' in '{method_name}' else tdscf.TDHF(mf)\n")
+                    f.write(f"td.nstates = {self.config.get('nstates', 10)}\n")
+                    f.write("td.verbose = 4\n")
+                    f.write("td.kernel()\n")
+
 
             mf = None
             if method_name == "RHF":
@@ -323,6 +362,28 @@ class PySCFWorker(QThread):
                 # Prepare job type
                 job_type = self.config.get("job_type", "Energy")
                 results = {}
+                
+                # --- SCAN DISPATCH ---
+                if "Scan" in job_type:
+                    scan_params = self.config.get("scan_params")
+                    if not scan_params:
+                        self.error_signal.emit("Scan parameters missing.")
+                        return
+
+                    if "Rigid" in job_type:
+                        self.run_rigid_scan(mol, mf, scan_params, results)
+                    elif "Relaxed" in job_type:
+                        # Relaxed scan uses constraint optimization at each step
+                        self.run_relaxed_scan(mol, mf, scan_params, results)
+                    
+                    # Ensure out_dir is included for history
+                    results["out_dir"] = self.out_dir
+                    
+                    self.result_signal.emit(results)
+                    self.finished_signal.emit()
+                    return
+                # ---------------------
+                # ---------------------
     
                 if "Optimization" in job_type:
                     # Note: PySCF geometric optimization requires 'geometric' or 'berny'
@@ -615,7 +676,8 @@ class PySCFWorker(QThread):
                         results["tddft_data"] = tddft_list
                         self.log_signal.emit("-" * 45 + "\n")
                         
-                        # --- Persist Results to File ---
+                        # --- Persist Results to Files ---
+                        # Save as text
                         try:
                             res_file = os.path.join(self.out_dir, "tddft_results.txt")
                             with open(res_file, "w") as f:
@@ -626,6 +688,16 @@ class PySCFWorker(QThread):
                             self.log_signal.emit(f"TDDFT results saved to: {res_file}\n")
                         except Exception as e_save:
                              self.log_signal.emit(f"Warning: Failed to save TDDFT text result: {e_save}\n")
+                        
+                        # Save as JSON for reloading
+                        try:
+                            import json
+                            json_file = os.path.join(self.out_dir, "tddft_results.json")
+                            with open(json_file, 'w') as f:
+                                json.dump({"tddft_data": tddft_list}, f, indent=2)
+                            self.log_signal.emit(f"TDDFT results saved to: {json_file}\n")
+                        except Exception as e_json:
+                            self.log_signal.emit(f"Warning: Failed to save TDDFT JSON: {e_json}\n")
                         
                     except Exception as e_td:
                         self.log_signal.emit(f"TDDFT calculation failed: {e_td}\n{traceback.format_exc()}\n")
@@ -744,6 +816,367 @@ class PySCFWorker(QThread):
         except Exception as e:
             self.error_signal.emit(str(e) + "\n" + traceback.format_exc())
 
+    def run_rigid_scan(self, mol, mf, params, results):
+        self.log_signal.emit("\n===== Rigid Surface Scan =====\n")
+        
+        # Parse Params
+        stype = params['type']
+        atoms = [int(a) for a in params['atoms']]
+        start_val = float(params['start'])
+        end_val = float(params['end'])
+        steps = int(params['steps'])
+        
+        # Setup RDKit Mol for Geometry Manipulation (Thread-safe local copy)
+        import copy
+        rd_mol = Chem.MolFromXYZBlock(self.xyz_str)
+        if not rd_mol:
+             self.error_signal.emit("Failed to create RDKit molecule from XYZ for scanning.")
+             return
+             
+        # Ensure connectivity exists for the scan atoms (needed for Set*Deg/Length)
+        rw_mol = Chem.RWMol(rd_mol)
+        
+        # 1. Attempt to reconstruct ALL bonds (crucial for group rotation)
+        try:
+            from rdkit.Chem import rdDetermineBonds
+            rdDetermineBonds.DetermineConnectivity(rw_mol)
+        except ImportError:
+            self.log_signal.emit("Warning: rdDetermineBonds not found. Group rotation might fail.\n")
+        except Exception as e:
+            self.log_signal.emit(f"Warning deriving connectivity: {e}\n")
+
+        # 2. Force-add bonds specifically needed for the scan metric
+        # (in case DetermineConnectivity missed them due to bond stretching)
+        needed_bonds = []
+        if stype == "Dist": needed_bonds = [(atoms[0], atoms[1])]
+        elif stype == "Angle": needed_bonds = [(atoms[0], atoms[1]), (atoms[1], atoms[2])]
+        elif stype == "Dihedral": needed_bonds = [(atoms[0], atoms[1]), (atoms[1], atoms[2]), (atoms[2], atoms[3])]
+            
+        for a1, a2 in needed_bonds:
+            if not rw_mol.GetBondBetweenAtoms(a1, a2):
+                rw_mol.AddBond(a1, a2, Chem.BondType.SINGLE)
+                
+        # Initialize Ring Info (Critical for rdMolTransforms)
+        try:
+            Chem.SanitizeMol(rw_mol)
+        except Exception as e:
+            # If sanitization fails (e.g. valence), try to just compute rings
+            self.log_signal.emit(f"Sanitization warning: {e}. Attempting partial update.\n")
+            try:
+                rw_mol.UpdatePropertyCache(strict=False)
+                Chem.GetSymmSSSR(rw_mol)
+            except: pass
+
+        # Use the explicit connectivity molecule
+        rd_mol = rw_mol
+        conf = rd_mol.GetConformer()
+        
+        scan_results = []
+        trajectory = [] # List of XYZ strings
+        
+        scan_values = np.linspace(start_val, end_val, steps)
+        
+        csv_lines = ["Step,Value,Energy"]
+        
+        for i, val in enumerate(scan_values):
+            self.log_signal.emit(f"Step {i+1}/{steps}: {stype} = {val:.4f} ... ")
+            
+            # 1. Modify Geometry using RDKit
+            # Note: RDKit uses Degrees for angles
+            try:
+                if stype == "Dist":
+                    rdMolTransforms.SetBondLength(conf, atoms[0], atoms[1], val)
+                elif stype == "Angle":
+                    rdMolTransforms.SetAngleDeg(conf, atoms[0], atoms[1], atoms[2], val)
+                elif stype == "Dihedral":
+                    rdMolTransforms.SetDihedralDeg(conf, atoms[0], atoms[1], atoms[2], atoms[3], val)
+            except Exception as e:
+                self.log_signal.emit(f"Geometry set failed: {e}\n")
+                continue
+                
+            # 2. Rebuild PySCF Mol
+            # Get new coords
+            new_xyz = []
+            symbols = [a.GetSymbol() for a in rd_mol.GetAtoms()]
+            for idx, atom in enumerate(rd_mol.GetAtoms()):
+                pos = conf.GetAtomPosition(idx)
+                new_xyz.append(f"{symbols[idx]} {pos.x:.6f} {pos.y:.6f} {pos.z:.6f}")
+            
+            xyz_block = f"{mol.natm}\nStep {i+1}\n" + "\n".join(new_xyz)
+            trajectory.append(xyz_block)
+            
+            # Build new PySCF mol
+            mol_step = gto.M(
+                atom="\n".join(new_xyz),
+                basis=mol.basis,
+                charge=mol.charge,
+                spin=mol.spin,
+                verbose=0
+            )
+            mol_step.build()
+            
+            # 3. Singleton Energy
+            mf_step = copy.copy(mf)
+            
+            # Save Checkpoint for this step (User Requested)
+            step_chk = os.path.join(self.out_dir, f"scan_step_{i+1}.chk")
+            mf_step.chkfile = step_chk
+            
+            mf_step.reset(mol_step)
+            mf_step.verbose = 0
+            
+            mf_step.kernel()
+            e_tot = mf_step.e_tot
+            
+
+            
+            self.log_signal.emit(f"E = {e_tot:.6f} Ha\n")
+            
+            scan_results.append({
+                "step": i+1,
+                "value": val,
+                "energy": e_tot
+            })
+            csv_lines.append(f"{i+1},{val:.6f},{e_tot:.8f}")
+
+            # Keep UI responsive-ish
+            QThread.msleep(10)
+            
+        # Compile Results
+        results["scan_results"] = scan_results
+        results["scan_trajectory"] = trajectory # Should be parsed by viewer
+        
+        # Save CSV
+        csv_path = os.path.join(self.out_dir, "scan_results.csv")
+        with open(csv_path, "w") as f:
+            f.write("\n".join(csv_lines))
+        self.log_signal.emit(f"Scan results saved to {csv_path}\n")
+        
+        # Save Trajectory XYZ
+        traj_path = os.path.join(self.out_dir, "scan_trajectory.xyz")
+        with open(traj_path, "w") as f:
+            f.write("\n".join(trajectory))
+            
+    def run_relaxed_scan(self, mol, mf, params, results):
+        self.log_signal.emit("\n===== Relaxed Surface Scan (Constrained Optimization) =====\n")
+        
+        stype = params['type']
+        atoms = [int(a) for a in params['atoms']]
+        start_val = float(params['start'])
+        end_val = float(params['end'])
+        steps = int(params['steps'])
+        
+        scan_values = np.linspace(start_val, end_val, steps)
+        
+        scan_results = []
+        trajectory = []
+        csv_lines = ["Step,Value,Energy"]
+        
+        # Store method info for reconstruction
+        method_name = self.config.get("method", "RHF")
+        functional = self.config.get("functional", "b3lyp")
+        basis = self.config.get("basis", "sto-3g")
+        charge = self.config.get("charge", 0)
+        
+        # Extract spin (2S)
+        try:
+            spin_str = str(self.config.get("spin", "1"))
+            if " " in spin_str:
+                spin_mult = int(spin_str.split(" ")[0])
+            else:
+                spin_mult = int(spin_str)
+            spin_2s = spin_mult - 1
+            if spin_2s < 0: spin_2s = 0
+        except:
+            spin_2s = 0
+        
+        # Current geometry as starting point
+        current_coords = mol.atom_coords(unit='Ang')
+        current_symbols = [mol.atom_symbol(k) for k in range(mol.natm)]
+        
+        # Ensure geometric is available
+        try:
+            from pyscf.geomopt.geometric_solver import optimize
+        except ImportError:
+            self.error_signal.emit("Relaxed scan requires 'geometric' library. Install with: pip install geometric")
+            return
+
+        for i, val in enumerate(scan_values):
+            self.log_signal.emit(f"\nStep {i+1}/{steps}: Constrained {stype} = {val:.4f}\n")
+            
+            # 1. Create Constraints File for geometric
+            # geometric format:
+            # $set
+            # bond 0 1 1.5
+            const_str = "$set\n"
+            
+            # Geometric indices are 1-based
+            # syntax: type a1 a2 [a3 a4] value
+            atom_str = " ".join([str(a+1) for a in atoms])
+            
+            # Type mapping
+            g_type = "bond"
+            if stype == "Angle": g_type = "angle"
+            elif stype == "Dihedral": g_type = "dihedral"
+            
+            # Note: geometric angles are in degrees
+            const_str += f"{g_type} {atom_str} {val:.6f}\n"
+            
+            const_file = os.path.join(self.out_dir, f"constraints_step_{i}.txt")
+            with open(const_file, "w") as f:
+                f.write(const_str)
+            
+            self.log_signal.emit(f"  Constraint: {g_type} {atom_str} = {val:.6f}\n")
+            
+            # 2. Build molecule from current geometry
+            try:
+                # Create atom string from current coordinates
+                atom_str_pyscf = ""
+                for sym, coord in zip(current_symbols, current_coords):
+                    atom_str_pyscf += f"{sym} {coord[0]:.6f} {coord[1]:.6f} {coord[2]:.6f}; "
+                
+                # Create new molecule object
+                step_mol = gto.M(
+                    atom=atom_str_pyscf,
+                    basis=basis,
+                    charge=charge,
+                    spin=spin_2s,
+                    verbose=0,
+                    max_memory=self.config.get("memory", 4000)
+                )
+                
+                # 3. Create new mean field object for this step
+                if method_name == "RHF":
+                    step_mf = scf.RHF(step_mol)
+                elif method_name == "UHF":
+                    step_mf = scf.UHF(step_mol)
+                elif method_name == "RKS":
+                    step_mf = dft.RKS(step_mol)
+                    step_mf.xc = functional
+                elif method_name == "UKS":
+                    step_mf = dft.UKS(step_mol)
+                    step_mf.xc = functional
+                elif method_name == "ROHF":
+                    step_mf = scf.ROHF(step_mol)
+                elif method_name == "ROKS":
+                    step_mf = dft.ROKS(step_mol)
+                    step_mf.xc = functional
+                else:
+                    raise ValueError(f"Unsupported method: {method_name}")
+                
+                # Set checkpoint
+                step_chk = os.path.join(self.out_dir, f"scan_step_{i}.chk")
+                step_mf.chkfile = step_chk
+                
+                # Apply settings
+                step_mf.max_cycle = self.config.get("max_cycle", 100)
+                try:
+                    tol_str = self.config.get("conv_tol", "1e-9")
+                    step_mf.conv_tol = float(tol_str)
+                except:
+                    pass
+                
+                mol_eq = optimize(step_mf, constraints=const_file)
+                
+                # Force an explicit SCF calculation on the final optimized structure
+                # to ensure the energy is 100% accurate and matches the mol_eq coordinates.
+                self.log_signal.emit(f"  Calculating final energy for optimized structure...\n")
+                try:
+                    step_mf.mol = mol_eq
+                    e_tot = step_mf.kernel()
+                    self.log_signal.emit(f"  ✓ Final optimized energy: {e_tot:.8f} Ha\n")
+                except Exception as e:
+                    self.log_signal.emit(f"  ⚠ Failed final SCF, attempting fallback... {e}\n")
+                    if hasattr(step_mf, 'e_tot') and step_mf.e_tot is not None:
+                        e_tot = step_mf.e_tot
+                    else:
+                        e_tot = 0.0
+                
+                # Capture optimized geometry
+                current_coords = mol_eq.atom_coords(unit='Ang')
+                current_symbols = [mol_eq.atom_symbol(k) for k in range(mol_eq.natm)]
+                
+                # Measure the actual coordinate value from optimized geometry
+                # (may differ slightly from target constraint)
+                actual_val = val  # Default to target
+                try:
+                    if stype == "Dist":
+                        # Calculate bond length
+                        p1 = current_coords[atoms[0]]
+                        p2 = current_coords[atoms[1]]
+                        actual_val = np.linalg.norm(p1 - p2)
+                    elif stype == "Angle":
+                        # Calculate angle
+                        p1 = current_coords[atoms[0]]
+                        p2 = current_coords[atoms[1]]
+                        p3 = current_coords[atoms[2]]
+                        v1 = p1 - p2
+                        v2 = p3 - p2
+                        cos_angle = np.dot(v1, v2) / (np.linalg.norm(v1) * np.linalg.norm(v2))
+                        actual_val = np.degrees(np.arccos(np.clip(cos_angle, -1.0, 1.0)))
+                    elif stype == "Dihedral":
+                        # Use RDKit to calculate dihedral angle (ensures correct convention)
+                        
+                        # Create temporary RDKit molecule from current coords
+                        temp_mol = Chem.RWMol()
+                        for sym in current_symbols:
+                            atom = Chem.Atom(sym)
+                            temp_mol.AddAtom(atom)
+                        
+                        # Add conformer with current coordinates
+                        conf = Chem.Conformer(len(current_symbols))
+                        for atom_idx, coord in enumerate(current_coords):
+                            conf.SetAtomPosition(atom_idx, tuple(coord))
+                        temp_mol.AddConformer(conf)
+                        
+                        # Calculate dihedral using RDKit
+                        actual_val = rdMolTransforms.GetDihedralDeg(
+                            temp_mol.GetConformer(),
+                            atoms[0], atoms[1], atoms[2], atoms[3]
+                        )
+                except Exception as e:
+                    self.log_signal.emit(f"  Warning: Could not measure actual value: {e}\n")
+                
+                if abs(actual_val - val) > 0.01:  # Log if difference is significant
+                    self.log_signal.emit(f"  Target: {val:.4f}, Actual: {actual_val:.4f}\n")
+                
+                xyz_lines = [f"{len(current_symbols)}", f"Step {i+1} {stype}={actual_val:.4f} E={e_tot:.6f} Ha"]
+                for s, c in zip(current_symbols, current_coords):
+                    xyz_lines.append(f"{s} {c[0]:.6f} {c[1]:.6f} {c[2]:.6f}")
+                
+                xyz_frame = "\n".join(xyz_lines)
+                trajectory.append(xyz_frame)
+                
+                self.log_signal.emit(f"  ✓ Converged: E = {e_tot:.8f} Ha\n")
+                
+                scan_results.append({
+                    "step": i+1,
+                    "value": actual_val,  # Use actual measured value
+                    "energy": e_tot
+                })
+                csv_lines.append(f"{i+1},{actual_val:.6f},{e_tot:.8f}")
+                
+            except Exception as e:
+                self.log_signal.emit(f"  ✗ Optimization step {i+1} failed: {e}\n")
+                self.log_signal.emit(traceback.format_exc())
+                # Break scan on failure
+                break
+                
+        # Compile Results
+        results["scan_results"] = scan_results
+        results["scan_trajectory"] = trajectory 
+        
+        # Save CSV
+        csv_path = os.path.join(self.out_dir, "scan_results.csv")
+        with open(csv_path, "w") as f:
+            f.write("\n".join(csv_lines))
+        self.log_signal.emit(f"\nScan results saved to {csv_path}\n")
+        
+        # Save Trajectory XYZ
+        traj_path = os.path.join(self.out_dir, "scan_trajectory.xyz")
+        with open(traj_path, "w") as f:
+            f.write("\n".join(trajectory))
+        self.log_signal.emit(f"Scan trajectory saved to {traj_path}\n")
 
     def calculate_ir_intensities(self, mol, mf, modes, mass_weighted_modes=False):
         """
@@ -1286,8 +1719,64 @@ class LoadWorker(QThread):
             return
 
         try:
+            import json
             from pyscf import lib, scf
             
+            results = {"out_dir": os.path.dirname(self.chkfile)}
+            base_dir = os.path.dirname(self.chkfile)
+            
+            # Check if this is a scan/tddft/freq-only folder (no checkpoint needed)
+            has_scan = os.path.exists(os.path.join(base_dir, "scan_results.csv"))
+            has_tddft = os.path.exists(os.path.join(base_dir, "tddft_results.json"))
+            has_freq = os.path.exists(os.path.join(base_dir, "freq_analysis.json"))
+            
+            # If only auxiliary data exists (no checkpoint), load it and return
+            if (has_scan or has_tddft or has_freq) and not os.path.exists(self.chkfile):
+                # Load scan data
+                if has_scan:
+                    try:
+                        import csv
+                        scan_csv = os.path.join(base_dir, "scan_results.csv")
+                        scan_res = []
+                        with open(scan_csv, 'r') as f:
+                            reader = csv.DictReader(f)
+                            for row in reader:
+                                item = {}
+                                for k, v in row.items():
+                                    try: item[k] = float(v)
+                                    except: item[k] = v
+                                scan_res.append(item)
+                        results["scan_results"] = scan_res
+                        
+                        scan_traj = os.path.join(base_dir, "scan_trajectory.xyz")
+                        if os.path.exists(scan_traj):
+                            results["scan_trajectory_path"] = scan_traj
+                    except Exception as e:
+                        print(f"Failed to load scan: {e}")
+                
+                # Load TDDFT data
+                if has_tddft:
+                    try:
+                        with open(os.path.join(base_dir, "tddft_results.json"), 'r') as f:
+                            tddft_data = json.load(f)
+                            if "tddft_data" in tddft_data:
+                                results["tddft_data"] = tddft_data["tddft_data"]
+                    except Exception as e:
+                        print(f"Failed to load TDDFT: {e}")
+                
+                # Load frequency data
+                if has_freq:
+                    try:
+                        with open(os.path.join(base_dir, "freq_analysis.json"), 'r') as f:
+                            freq_data = json.load(f)
+                            results["freq_data"] = freq_data
+                    except Exception as e:
+                        print(f"Failed to load frequency: {e}")
+                
+                self.finished_signal.emit(results)
+                return
+            
+            # Original checkpoint loading logic
             # Load Molecule
             mol = lib.chkfile.load_mol(self.chkfile)
             
@@ -1398,6 +1887,41 @@ class LoadWorker(QThread):
                         if "thermo_data" in data: results["thermo_data"] = data["thermo_data"]
                 except Exception as e_json:
                     print(f"Failed to load freq json: {e_json}")
+
+            # --- Load Scan Data ---
+            scan_csv = os.path.join(base_dir, "scan_results.csv")
+            if os.path.exists(scan_csv):
+                 try:
+                     import csv
+                     scan_res = []
+                     with open(scan_csv, 'r') as f:
+                         reader = csv.DictReader(f)
+                         for row in reader:
+                             # Convert to float/int
+                             item = {}
+                             for k, v in row.items():
+                                 try: item[k] = float(v)
+                                 except: item[k] = v
+                             scan_res.append(item)
+                     results["scan_results"] = scan_res
+                 except Exception as e_scan:
+                     print(f"Failed to load scan csv: {e_scan}")
+
+            scan_traj = os.path.join(base_dir, "scan_trajectory.xyz")
+            if os.path.exists(scan_traj):
+                 # Just pass the path, viewer can read it on demand or we read valid frames
+                 results["scan_trajectory_path"] = scan_traj
+            
+            # --- Load TDDFT Data ---
+            tddft_file = os.path.join(base_dir, "tddft_results.json")
+            if os.path.exists(tddft_file):
+                try:
+                    with open(tddft_file, 'r') as f:
+                        tddft_data = json.load(f)
+                        if "tddft_data" in tddft_data:
+                            results["tddft_data"] = tddft_data["tddft_data"]
+                except Exception as e_tddft:
+                    print(f"Failed to load TDDFT json: {e_tddft}")
             
             self.finished_signal.emit(results)
 
