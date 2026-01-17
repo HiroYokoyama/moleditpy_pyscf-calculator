@@ -10,13 +10,16 @@ A powerful, user-friendly GUI interface for performing quantum chemistry calcula
 
 ![](img/img3.png)
 
+![](img/img4.png)
+
 ## Features
 
 ### Calculation Capabilities
-- **Job Types**: Single Point Energy, Geometry Optimization, Frequency Analysis.
+- **Job Types**: Single Point Energy, Geometry Optimization, Frequency Analysis, Rigid & Relaxed Surface Scans.
 - **Methods**: RHF, UHF, RKS, UKS (DFT).
 - **Functionals**: Support for standard functionals (B3LYP, PBE, etc.) via PySCF.
 - **Advanced Configuration**: Control over Basis Sets, Charge/Spin, Symmetry, Max Cycles, Convergence Tolerance, CPU Threads, and Memory.
+- **Settings Management**: Manually save your preferred configuration (Method, Basis, Resources) as the default for future sessions.
 
 ### Visualization & Analysis
 - **Interactive Orbital Energy Diagram**:
@@ -34,7 +37,10 @@ A powerful, user-friendly GUI interface for performing quantum chemistry calcula
   - Generate standard .cube files for Molecular Orbitals (MOs).
   - Compute and visualize Electron Density, Spin Density, and Electrostatic Potential (ESP).
   - Handles Open-Shell (UHF) density correctly.
-- **Thermodynamic Properties**: Calculate and view Enthalpy, Entropy, Gibbs Free Energy, and ZPE from frequency jobs.
+- **Thermodynamic Properties**: Calculate and view Enthalpy, Entropy, Gibbs Free Energy, and ZPE in a structured table format.
+- **Surface Scans**:
+  - Configure Rigid or Relaxed scans over bond lengths, angles, or dihedrals.
+  - Visualize potential energy surfaces with interactive plots and trajectory animations.
 
 ### Robust Job Management
 - **Organized Output**: Each calculation automatically creates a unique directory (output/job_1, job_2...) to prevent data loss.
