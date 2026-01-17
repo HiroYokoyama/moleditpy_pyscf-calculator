@@ -44,6 +44,11 @@ A powerful, user-friendly GUI interface for performing quantum chemistry calcula
 ## Installation
 
 ### Requirements
+- PySCF
+- PyQt6
+- NumPy
+- GeomeTRIC
+
 ```bash
 pip install pyscf PyQt6 numpy geometric
 ```
@@ -67,6 +72,7 @@ pip install pyscf PyQt6 numpy geometric
 ## License
 
 This project is licensed under the **GNU General Public License v3.0 (GPLv3)**. See the [LICENSE](LICENSE) file for details.
+
 
 
 
