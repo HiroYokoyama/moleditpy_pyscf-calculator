@@ -20,7 +20,25 @@ class FreqVisualizer(QWidget):
         super().__init__()
         self.mw = main_window
         self.mol = mol  # RDKit Mol
-        self.freqs = freqs # List of frequencies
+        self.freqs = []
+        for f in freqs:
+            # Handle list/tuple wrappers
+            if isinstance(f, (list, tuple, np.ndarray)):
+                if len(f) > 0: f = f[0]
+                else: f = 0.0
+            
+            # Handle complex (imaginary frequencies)
+            if isinstance(f, complex):
+                # PySCF usually returns real, but just in case. 
+                # Convention: imaginary freq displayed as negative number usually, 
+                # or just take real/imag magnitude
+                if f.imag != 0:
+                     f = -abs(f.imag) # Show as negative real
+                else:
+                     f = f.real
+            
+            self.freqs.append(float(f))
+
         self.modes = modes # List of mode vectors (each is N_atoms x 3)
         self.intensities = intensities # List of intensities (optional)
         

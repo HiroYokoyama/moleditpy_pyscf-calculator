@@ -2,7 +2,7 @@
 
 A powerful, user-friendly GUI interface for performing quantum chemistry calculations using PySCF. This plugin provides an intuitive workflow for configuring calculations, managing jobs, and visualizing molecular electronic structure.
 
-**Excellent for learning molecular orbital theory, DFT calculations, and organic chemistry**: The interactive orbital energy diagram lets you click on any orbital (HOMO, LUMO, etc.) to instantly visualize its 3D shape and electron distribution. Easily switch between HF and DFT methods, compare different functionals (B3LYP, PBE, etc.), and explore various basis sets to understand the trade-offs between accuracy and computational cost. Beyond orbitals, visualize electrostatic potential (ESP) maps to understand reactive sites and intermolecular interactions, electron density to see bonding patterns, and spin density for radical species. These visual tools make abstract quantum chemistry concepts tangible and help students connect theory to real chemical behavior. Perfect for students exploring computational chemistry and researchers needing quick visual analysis.
+**Research-Grade Power with Educational Clarity**: Transform abstract quantum mechanics into tangible, interactive discoveries. Built on the industrial-strength **PySCF** engine, this plugin delivers rigorous accuracy for researchers while offering an intuitive visual interface that makes it an indispensable platform for mastering **Physical Chemistry or Organic Chemistry**. Whether you are a researcher performing rapid conformational scans and transition state searches to screen candidates, or a student decoding the principles of molecular orbital theory, this tool bridges the gap between complex algorithms and chemical insight. From predicting reactivity with HOMO/LUMO visualizations to mapping detailed Potential Energy Surfaces, it empowers users at all levels to visualize, analyze, and understand the fundamental forces driving chemical change.
 
 ![](img/img.png)
 
@@ -15,7 +15,7 @@ A powerful, user-friendly GUI interface for performing quantum chemistry calcula
 ## Features
 
 ### Calculation Capabilities
-- **Job Types**: Single Point Energy, Geometry Optimization, Frequency Analysis, Rigid & Relaxed Surface Scans.
+- **Job Types**: Single Point Energy, Geometry Optimization, Frequency Analysis, Transition State Optimization, Rigid & Relaxed Surface Scans.
 - **Methods**: RHF, UHF, RKS, UKS (DFT).
 - **Functionals**: Support for standard functionals (B3LYP, PBE, etc.) via PySCF.
 - **Advanced Configuration**: Control over Basis Sets, Charge/Spin, Symmetry, Max Cycles, Convergence Tolerance, CPU Threads, and Memory.
@@ -41,6 +41,9 @@ A powerful, user-friendly GUI interface for performing quantum chemistry calcula
 - **Surface Scans**:
   - Configure Rigid or Relaxed scans over bond lengths, angles, or dihedrals.
   - Visualize potential energy surfaces with interactive plots and trajectory animations.
+- **Transition State Analysis**:
+  - Perform Transition State Optimizations (requires `geomeTRIC` library).
+  - Visualize imaginary frequencies (saddle points) with animated vibrational modes.
 
 ### Robust Job Management
 - **Organized Output**: Each calculation automatically creates a unique directory (output/job_1, job_2...) to prevent data loss.

@@ -7,7 +7,7 @@ from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, 
     QListWidget, QListWidgetItem, QGroupBox, QLineEdit, 
     QMessageBox, QDoubleSpinBox, QSlider, QComboBox, 
-    QTableWidget, QTableWidgetItem, QHeaderView, QDockWidget, QFileDialog
+    QTableWidget, QTableWidgetItem, QHeaderView, QDockWidget, QFileDialog, QDialog
 )
 from PyQt6.QtCore import Qt, QTimer
 
@@ -584,6 +584,11 @@ class VisTab(QWidget):
                      self.freq_dock.raise_()
              except Exception as e:
                  self.log(f"Error opening Frequency Visualizer: {e}")
+         elif result_data.get("freq_data"):
+             if FreqVisualizer is None:
+                 self.log("Frequency Visualizer module invalid or not imported.")
+             else:
+                 self.log("Frequency Visualizer skipped: No molecule loaded in context.")
          
          if result_data.get("tddft_data"):
              try:

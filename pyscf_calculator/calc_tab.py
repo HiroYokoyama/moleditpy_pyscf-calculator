@@ -38,7 +38,17 @@ class CalcTab(QWidget):
         form_layout = QFormLayout()
 
         self.job_type_combo = QComboBox()
-        self.job_type_combo.addItems(["Energy", "Geometry Optimization", "Frequency", "Optimization + Frequency", "TDDFT", "Rigid Surface Scan", "Relaxed Surface Scan"])
+        self.job_type_combo.addItems([
+            "Energy", 
+            "Geometry Optimization", 
+            "Frequency", 
+            "Optimization + Frequency", 
+            "Transition State Optimization", 
+            "TS Optimization + Frequency",
+            "TDDFT", 
+            "Rigid Surface Scan", 
+            "Relaxed Surface Scan"
+        ])
         self.job_type_combo.currentTextChanged.connect(self.update_options)
         
         # Scan Config Button
