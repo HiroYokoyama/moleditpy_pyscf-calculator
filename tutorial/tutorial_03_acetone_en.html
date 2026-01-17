@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MoleditPy Tutorial 3: Acetone ESP Map</title>
+    <link rel="stylesheet" href="tutorial_style.css">
+</head>
+
+<body>
+    <div class="container">
+        <header>
+            <h1>MoleditPy PySCF Calculator Plugin Tutorial</h1>
+            <h2>3. Acetone ESP Mapping & Polarization</h2>
+            <p style="margin-top: 0.5rem; opacity: 0.8; font-size: 0.9rem;">(Calculation Level: B3LYP/STO-3G)</p>
+        </header>
+
+        <nav class="tutorial-nav">
+            <details>
+                <summary>Tutorial Menu</summary>
+                <ul>
+                    <li><a href="tutorial_01_butadiene_en.html">1. Butadiene</a></li>
+                    <li><a href="tutorial_02_ethane_en.html">2. Ethane</a></li>
+                    <li><a href="tutorial_03_acetone_en.html" class="active">3. Acetone</a></li>
+                </ul>
+            </details>
+        </nav>
+
+        <section>
+            <h2>Objective</h2>
+            <p>Map the charge distribution (Electrostatic Potential) on the surface of an acetone molecule to identify
+                the polarity of the carbonyl group and reactive sites.</p>
+        </section>
+
+        <section>
+            <h2>Instructions</h2>
+
+            <h3>Step 1: Build Molecular Model & Run Calculation</h3>
+            <ol class="step-list">
+                <li><strong>Draw Acetone:</strong>
+                    <ul>
+                        <li>Select the drawing tool.</li>
+                        <li>Draw a 3-carbon chain (C-C-C).</li>
+                        <li>Add an Oxygen atom to the central carbon (click and drag with Oxygen tool).</li>
+                        <li><strong>Create Double Bond:</strong> Hover over the C-O bond and <strong>press '2'</strong>
+                            to convert it to a double bond (or use the "Double Bond" tool).</li>
+                        <li>Ensure the structure is <strong>Acetone</strong> (CH<sub>3</sub>COCH<sub>3</sub>).</li>
+                    </ul>
+                </li>
+                <li><strong>Setup Calculation:</strong>
+                    <ul>
+                        <li>Convert <strong><code>2D to 3D</code></strong>.</li>
+                        <li>Open <code>Extensions</code> > <code>PySCF Calculator</code>.</li>
+                        <li>In the <code>Calculation</code> tab, set <strong>Job Type</strong> to
+                            <code>Geometry Optimization</code>. (Optimizing the geometry ensures an accurate ESP map).
+                        </li>
+                        <li>Set <strong>Method</strong> to <code>RKS</code> / <strong>Functional</strong>
+                            <code>b3lyp</code> / <strong>Basis</strong> <code>sto-3g</code>.
+                        </li>
+                        <li>Click <strong><code>Run Calculation</code></strong>.</li>
+                    </ul>
+                </li>
+            </ol>
+
+            <h3>Step 2: Generate ESP Data</h3>
+            <p>Wait for the optimization to complete.</p>
+            <ol class="step-list">
+                <li><strong>Select Analysis:</strong>
+                    <ul>
+                        <li>In the <code>Post-Calculation Analysis</code> section, locate the Analysis Type list.</li>
+                        <li>Check the box labeled <strong><code>ESP (Electrostatic Potential + Density)</code></strong>.
+                        </li>
+                    </ul>
+                </li>
+                <li><strong>Generate Map:</strong>
+                    <ul>
+                        <li>Click <strong><code>Generate & Visualize Selected</code></strong>.</li>
+                        <li><em>Note:</em> The plugin will calculate the electron density grid and map the electrostatic
+                            potential onto an isosurface of that density. This process is computationally intensive and
+                            might take longer than orbital generation.</li>
+                    </ul>
+                </li>
+            </ol>
+
+            <h3>Step 3: Visualize Charge Distribution</h3>
+            <p>The ESP map should load automatically. If not, click the file in <code>Visualization Files</code>.</p>
+            <ol class="step-list">
+                <li><strong>Adjust Visualization:</strong>
+                    <ul>
+                        <li>Use the <code>Visualization Controls</code> panel.</li>
+                        <li>Adjust the <strong>Isovalue</strong> slider to change the density surface level (usually
+                            around 0.002 - 0.02 a.u.).</li>
+                        <li>Lower the <strong>Opacity</strong> slider (e.g., to 0.6) so you can see the molecular
+                            skeleton inside the surface.</li>
+                    </ul>
+                </li>
+                <li><strong>Interpret the Map:</strong>
+                    <ul>
+                        <li><strong>Red Areas:</strong> Indicate negative potential (high electron density). You should
+                            see this concentrated around the Oxygen atom (lone pairs).</li>
+                        <li><strong>Blue Areas:</strong> Indicate positive potential (low electron density). You should
+                            see this around the Hydrogen atoms.</li>
+                        <li>This confirms the polarity of the carbonyl group and predicts that electrophiles will attack
+                            the Oxygen, while nucleophiles attack the Carbonyl Carbon.</li>
+                        <li><strong>Note:</strong> The unit of the Electrostatic Potential is <strong>Hartree</strong>.
+                        </li>
+                    </ul>
+                    <img src="img/acetone_esp.png" alt="Acetone Electrostatic Potential Map" class="img-bg-gray">
+                </li>
+            </ol>
+        </section>
+
+        <section>
+            <h3>Notes</h3>
+            <ul>
+                <li><strong>Basis Set:</strong> This tutorial uses <code>STO-3G</code> for speed.</li>
+                <li><strong>Troubleshooting:</strong> If you make a mistake, it is recommended to select
+                    <code>File > New</code> and restart from the beginning rather than trying to fix it manually.
+                </li>
+            </ul>
+        </section>
+
+        <div class="nav-links">
+            <a href="tutorial_02_ethane_en.html" class="btn btn-secondary">&larr; Back to Ethane</a>
+            <a href="index.html" class="btn">Home &rarr;</a>
+        </div>
+    </div>
+</body>
+
+</html>

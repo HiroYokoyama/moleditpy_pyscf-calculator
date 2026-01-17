@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MoleditPy PySCF Calculator Plugin Tutorials</title>
+    <link rel="stylesheet" href="tutorial_style.css">
+    <style>
+        .home-container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 4rem 2rem;
+            text-align: center;
+        }
+
+        .hero-title {
+            font-size: 3rem;
+            margin-bottom: 1rem;
+            background: var(--accent-gradient);
+            -webkit-background-clip: text;
+            background-clip: text;
+            -webkit-text-fill-color: transparent;
+            font-weight: 800;
+        }
+
+        .hero-subtitle {
+            font-size: 1.25rem;
+            color: var(--text-color);
+            margin-bottom: 3rem;
+            opacity: 0.8;
+            max-width: 60ch;
+            margin-left: auto;
+            margin-right: auto;
+        }
+
+        .card-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 2rem;
+            margin-top: 2rem;
+            text-align: left;
+        }
+
+        .tutorial-card {
+            background: white;
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 2rem;
+            transition: all 0.3s ease;
+            box-shadow: var(--shadow-md);
+            display: flex;
+            flex-direction: column;
+            height: 100%;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .tutorial-card:hover {
+            transform: translateY(-5px);
+            box-shadow: var(--shadow-xl);
+            border-color: var(--accent-color);
+        }
+
+        .card-number {
+            font-size: 3rem;
+            font-weight: 900;
+            color: #f1f5f9;
+            line-height: 1;
+            margin-bottom: 0;
+            position: relative;
+            z-index: 0;
+            user-select: none;
+        }
+
+        .card-content {
+            position: relative;
+            z-index: 1;
+        }
+
+        .card-title {
+            font-size: 1.5rem;
+            font-weight: 700;
+            margin-bottom: 0.5rem;
+            color: var(--heading-color);
+        }
+
+        .card-desc {
+            color: var(--text-color);
+            margin-bottom: 1.5rem;
+            font-size: 0.95rem;
+            flex-grow: 1;
+        }
+
+        .lang-links {
+            display: flex;
+            gap: 0.5rem;
+            margin-top: auto;
+        }
+
+        .lang-btn {
+            font-size: 0.85rem;
+            padding: 0.4rem 0.8rem;
+            border-radius: 6px;
+            background: #f8fafc;
+            color: var(--text-color);
+            border: 1px solid var(--border-color);
+            text-decoration: none;
+            font-weight: 600;
+            transition: all 0.2s;
+        }
+
+        .lang-btn:hover {
+            background: var(--accent-color);
+            color: white;
+            border-color: var(--accent-color);
+        }
+
+        .card-img {
+            display: none;
+            /* Remove old class style if needed, or just delete img tags */
+        }
+
+        .card-watermark {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-size: cover;
+            background-position: center;
+            opacity: 0.1;
+            z-index: 0;
+            pointer-events: none;
+            mix-blend-mode: multiply;
+            border-radius: 12px;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="home-container">
+        <h1 class="hero-title">MoleditPy PySCF Calculator Tutorial</h1>
+        <p class="hero-subtitle">Master quantum chemistry calculations in MoleditPy with these step-by-step interactive
+            guides.</p>
+
+
+
+        <div class="card-grid">
+            <!-- Tutorial 1 -->
+            <div class="tutorial-card">
+                <div class="card-watermark" style="background-image: url('img/butadiene-orb16.png');"></div>
+                <div class="card-number">01</div>
+                <div class="card-content">
+                    <h3 class="card-title">01. Butadiene</h3>
+                    <p class="card-desc">Visualize π-orbitals and learn about nodal rules in conjugated systems.</p>
+                    <div class="lang-links">
+                        <a href="tutorial_01_butadiene_en.html" class="lang-btn">English</a>
+                        <a href="tutorial_01_butadiene_jp.html" class="lang-btn">日本語 (Japanese)</a>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Tutorial 2 -->
+            <div class="tutorial-card">
+                <div class="card-watermark"
+                    style="background-image: url('img/ethane_pes_graph.png'); background-size: cover; opacity: 0.05;">
+                </div>
+                <div class="card-number">02</div>
+                <div class="card-content">
+                    <h3 class="card-title">02. Ethane</h3>
+                    <p class="card-desc">Perform a relaxed surface scan to analyze the rotational barrier.</p>
+                    <div class="lang-links">
+                        <a href="tutorial_02_ethane_en.html" class="lang-btn">English</a>
+                        <a href="tutorial_02_ethane_jp.html" class="lang-btn">日本語 (Japanese)</a>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Tutorial 3 -->
+            <div class="tutorial-card">
+                <div class="card-watermark" style="background-image: url('img/acetone_esp.png');"></div>
+                <div class="card-number">03</div>
+                <div class="card-content">
+                    <h3 class="card-title">03. Acetone</h3>
+                    <p class="card-desc">Generate ESP maps and understand molecular polarization.</p>
+                    <div class="lang-links">
+                        <a href="tutorial_03_acetone_en.html" class="lang-btn">English</a>
+                        <a href="tutorial_03_acetone_jp.html" class="lang-btn">日本語 (Japanese)</a>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="footer-links"
+            style="margin-top: 4rem; border-top: 1px solid var(--border-color); padding-top: 2rem;">
+            <p style="margin-bottom: 1rem; color: var(--heading-color); font-weight: 600;">Related Projects</p>
+            <div style="display: flex; justify-content: center; gap: 2rem; flex-wrap: wrap;">
+                <a href="https://hiroyokoyama.github.io/python_molecular_editor/" target="_blank">MoleditPy &rarr;</a>
+                <a href="https://hiroyokoyama.github.io/moleditpy_pyscf-calculator/" target="_blank">PySCF Calculator
+                    Plugin &rarr;</a>
+            </div>
+        </div>
+    </div>
+</body>
+
+</html>

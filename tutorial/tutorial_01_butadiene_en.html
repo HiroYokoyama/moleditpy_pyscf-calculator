@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MoleditPy Tutorial 1: Butadiene Molecular Orbitals</title>
+    <link rel="stylesheet" href="tutorial_style.css">
+</head>
+
+<body>
+    <div class="container">
+        <header>
+            <h1>MoleditPy PySCF Calculator Plugin Tutorial</h1>
+            <h2>1. Butadiene Molecular Orbitals & Nodal Rules</h2>
+            <p style="margin-top: 0.5rem; opacity: 0.8; font-size: 0.9rem;">(Calculation Level: B3LYP/STO-3G)</p>
+        </header>
+
+        <nav class="tutorial-nav">
+            <details>
+                <summary>Tutorial Menu</summary>
+                <ul>
+                    <li><a href="tutorial_01_butadiene_en.html" class="active">1. Butadiene</a></li>
+                    <li><a href="tutorial_02_ethane_en.html">2. Ethane</a></li>
+                    <li><a href="tutorial_03_acetone_en.html">3. Acetone</a></li>
+                </ul>
+            </details>
+        </nav>
+
+        <section>
+            <h2>Objective</h2>
+            <p>Visualize the π-electron system molecular orbitals of 1,3-butadiene and verify the regularity that the
+                number of "Nodes" increases as the energy level rises.</p>
+        </section>
+
+        <section>
+            <h2>Instructions</h2>
+
+            <h3>Step 1: Build Molecular Model & Run Calculation</h3>
+            <ol class="step-list">
+                <li><strong>Draw the Structure:</strong>
+                    <ul>
+                        <li>On the main 2D canvas, select the Carbon tool.</li>
+                        <li>Draw a chain of 4 Carbon atoms.</li>
+                        <li><strong>Create Double Bond:</strong> Draw a single bond to an Oxygen atom first. Then,
+                            <strong>hover over the bond and press '2'</strong> (or select the "Double Bond" tool and
+                            click the bond) to convert it to a C=O double bond.
+                        </li>
+                        <li>Ensure the structure represents <strong>1,3-Butadiene</strong>.</li>
+                    </ul>
+                </li>
+                <li><strong>Convert to 3D:</strong> Locate the toolbar and click the <strong>"Convert 2D to 3D"</strong>
+                    button.
+                </li>
+                <li>Wait for the 3D structure to generate.</li>
+                </ul>
+                </li>
+                <li><strong>Launch Plugin:</strong>
+                    <ul>
+                        <li>Go to the menu bar: <code>Extensions</code> > <code>PySCF Calculator</code>.</li>
+                        <li>This will open the PySCF Calculator interface.</li>
+                    </ul>
+                </li>
+                <li><strong>Configure Calculation:</strong>
+                    <ul>
+                        <li>Navigate to the <strong><code>Calculation</code></strong> tab.</li>
+                        <li>Set <strong>Job Type</strong> to <code>Geometry Optimization</code>.</li>
+                        <li>Set <strong>Method</strong> to <code>RKS</code> (Restricted Kohn-Sham).</li>
+                        <li>Set <strong>Functional</strong> to <code>b3lyp</code>.</li>
+                        <li>Set <strong>Basis</strong> to <code>sto-3g</code> (Minimal basis set for speed).</li>
+                        <li>Click the <strong><code>Run Calculation</code></strong> button to start the calculation.
+                        </li>
+                    </ul>
+                    <img src="img/butadiene_setup.png" alt="Butadiene Calculation Setup" style="width: 100%;">
+                </li>
+            </ol>
+
+            <h3>Step 2: Generate Orbital Data (Post-Calculation Analysis)</h3>
+            <p>Wait for the calculation to finish. The status bar will indicate completion, and the
+                <code>Post-Calculation Analysis</code> area at the bottom will become active.
+            </p>
+            <ol class="step-list">
+                <li><strong>Select Orbitals:</strong>
+                    <ul>
+                        <li>Scroll through the orbital list in the analysis panel.</li>
+                        <li>Check the boxes for <strong>HOMO-1</strong>, <strong>HOMO</strong> (Highest Occupied
+                            Molecular Orbital),
+                            <strong>LUMO</strong> (Lowest Unoccupied Molecular Orbital), and optionally
+                            <strong>LUMO+1</strong>.
+                        </li>
+                    </ul>
+                    <blockquote>
+                        <strong>Pro Tip:</strong> Click the <strong>Orbital Energy Diagram</strong> button to open an
+                        interactive dialog. This is very useful for checking energy gaps (HOMO-LUMO gap) and selecting
+                        orbitals directly from the diagram.
+                        <div style="margin-top: 10px;">
+                            <img src="img/orbital_diagram.png" alt="Orbital Energy Diagram"
+                                style="width: 50%; border-radius: 4px; border: 1px solid #ddd; display: block; margin: 10px auto;">
+                        </div>
+                    </blockquote>
+                </li>
+                <li><strong>Generate Cubes:</strong>
+                    <ul>
+                        <li>Click the <strong><code>Generate & Visualize Selected</code></strong> button.</li>
+                        <li><em>Note:</em> The application will calculate the orbital values on a grid and save them as
+                            <code>.cube</code> files. This may take a few seconds.
+                        </li>
+                    </ul>
+                </li>
+                <li><strong>Verify Output:</strong> check that new files with a <code>.cube</code> extension appear in
+                    the <code>Visualization Files</code> list.</li>
+            </ol>
+
+            <h3>Step 3: Compare Orbitals</h3>
+            <p>Select each file from the <code>Visualization Files</code> list to view the shape. Notice how the number
+                of "nodes" (change in phase/color) increases with energy.</p>
+
+            <div class="orbital-grid">
+                <!-- HOMO-1 -->
+                <div class="orbital-card">
+                    <img src="img/butadiene-orb14.png" alt="HOMO-1">
+                    <span class="orbital-label">1. HOMO-1 (Orb 14)</span>
+                    <span class="orbital-desc">0 Nodes (Lowest Energy)</span>
+                </div>
+
+                <!-- HOMO -->
+                <div class="orbital-card">
+                    <img src="img/butadiene-orb15.png" alt="HOMO">
+                    <span class="orbital-label">2. HOMO (Orb 15)</span>
+                    <span class="orbital-desc">1 Node</span>
+                </div>
+
+                <!-- LUMO -->
+                <div class="orbital-card">
+                    <img src="img/butadiene-orb16.png" alt="LUMO">
+                    <span class="orbital-label">3. LUMO (Orb 16)</span>
+                    <span class="orbital-desc">2 Nodes</span>
+                </div>
+
+                <!-- LUMO+1 -->
+                <div class="orbital-card">
+                    <img src="img/butadiene-orb17.png" alt="LUMO+1">
+                    <span class="orbital-label">4. LUMO+1 (Orb 17)</span>
+                    <span class="orbital-desc">3 Nodes (Highest Energy)</span>
+                </div>
+            </div>
+        </section>
+
+        <blockquote>
+            <strong>Tip:</strong> If you need to restart, select <strong><code>File > New</code></strong> from the menu
+            bar to reset the canvas.
+        </blockquote>
+
+        <div class="nav-links">
+            <a href="index.html" class="btn btn-secondary">&larr; Back to Home</a>
+            <a href="tutorial_02_ethane_en.html" class="btn">Next: Ethane Tutorial &rarr;</a>
+        </div>
+    </div>
+</body>
+
+</html>

@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="ja">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MoleditPy チュートリアル 3: アセトンのESPマップ</title>
+    <link rel="stylesheet" href="tutorial_style.css">
+    <style>
+        body {
+            font-family: "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Yu Gothic", Meiryo, sans-serif;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <header>
+            <h1>MoleditPy PySCF Calculator Plugin Tutorial</h1>
+            <h2>3. アセトンのESPマップと分極</h2>
+            <p style="margin-top: 0.5rem; opacity: 0.8; font-size: 0.9rem;">(計算レベル: B3LYP/STO-3G)</p>
+        </header>
+
+        <nav class="tutorial-nav">
+            <details>
+                <summary>チュートリアルメニュー</summary>
+                <ul>
+                    <li><a href="tutorial_01_butadiene_jp.html">1. ブタジエン</a></li>
+                    <li><a href="tutorial_02_ethane_jp.html">2. エタン</a></li>
+                    <li><a href="tutorial_03_acetone_jp.html" class="active">3. アセトン</a></li>
+                </ul>
+            </details>
+        </nav>
+
+
+        <section>
+            <h2>目的</h2>
+            <p>アセトン分子表面の電荷分布（静電ポテンシャル）をマッピングし、カルボニル基の極性と反応サイトを特定します。</p>
+        </section>
+
+        <section>
+            <h2>操作手順</h2>
+
+            <h3>Step 1: 分子モデルの構築と計算実行</h3>
+            <ol class="step-list">
+                <li><strong>アセトンの描画:</strong>
+                    <ul>
+                        <li>描画ツールを選択し、炭素鎖を3つ描きます（C-C-C）。</li>
+                        <li>中央の炭素からドラッグして酸素原子を追加します。</li>
+                        <li><strong>二重結合にする:</strong> 「二重結合」ツールを選択するか、C-O結合の上で <strong>'2'</strong> キーを押して C=O
+                            カルボニル基を作成します。</li>
+                        <li>構造が <strong>アセトン</strong> (CH<sub>3</sub>COCH<sub>3</sub>) であることを確認します。</li>
+                    </ul>
+                </li>
+                <li><strong>計算のセットアップ:</strong>
+                    <ul>
+                        <li><strong>"Convert 2D to 3D"</strong> ボタンをクリックして変換します。</li>
+                        <li><code>Extensions</code> > <code>PySCF Calculator</code> を開きます。</li>
+                        <li><code>Calculation</code> タブで、<strong>Job Type</strong> を <code>Geometry Optimization</code>
+                            に設定します。（正確なESPマップを得るには構造最適化が推奨されます）</li>
+                        <li><strong>Method</strong> は <code>RKS</code> / <strong>Functional</strong> <code>b3lyp</code>
+                            / <strong>Basis</strong> <code>sto-3g</code> に設定します。</li>
+                        <li><strong><code>Run Calculation</code></strong> をクリックします。</li>
+                    </ul>
+                </li>
+            </ol>
+
+            <h3>Step 2: ESPデータの生成</h3>
+            <p>構造最適化計算の完了を待ちます。</p>
+            <ol class="step-list">
+                <li><strong>解析項目の選択:</strong>
+                    <ul>
+                        <li><code>Post-Calculation Analysis</code> セクションのリストを確認します。</li>
+                        <li><strong><code>ESP (Electrostatic Potential + Density)</code></strong> という項目にチェックを入れます。</li>
+                    </ul>
+                </li>
+                <li><strong>マップの生成:</strong>
+                    <ul>
+                        <li><strong><code>Generate & Visualize Selected</code></strong> ボタンをクリックします。</li>
+                        <li><em>注:</em> 電子密度グリッドの計算と、その等値面へのポテンシャルマッピングを行うため、軌道生成よりも少し計算時間がかかります。</li>
+                    </ul>
+                </li>
+            </ol>
+
+            <h3>Step 3: 電荷分布の可視化</h3>
+            <p>生成が完了すると、ESPマップが自動的に表示されます。表示されない場合は <code>Visualization Files</code> から選択してください。</p>
+            <ol class="step-list">
+                <li><strong>表示の調整:</strong>
+                    <ul>
+                        <li><code>Visualization Controls</code> パネルを使用します。</li>
+                        <li><strong>Isovalue</strong> スライダーを調整して、密度の等値面レベルを変更します（通常 0.002 - 0.02 a.u. 付近）。</li>
+                        <li><strong>Opacity</strong> (不透明度) スライダーを下げて（例: 0.6）、内部の分子骨格が見えるようにします。</li>
+                    </ul>
+                </li>
+                <li><strong>マップの解釈:</strong>
+                    <ul>
+                        <li><strong>赤色の領域:</strong> 負のポテンシャル（電子密度が高い）を示します。酸素原子（ローンペア）周辺に集中しているはずです。</li>
+                        <li><strong>青色の領域:</strong> 正のポテンシャル（電子密度が低い）を示します。水素原子周辺に見られます。</li>
+                        <li>これによりカルボニル基の分極が確認でき、求電子剤は酸素を、求核剤はカルボニル炭素を攻撃しやすいことが予測できます。</li>
+                        <li><strong>注:</strong> 静電ポテンシャルの単位は <strong>Hartree</strong> です。</li>
+                    </ul>
+                    <img src="img/acetone_esp.png" alt="アセトンのESPマップ" class="img-bg-gray">
+                </li>
+            </ol>
+        </section>
+
+        <section>
+            <h3>補足事項</h3>
+            <ul>
+                <li><strong>基底関数:</strong> 本チュートリアルでは速度優先で <code>STO-3G</code> を使用しています。</li>
+                <li><strong>トラブルシューティング:</strong> 操作を誤った場合は、無理に修正せず <code>File > New</code> で最初からやり直すことを推奨します。</li>
+            </ul>
+        </section>
+
+        <div class="nav-links">
+            <a href="tutorial_02_ethane_jp.html" class="btn btn-secondary">&larr; エタンに戻る</a>
+            <a href="index.html" class="btn">ホームに戻る &rarr;</a>
+        </div>
+    </div>
+</body>
+
+</html>

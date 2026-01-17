@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="ja">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MoleditPy チュートリアル 2: エタンの内部回転</title>
+    <link rel="stylesheet" href="tutorial_style.css">
+    <style>
+        body {
+            font-family: "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Yu Gothic", Meiryo, sans-serif;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <header>
+            <h1>MoleditPy PySCF Calculator Plugin Tutorial</h1>
+            <h2>2. エタンの内部回転とスキャン計算</h2>
+            <p style="margin-top: 0.5rem; opacity: 0.8; font-size: 0.9rem;">(計算レベル: B3LYP/STO-3G)</p>
+        </header>
+
+        <nav class="tutorial-nav">
+            <details>
+                <summary>チュートリアルメニュー</summary>
+                <ul>
+                    <li><a href="tutorial_01_butadiene_jp.html">1. ブタジエン</a></li>
+                    <li><a href="tutorial_02_ethane_jp.html" class="active">2. エタン</a></li>
+                    <li><a href="tutorial_03_acetone_jp.html">3. アセトン</a></li>
+                </ul>
+            </details>
+        </nav>
+
+
+        <section>
+            <h2>目的</h2>
+            <p>エタン分子の C-C 単結合を回転させた際のポテンシャルエネルギー曲面（PES）をスキャンし、エネルギー変化と分子構造の相関を観察します。回転障壁は実験的に約 12 kJ/mol であることが知られています。
+            </p>
+        </section>
+
+        <section>
+            <h2>操作手順</h2>
+
+            <h3>Step 1: 分子モデルの構築</h3>
+            <ol class="step-list">
+                <li><strong>エタンの描画:</strong>
+                    <ul>
+                        <li>メインキャンバスにて、炭素2つを繋げた構造（C-C）を描画します。</li>
+                        <li>自動的に水素が付加されるため、これは <strong>エタン</strong> (C<sub>2</sub>H<sub>6</sub>) となります。</li>
+                    </ul>
+                </li>
+                <li><strong>変換と起動:</strong>
+                    <ul>
+                        <li><strong>"Convert 2D to 3D"</strong> をクリックして立体構造へ変換します。</li>
+                        <li><code>Extensions</code> > <code>PySCF Calculator</code> を起動します。</li>
+                    </ul>
+                </li>
+            </ol>
+
+            <h3>Step 2: スキャン設定と実行</h3>
+            <ol class="step-list">
+                <li><strong>Job Typeの選択:</strong>
+                    <ul>
+                        <li><code>Calculation</code> タブにて、<strong>Job Type</strong> を <code>Relaxed Surface Scan</code>
+                            に設定します。</li>
+                        <li><strong>Method</strong> を <code>RKS</code>、<strong>Functional</strong> を
+                            <code>b3lyp</code>、<strong>Basis</strong> を <code>sto-3g</code> に設定します。
+                        </li>
+                        <li>これは各回転角で構造最適化を行いながらエネルギーを計算するモードです。</li>
+                    </ul>
+                </li>
+                <li><strong>スキャン変数の設定:</strong>
+                    <ul>
+                        <li>Job Type 横にある <strong><code>Configure Scan</code></strong> ボタンをクリックします。</li>
+                        <li><em>動作:</em> アプリケーションが「スキャン設定モード」に入ります。</li>
+                    </ul>
+                </li>
+                <li><strong>二面角の定義:</strong>
+                    <ul>
+                        <li><strong>メイン画面（3Dビュー）</strong>に戻ります。</li>
+                        <li>回転角（二面角）を定義するため、原子を <strong>水素 &rarr; 炭素 &rarr; 炭素 &rarr; 水素</strong> の順に4つクリックして選択します。</li>
+                    </ul>
+                </li>
+                <li><strong>パラメータ設定と実行:</strong>
+                    <ul>
+                        <li>現在の角度が表示されたダイアログが出現します。</li>
+                        <li><strong>Start</strong> を <code>0</code> に設定します。</li>
+                        <li><strong>End</strong> を <code>180</code> に設定します。</li>
+                        <li><strong>Steps</strong> を <code>10</code> に設定します。</li>
+                        <li><strong><code>Run Calculation</code></strong> をクリックします。順次計算が実行されます。</li>
+                    </ul>
+                    <img src="img/ethane_scan_setup.png" alt="スキャン設定画面" style="width: 100%;">
+                </li>
+            </ol>
+
+            <h3>Step 3: 結果のアニメーション再生</h3>
+            <p>全ステップの計算が完了するまで待ちます。終了すると自動的に <code>Scan Results</code> ウィンドウが表示されます。</p>
+            <ol class="step-list">
+                <li><strong>グラフの確認:</strong>
+                    <ul>
+                        <li>表示されたポテンシャルエネルギー曲線を確認します。</li>
+                        <li><strong>極大（山）:</strong> 0&deg;, 120&deg;。これらはエネルギーが高い不安定な <strong>重なり形
+                                (Eclipsed)</strong> です。</li>
+                        <li><strong>極小（谷）:</strong> 60&deg;, 180&deg;。これらは安定な <strong>ねじれ形 (Staggered)</strong> です。
+                        </li>
+                        <li>計算されたエネルギー障壁も、実験値と同様に <strong>約 12 kJ/mol</strong> になっていることを確認しましょう。</li>
+                    </ul>
+                    <img src="img/ethane_pes_graph.png" alt="重なり形とねじれ形を示すPESグラフ" style="width: 100%;">
+                </li>
+                <li><strong>回転の可視化:</strong>
+                    <ul>
+                        <li>ウィンドウ内の <strong><code>Play</code></strong> ボタンをクリック（またはスライダーを操作）します。</li>
+                        <li>メイン画面の分子モデルがグラフと連動して回転し、構造変化がアニメーション表示されることを確認します。</li>
+                    </ul>
+                </li>
+            </ol>
+        </section>
+
+        <div class="nav-links">
+            <a href="tutorial_01_butadiene_jp.html" class="btn btn-secondary">&larr; ブタジエンに戻る</a>
+            <a href="tutorial_03_acetone_jp.html" class="btn">次へ: アセトンのチュートリアル &rarr;</a>
+        </div>
+    </div>
+</body>
+
+</html>
