@@ -8,6 +8,7 @@ from PyQt6.QtGui import QPainter, QPen, QColor, QFont, QPaintEvent, QPalette
 from PyQt6.QtCore import Qt, QTimer, QPointF
 import numpy as np
 import traceback
+import time
 
 try:
     from PIL import Image
@@ -408,6 +409,8 @@ class FreqVisualizer(QWidget):
                 
                 if hasattr(self.mw, 'draw_molecule_3d'):
                      self.mw.draw_molecule_3d(self.mol)
+                     QApplication.processEvents()
+                     time.sleep(0.05) # Allow render to catch up
                 
                 if self.chk_vectors.isChecked():
                      pass 
