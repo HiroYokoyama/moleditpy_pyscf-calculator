@@ -79,12 +79,23 @@ class CalcTab(QWidget):
 
         # Functional (only for DFT)
         self.functional_combo = QComboBox()
-        self.functional_combo.addItems(["b3lyp", "pbe", "lda", "m062x"])
+        self.functional_combo.addItems([
+            "b3lyp", "pbe", "lda", "m062x", 
+            "wb97x-d", "cam-b3lyp", "pbe0", "b3pw91", 
+            "bp86", "blyp", "tpss", "tpssh",
+            "m06", "m06-l", "hse06"
+        ])
         self.functional_combo.setEnabled(True) # Default is RKS now
         form_layout.addRow("Functional:", self.functional_combo)
 
         self.basis_combo = QComboBox()
-        self.basis_combo.addItems(["sto-3g", "3-21g", "6-31g", "6-31g*", "cc-pvdz", "def2-svp"])
+        self.basis_combo.addItems([
+            "sto-3g", "3-21g", "6-31g", "6-31g*", "6-31+g*", "6-31++g**", 
+            "6-311g", "6-311g*", "6-311+g*", "6-311++g**",
+            "cc-pvdz", "cc-pvtz", "cc-pvqz",
+            "aug-cc-pvdz", "aug-cc-pvtz", "aug-cc-pvqz",
+            "def2-svp", "def2-tzvp", "def2-qzvp"
+        ])
         form_layout.addRow("Basis Set:", self.basis_combo)
         
         self.charge_input = QComboBox() 
