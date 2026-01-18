@@ -9,6 +9,7 @@ import numpy as np
 import math
 import re
 import copy
+import shutil
 from PyQt6.QtCore import QThread, pyqtSignal
 try:
     from rdkit import Chem
@@ -316,15 +317,30 @@ class PySCFWorker(QThread):
             elif method_name == "RKS":
                 mf = dft.RKS(mol)
                 mf.xc = functional
+                try: 
+                    level = self.config.get("grid_level", 3)
+                    mf.grids.level = level
+                    if level >= 4: mf.grids.prune = False
+                except: pass
             elif method_name == "UKS":
                 mf = dft.UKS(mol)
                 mf.xc = functional
+                try: 
+                    level = self.config.get("grid_level", 3)
+                    mf.grids.level = level
+                    if level >= 4: mf.grids.prune = False
+                except: pass
             # --- Added: RO Support ---
             elif method_name == "ROHF":
                 mf = scf.ROHF(mol)
             elif method_name == "ROKS":
                 mf = dft.ROKS(mol)
                 mf.xc = functional
+                try: 
+                    level = self.config.get("grid_level", 3)
+                    mf.grids.level = level
+                    if level >= 4: mf.grids.prune = False
+                except: pass
             # ------------------------
             else:
                 # Default fallback or error
@@ -423,14 +439,29 @@ class PySCFWorker(QThread):
                         elif method_name == "RKS": 
                             mf = dft.RKS(mol_eq)
                             mf.xc = functional
+                            try:
+                                level = self.config.get("grid_level", 3)
+                                mf.grids.level = level
+                                if level >= 4: mf.grids.prune = False
+                            except: pass
                         elif method_name == "UKS": 
                             mf = dft.UKS(mol_eq)
                             mf.xc = functional
+                            try:
+                                level = self.config.get("grid_level", 3)
+                                mf.grids.level = level
+                                if level >= 4: mf.grids.prune = False
+                            except: pass
                         # --- Added: RO Support for Optimization Re-init ---
                         elif method_name == "ROHF": mf = scf.ROHF(mol_eq)
                         elif method_name == "ROKS":
                             mf = dft.ROKS(mol_eq)
                             mf.xc = functional
+                            try:
+                                level = self.config.get("grid_level", 3)
+                                mf.grids.level = level
+                                if level >= 4: mf.grids.prune = False
+                            except: pass
                         # -----------------------------------------------
                         
                         # Run Energy on optimized
@@ -1033,6 +1064,11 @@ class PySCFWorker(QThread):
             self.error_signal.emit("Relaxed scan requires 'geometric' library. Install with: pip install geometric")
             return
 
+        # Ensure initial molecule is converged so we have a good starting checkpoint for Step 0
+        if not mf.e_tot:
+            self.log_signal.emit("Ensuring initial SCF convergence before scanning...\n")
+            mf.kernel()
+
         for i, val in enumerate(scan_values):
             self.log_signal.emit(f"\nStep {i+1}/{steps}: Constrained {stype} = {val:.4f}\n")
             
@@ -1047,7 +1083,7 @@ class PySCFWorker(QThread):
             atom_str = " ".join([str(a+1) for a in atoms])
             
             # Type mapping
-            g_type = "bond"
+            g_type = "distance"
             if stype == "Angle": g_type = "angle"
             elif stype == "Dihedral": g_type = "dihedral"
             
@@ -1085,20 +1121,57 @@ class PySCFWorker(QThread):
                 elif method_name == "RKS":
                     step_mf = dft.RKS(step_mol)
                     step_mf.xc = functional
+                    try:
+                        level = self.config.get("grid_level", 3)
+                        step_mf.grids.level = level
+                        if level >= 4: step_mf.grids.prune = False
+                    except: pass
                 elif method_name == "UKS":
                     step_mf = dft.UKS(step_mol)
                     step_mf.xc = functional
+                    try:
+                        level = self.config.get("grid_level", 3)
+                        step_mf.grids.level = level
+                        if level >= 4: step_mf.grids.prune = False
+                    except: pass
                 elif method_name == "ROHF":
                     step_mf = scf.ROHF(step_mol)
                 elif method_name == "ROKS":
                     step_mf = dft.ROKS(step_mol)
                     step_mf.xc = functional
+                    try:
+                        level = self.config.get("grid_level", 3)
+                        step_mf.grids.level = level
+                        if level >= 4: step_mf.grids.prune = False
+                    except: pass
                 else:
                     raise ValueError(f"Unsupported method: {method_name}")
                 
                 # Set checkpoint
                 step_chk = os.path.join(self.out_dir, f"scan_step_{i}.chk")
                 step_mf.chkfile = step_chk
+
+                # --- Initialization Strategy: Seed from previous step ---
+                try:
+                    src_chk = None
+                    if i == 0:
+                        # Use the main mf checkpoint (which we ensured is converged above)
+                        if os.path.exists(mf.chkfile):
+                            src_chk = mf.chkfile
+                    else:
+                        # Use previous step's checkpoint
+                        prev_chk = os.path.join(self.out_dir, f"scan_step_{i-1}.chk")
+                        if os.path.exists(prev_chk):
+                            src_chk = prev_chk
+                    
+                    if src_chk:
+                        shutil.copyfile(src_chk, step_chk)
+                        step_mf.init_guess = 'chkfile'
+                        # self.log_signal.emit(f"  > Seeding guess from {os.path.basename(src_chk)}\n")
+                except Exception as e_seed:
+                    self.log_signal.emit(f"  Warning: Failed to seed initial guess: {e_seed}\n")
+                # --------------------------------------------------------
+                
                 
                 # Apply settings
                 step_mf.max_cycle = self.config.get("max_cycle", 100)

@@ -96,6 +96,7 @@ class PySCFDialog(QDialog):
             self.check_break_sym = self.calc_tab.check_break_sym
             self.spin_cycles = self.calc_tab.spin_cycles
             self.edit_conv = self.calc_tab.edit_conv
+            self.spin_grid_level = self.calc_tab.spin_grid_level
         
         if hasattr(self, 'vis_tab'):
             self.btn_load_geom = self.vis_tab.btn_load_geom
@@ -224,8 +225,10 @@ class PySCFDialog(QDialog):
              "functional": self.calc_tab.functional_combo.currentText(),
              "basis": self.calc_tab.basis_combo.currentText(),
              "check_symmetry": self.calc_tab.check_symmetry.isChecked(),
+             "check_symmetry": self.calc_tab.check_symmetry.isChecked(),
              "spin_cycles": self.calc_tab.spin_cycles.value(),
-             "conv_tol": self.calc_tab.edit_conv.text()
+             "conv_tol": self.calc_tab.edit_conv.text(),
+             "grid_level": self.calc_tab.spin_grid_level.value()
         }
         try:
              with open(json_path, 'w') as f:
@@ -250,8 +253,10 @@ class PySCFDialog(QDialog):
             "threads": 0,
             "memory": 4000,
             "check_symmetry": False,
+            "check_symmetry": False,
             "spin_cycles": 100,
-            "conv_tol": "1e-9"
+            "conv_tol": "1e-9",
+            "grid_level": 3
         }
 
         # Load User Defaults
@@ -279,6 +284,7 @@ class PySCFDialog(QDialog):
             self.calc_tab.check_symmetry.setChecked(defaults["check_symmetry"])
             self.calc_tab.spin_cycles.setValue(int(defaults["spin_cycles"]))
             self.calc_tab.edit_conv.setText(defaults["conv_tol"])
+            self.calc_tab.spin_grid_level.setValue(int(defaults["grid_level"]))
 
     def load_settings(self):
         self.apply_defaults()
@@ -298,7 +304,9 @@ class PySCFDialog(QDialog):
             if "memory" in s: self.calc_tab.spin_memory.setValue(int(s["memory"]))
             if "check_symmetry" in s: self.calc_tab.check_symmetry.setChecked(bool(s["check_symmetry"]))
             if "spin_cycles" in s: self.calc_tab.spin_cycles.setValue(int(s["spin_cycles"]))
+            if "spin_cycles" in s: self.calc_tab.spin_cycles.setValue(int(s["spin_cycles"]))
             if "conv_tol" in s: self.calc_tab.edit_conv.setText(str(s["conv_tol"]))
+            if "grid_level" in s: self.calc_tab.spin_grid_level.setValue(int(s["grid_level"]))
             if "scan_params" in s: self.calc_tab.scan_params = s["scan_params"]
         
         raw_history = s.get("calc_history", [])
@@ -361,7 +369,9 @@ class PySCFDialog(QDialog):
             self.settings["memory"] = self.calc_tab.spin_memory.value()
             self.settings["check_symmetry"] = self.calc_tab.check_symmetry.isChecked()
             self.settings["spin_cycles"] = self.calc_tab.spin_cycles.value()
+            self.settings["spin_cycles"] = self.calc_tab.spin_cycles.value()
             self.settings["conv_tol"] = self.calc_tab.edit_conv.text()
+            self.settings["grid_level"] = self.calc_tab.spin_grid_level.value()
             self.settings["scan_params"] = getattr(self.calc_tab, 'scan_params', None)
         
         self.settings["version"] = self.version

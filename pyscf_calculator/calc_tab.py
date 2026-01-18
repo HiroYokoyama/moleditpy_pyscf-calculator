@@ -159,6 +159,13 @@ class CalcTab(QWidget):
         self.edit_conv.setToolTip("SCF Convergence Tolerance (e.g. 1e-9)")
         form_layout.addRow("Conv. Tolerance:", self.edit_conv)
 
+        # DFT Grid Level
+        self.spin_grid_level = QSpinBox()
+        self.spin_grid_level.setRange(0, 9)
+        self.spin_grid_level.setValue(3)
+        self.spin_grid_level.setToolTip("DFT Integration Grid Level (Default: 3). Set to 4 or 5 for higher accuracy in optimizations.")
+        form_layout.addRow("DFT Grid Level:", self.spin_grid_level)
+
 
         # Output Directory
         self.out_dir_edit = QLineEdit()
@@ -444,7 +451,9 @@ class CalcTab(QWidget):
             "symmetry": self.check_symmetry.isChecked(),
             "break_symmetry": self.check_break_sym.isChecked(),
             "max_cycle": self.spin_cycles.value(),
+            "max_cycle": self.spin_cycles.value(),
             "conv_tol": self.edit_conv.text(),
+            "grid_level": self.spin_grid_level.value(),
             "out_dir": os.path.abspath(final_out_dir),
             "plugin_version": getattr(self.parent_dialog, 'version', '0.0.0')
         }
