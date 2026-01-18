@@ -4,6 +4,13 @@ A powerful, user-friendly GUI interface for performing quantum chemistry calcula
 
 **Research-Grade Power with Educational Clarity**: Transform abstract quantum mechanics into tangible, interactive discoveries. Built on the industrial-strength **PySCF** engine, this plugin delivers rigorous accuracy for researchers while offering an intuitive visual interface that makes it an indispensable platform for mastering **Physical Chemistry or Organic Chemistry**. Whether you are a researcher performing rapid conformational scans and transition state searches to screen candidates, or a student decoding the principles of molecular orbital theory, this tool bridges the gap between complex algorithms and chemical insight. From predicting reactivity with HOMO/LUMO visualizations to mapping detailed Potential Energy Surfaces, it empowers users at all levels to visualize, analyze, and understand the fundamental forces driving chemical change.
 
+## Tutorial
+Master quantum chemistry calculations in MoleditPy with step-by-step interactive guides. These tutorials demonstrate how to integrate structural modeling with electronic structure theory using PySCF.
+
+**[Launch Interactive Tutorials](https://hiroyokoyama.github.io/moleditpy_pyscf-calculator/tutorial/index.html)**
+
+## Gallery
+
 ![](img/img.png)
 
 ![](img/img2.png)
@@ -82,6 +89,7 @@ pip install pyscf PyQt6 numpy geometric matplotlib
 ## License
 
 This project is licensed under the **GNU General Public License v3.0 (GPLv3)**. See the [LICENSE](LICENSE) file for details.
+
 
 
 
