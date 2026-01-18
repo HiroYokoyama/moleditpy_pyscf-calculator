@@ -65,7 +65,7 @@
             <ol class="step-list">
                 <li><strong>分子の描画:</strong>
                     <ul>
-                        <li>クロロメタン (CH<sub>3</sub>Cl) を描画します。</li>
+                        <li>クロロメタン (CClH<sub>3</sub>) を描画します。</li>
                         <li>その近くに臭化物イオン (Br<sup>-</sup>) を描画します。</li>
                     </ul>
                 </li>
@@ -77,13 +77,13 @@
                 </li>
                 <li><strong>位置調整:</strong>
                     <ul>
-                        <li>"Move Group" ツール等を使い、Br<sup>-</sup> を炭素原子の背面攻撃側（Clの反対側）に配置します。</li>
+                        <li>"3D Edit > Move Group..." ツール等を使い、Br<sup>-</sup> を炭素原子の背面攻撃側（Clの反対側）に配置します。</li>
                     </ul>
                     <img src="img/sn2_02_move.png" alt="Group移動" class="step-img">
                 </li>
                 <li><strong>結合距離の調整:</strong>
                     <ul>
-                        <li>原子間距離調整ツールを使い、C-Br間の距離を <strong>2.8 Å</strong> に設定します。</li>
+                        <li>"3D Edit > Adjust Bond Length..." ツールを使い、C-Br間の距離を <strong>2.8 Å</strong> に設定します。</li>
                     </ul>
                     <img src="img/sn2_03_bond_len.png" alt="距離調整 2.8A" class="step-img">
                 </li>
@@ -98,8 +98,8 @@
                 </li>
                 <li><strong>スキャン設定:</strong>
                     <ul>
-                        <li>Modeを <strong>Relaxed Scan</strong> に設定します。</li>
-                        <li>Configボタンを押し、Distanceタブで以下のように設定します:
+                        <li>Modeを <strong>Relaxed Surface Scan</strong> に設定します。</li>
+                        <li>"Configure Scan" ボタンを押し、Distanceタブで以下のように設定します:
                             <ul>
                                 <li><strong>Start:</strong> 2.8 Å</li>
                                 <li><strong>End:</strong> 1.96 Å</li>
@@ -147,7 +147,7 @@
                 <li><strong>計算設定の変更:</strong>
                     <ul>
                         <li>Calculationタブに戻ります。</li>
-                        <li><strong>Job Type:</strong> <code>Transition State + Freq</code> に変更します。</li>
+                        <li><strong>Job Type:</strong> <code>TS Optimization + Frequency</code> に変更します。</li>
                         <li>その他の設定(B3LYP / ma-def2-svp)は変更しません。</li>
                     </ul>
                     <img src="img/sn2_11_ts_setup.png" alt="TS計算設定" class="step-img">
@@ -175,6 +175,5 @@
         </div>
     </div>
 </body>
-
 
 </html>

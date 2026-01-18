@@ -67,7 +67,7 @@
             <ol class="step-list">
                 <li><strong>Draw Molecules:</strong>
                     <ul>
-                        <li>Draw Chloromethane (CH<sub>3</sub>Cl).</li>
+                        <li>Draw Chloromethane (CClH<sub>3</sub>).</li>
                         <li>Draw a Bromide ion (Br<sup>-</sup>) nearby.</li>
                     </ul>
                 </li>
@@ -79,15 +79,15 @@
                 </li>
                 <li><strong>Position Adjustment:</strong>
                     <ul>
-                        <li>Use the "Move Group" tool etc. to place Br<sup>-</sup> on the backside attack position of
-                            the carbon atom (opposite to Cl).</li>
+                        <li>Use the "3D Edit > Move Group..." tool to place Br<sup>-</sup> on the backside attack
+                            position of the carbon atom (opposite to Cl).</li>
                     </ul>
                     <img src="img/sn2_02_move.png" alt="Group Move" class="step-img">
                 </li>
                 <li><strong>Bond Distance Adjustment:</strong>
                     <ul>
-                        <li>Use the Atom Distance Adjustment tool to set the C-Br distance to <strong>2.8 Å</strong>.
-                        </li>
+                        <li>Use the "3D Edit > Adjust Bond Length..." tool to set the C-Br distance to <strong>2.8
+                                Å</strong>.</li>
                     </ul>
                     <img src="img/sn2_03_bond_len.png" alt="Distance adjustment 2.8A" class="step-img">
                 </li>
@@ -102,8 +102,8 @@
                 </li>
                 <li><strong>Scan Configuration:</strong>
                     <ul>
-                        <li>Set Mode to <strong>Relaxed Scan</strong>.</li>
-                        <li>Click the Config button and set the Distance tab as follows:
+                        <li>Set Mode to <strong>Relaxed Surface Scan</strong>.</li>
+                        <li>Click the "Configure Scan" button and set the Distance tab as follows:
                             <ul>
                                 <li><strong>Start:</strong> 2.8 Å</li>
                                 <li><strong>End:</strong> 1.96 Å</li>
@@ -154,7 +154,7 @@
                 <li><strong>Change Calculation Settings:</strong>
                     <ul>
                         <li>Return to the Calculation tab.</li>
-                        <li>Change <strong>Job Type</strong> to <code>Transition State + Freq</code>.</li>
+                        <li>Change <strong>Job Type</strong> to <code>TS Optimization + Frequency</code>.</li>
                         <li>Do not change other settings (B3LYP / ma-def2-svp).</li>
                     </ul>
                     <img src="img/sn2_11_ts_setup.png" alt="TS Calculation Setup" class="step-img">
@@ -184,6 +184,5 @@
         </div>
     </div>
 </body>
-
 
 </html>
