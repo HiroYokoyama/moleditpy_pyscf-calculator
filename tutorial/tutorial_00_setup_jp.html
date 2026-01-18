@@ -52,17 +52,32 @@
             <h3>Step 1: MoleditPy本体のインストール</h3>
             <ol class="step-list">
                 <li>ターミナルを開き、以下のコマンドを実行してインストーラーを導入します。
-                    <pre><code class="language-bash">pip install moleditpy-installer</code></pre>
+                    <pre><code class="language-bash">pip install moleditpy-installer --break-system-packages</code></pre>
+                    <p><em>※ 最近のLinuxディトリビューション（Ubuntu 24.04など）では <code>--break-system-packages</code> フラグが必須です。</em>
+                    </p>
+                    <details>
+                        <summary style="cursor: pointer; color: #007bff; font-size: 0.9em;">(代替案) 仮想環境を使用する場合</summary>
+                        <div
+                            style="font-size: 0.9em; margin-top: 5px; border-left: 3px solid #ccc; padding-left: 10px;">
+                            システムパッケージを変更したくない場合は、仮想環境を作成してください：
+                            <pre><code class="language-bash">python3 -m venv myenv
+source myenv/bin/activate
+pip install moleditpy-installer</code></pre>
+                        </div>
+                    </details>
                     <p><em>※ インストールログを確認してください。「WARNING: The script moleditpy-installer is installed in ... which is not
                             on PATH」のような警告が表示された場合、そのフルパスを使用してください。</em></p>
                 </li>
+                <li>コマンドが実行できるようにPATHを通します（推奨）：
+                    <pre><code class="language-bash">echo 'export PATH=$PATH:~/.local/bin' >> ~/.bashrc
+source ~/.bashrc</code></pre>
+                    <p><em>※ これにより `moleditpy` や `moleditpy-installer` コマンドを直接実行できるようになります。デフォルトでは
+                            <code>~/.local/bin</code> にインストールされることが多いためです。</em></p>
+                </li>
                 <li>ショートカット作成コマンドを実行します。
                     <pre><code class="language-bash">moleditpy-installer</code></pre>
-                    <p><em>※ コマンドが見つからない場合は、<code>pip install</code> のログを確認し、警告に出ているパス（例:
-                            <code>~/.local/bin/moleditpy-installer</code>）を使用してください。PATHが通っていない可能性があります。</em></p>
-                    <p><em>※ Ubuntu 24.04等で "error: externally-managed-environment"
-                            と出る場合は、<code>pip install moleditpy-installer --break-system-packages</code> を実行してください。</em>
-                    </p>
+                    <p><em>※ コマンドが見つからない場合（かつPATHも通していない場合）は、<code>pip install</code> のログを確認し、警告に出ているパス（例:
+                            <code>~/.local/bin/moleditpy-installer</code>）を使用してください。</em></p>
                 </li>
                 <li>以下のコマンドでアプリが起動することを確認します（初回起動は時間がかかります）。
                     <pre><code class="language-bash">moleditpy</code></pre>
@@ -72,9 +87,8 @@
             <h3>Step 2: PySCF Calculatorプラグインの導入</h3>
             <ol class="step-list">
                 <li>必要なライブラリをインストールします。
-                    <pre><code class="language-bash">pip install pyscf geometric matplotlib</code></pre>
-                    <p><em>※ "error: externally-managed-environment" と出る場合は、末尾に <code>--break-system-packages</code>
-                            を追加して実行してください。</em></p>
+                    <pre><code class="language-bash">pip install pyscf geometric matplotlib --break-system-packages</code></pre>
+                    <p><em>※ 仮想環境を使用している場合は <code>--break-system-packages</code> は不要です。</em></p>
                 </li>
                 <li><a href="https://hiroyokoyama.github.io/moleditpy-plugins/explorer/?q=PySCF+Calculator"
                         target="_blank">Plugin Explorer</a> からプラグインをダウンロードします。</li>
@@ -117,18 +131,26 @@ source ~/.bashrc</code></pre>
             <p>WSLのターミナル内で、Linuxと同様の手順を実行します。</p>
             <ol class="step-list">
                 <li><strong>MoleditPyのインストール:</strong>
-                    <pre><code class="language-bash">pip install moleditpy-installer
+                    <pre><code class="language-bash">pip install moleditpy-installer --break-system-packages
 moleditpy-installer</code></pre>
-                    <p><em>※ <code>moleditpy-installer</code>
-                            が見つからない場合は、<code>pip install</code> のログを確認し、警告に出ているパス（例:
+                    <p><em>※ Ubuntu 24.04などでは <code>--break-system-packages</code> が必要です。</em></p>
+                    <details>
+                        <summary style="cursor: pointer; color: #007bff; font-size: 0.9em;">(代替案) 仮想環境を使用する場合</summary>
+                        <div
+                            style="font-size: 0.9em; margin-top: 5px; border-left: 3px solid #ccc; padding-left: 10px;">
+                            システムパッケージを変更したくない場合は、仮想環境を作成してください：
+                            <pre><code class="language-bash">python3 -m venv myenv
+source myenv/bin/activate
+pip install moleditpy-installer
+moleditpy-installer</code></pre>
+                        </div>
+                    </details>
+                    <p><em>※ もし `moleditpy-installer` が見つからない場合は、<code>pip install</code> のログにあるフルパス（通常は
                             <strong><code>~/.local/bin/moleditpy-installer</code></strong>）を使用してください。</em></p>
-                    <p><em>※ "error: externally-managed-environment" と出る場合は、末尾に <code>--break-system-packages</code>
-                            を追加して実行してください。</em></p>
                 </li>
                 <li><strong>PySCFと依存ライブラリのインストール:</strong>
-                    <pre><code class="language-bash">pip install pyscf geometric matplotlib</code></pre>
-                    <p><em>※ "error: externally-managed-environment" と出る場合は、末尾に <code>--break-system-packages</code>
-                            を追加して実行してください。</em></p>
+                    <pre><code class="language-bash">pip install pyscf geometric matplotlib --break-system-packages</code></pre>
+                    <p><em>※ 仮想環境を使用している場合は <code>--break-system-packages</code> は不要です。</em></p>
                 </li>
                 <li><strong>プラグインの配置:</strong>
                     <ul>

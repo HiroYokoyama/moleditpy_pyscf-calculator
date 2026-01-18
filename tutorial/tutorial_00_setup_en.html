@@ -46,17 +46,34 @@
             <h3>Step 1: Install MoleditPy</h3>
             <ol class="step-list">
                 <li>Open your terminal and run the following command to install the package:
-                    <pre><code class="language-bash">pip install moleditpy-installer</code></pre>
+                    <pre><code class="language-bash">pip install moleditpy-installer --break-system-packages</code></pre>
+                    <p><em>* The <code>--break-system-packages</code> flag is required on recent Linux distributions
+                            (e.g., Ubuntu 24.04).</em></p>
+                    <details>
+                        <summary style="cursor: pointer; color: #007bff; font-size: 0.9em;">(Alternative) Using a
+                            virtual environment</summary>
+                        <div
+                            style="font-size: 0.9em; margin-top: 5px; border-left: 3px solid #ccc; padding-left: 10px;">
+                            If you prefer not to modify your system packages, create a virtual environment:
+                            <pre><code class="language-bash">python3 -m venv myenv
+source myenv/bin/activate
+pip install moleditpy-installer</code></pre>
+                        </div>
+                    </details>
                     <p><em>* Check the installation log. If you see a warning "WARNING: The script moleditpy-installer
                             is installed in ... which is not on PATH", please use that full path.</em></p>
                 </li>
+                <li>Add the local binary path to your shell configuration (Recommended):
+                    <pre><code class="language-bash">echo 'export PATH=$PATH:~/.local/bin' >> ~/.bashrc
+source ~/.bashrc</code></pre>
+                    <p><em>* This ensures you can run commands like `moleditpy` and `moleditpy-installer` directly.</em>
+                    </p>
+                </li>
                 <li>Create the desktop shortcut:
                     <pre><code class="language-bash">moleditpy-installer</code></pre>
-                    <p><em>* If the command is not found, check the <code>pip install</code> log for a path warning and
-                            use that path (e.g. <strong><code>~/.local/bin/moleditpy-installer</code></strong>). Your
-                            PATH might not be set.</em></p>
-                    <p><em>* If you see "error: externally-managed-environment" (e.g. on Ubuntu 24.04), run:
-                            <code>pip install moleditpy-installer --break-system-packages</code></em></p>
+                    <p><em>* If the command is not found (and you haven't set PATH), check the <code>pip install</code>
+                            log for the full path (e.g.
+                            <strong><code>~/.local/bin/moleditpy-installer</code></strong>).</em></p>
                 </li>
                 <li>Launch the application to verify installation (first run may take a moment):
                     <pre><code class="language-bash">moleditpy</code></pre>
@@ -66,9 +83,9 @@
             <h3>Step 2: Install PySCF Calculator Plugin</h3>
             <ol class="step-list">
                 <li>Install required libraries:
-                    <pre><code class="language-bash">pip install pyscf geometric matplotlib</code></pre>
-                    <p><em>* If you see "error: externally-managed-environment", add
-                            <code>--break-system-packages</code> to the command.</em></p>
+                    <pre><code class="language-bash">pip install pyscf geometric matplotlib --break-system-packages</code></pre>
+                    <p><em>* If you are using a virtual environment, you can omit
+                            <code>--break-system-packages</code>.</em></p>
                 </li>
                 <li>Download the plugin from the <a
                         href="https://hiroyokoyama.github.io/moleditpy-plugins/explorer/?q=PySCF+Calculator"
@@ -115,18 +132,30 @@ source ~/.bashrc</code></pre>
             <p>Run these commands inside your WSL (Ubuntu) terminal.</p>
             <ol class="step-list">
                 <li><strong>Install MoleditPy:</strong>
-                    <pre><code class="language-bash">pip install moleditpy-installer
+                    <pre><code class="language-bash">pip install moleditpy-installer --break-system-packages
 moleditpy-installer</code></pre>
+                    <p><em>* The <code>--break-system-packages</code> flag is required on recent Linux distributions
+                            (e.g., Ubuntu 24.04).</em></p>
+                    <details>
+                        <summary style="cursor: pointer; color: #007bff; font-size: 0.9em;">(Alternative) Using a
+                            virtual environment</summary>
+                        <div
+                            style="font-size: 0.9em; margin-top: 5px; border-left: 3px solid #ccc; padding-left: 10px;">
+                            If you prefer not to modify your system packages, create a virtual environment:
+                            <pre><code class="language-bash">python3 -m venv myenv
+source myenv/bin/activate
+pip install moleditpy-installer
+moleditpy-installer</code></pre>
+                        </div>
+                    </details>
                     <p><em>* If `moleditpy-installer` is not found, check the <code>pip install</code> log for a path
                             warning and use that full path (typically
                             <strong><code>~/.local/bin/moleditpy-installer</code></strong>).</em></p>
-                    <p><em>* If you encounter "error: externally-managed-environment", add
-                            <code>--break-system-packages</code> to the install command.</em></p>
                 </li>
                 <li><strong>Install PySCF & dependencies:</strong>
-                    <pre><code class="language-bash">pip install pyscf geometric matplotlib</code></pre>
-                    <p><em>* If you see "error: externally-managed-environment", add
-                            <code>--break-system-packages</code> to the command.</em></p>
+                    <pre><code class="language-bash">pip install pyscf geometric matplotlib --break-system-packages</code></pre>
+                    <p><em>* If you are using a virtual environment, you can omit
+                            <code>--break-system-packages</code>.</em></p>
                 </li>
                 <li><strong>Install the Plugin:</strong>
                     <ul>
