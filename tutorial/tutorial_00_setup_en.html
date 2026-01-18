@@ -69,6 +69,7 @@ source ~/.bashrc</code></pre>
                     <p><em>* This ensures you can run commands like `moleditpy` and `moleditpy-installer` directly.</em>
                     </p>
                 </li>
+
                 <li>Create the desktop shortcut:
                     <pre><code class="language-bash">moleditpy-installer</code></pre>
                     <p><em>* If the command is not found (and you haven't set PATH), check the <code>pip install</code>
@@ -132,8 +133,7 @@ source ~/.bashrc</code></pre>
             <p>Run these commands inside your WSL (Ubuntu) terminal.</p>
             <ol class="step-list">
                 <li><strong>Install MoleditPy:</strong>
-                    <pre><code class="language-bash">pip install moleditpy-installer --break-system-packages
-moleditpy-installer</code></pre>
+                    <pre><code class="language-bash">pip install moleditpy-installer --break-system-packages</code></pre>
                     <p><em>* The <code>--break-system-packages</code> flag is required on recent Linux distributions
                             (e.g., Ubuntu 24.04).</em></p>
                     <details>
@@ -144,13 +144,10 @@ moleditpy-installer</code></pre>
                             If you prefer not to modify your system packages, create a virtual environment:
                             <pre><code class="language-bash">python3 -m venv myenv
 source myenv/bin/activate
-pip install moleditpy-installer
-moleditpy-installer</code></pre>
+pip install moleditpy-installer</code></pre>
                         </div>
                     </details>
-                    <p><em>* If `moleditpy-installer` is not found, check the <code>pip install</code> log for a path
-                            warning and use that full path (typically
-                            <strong><code>~/.local/bin/moleditpy-installer</code></strong>).</em></p>
+
                 </li>
                 <li><strong>Install PySCF & dependencies:</strong>
                     <pre><code class="language-bash">pip install pyscf geometric matplotlib --break-system-packages</code></pre>
