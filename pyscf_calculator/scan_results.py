@@ -128,6 +128,13 @@ class ScanResultDialog(QDialog):
         self.chk_relative.toggled.connect(self.plot_data)
         ctrl_layout.addWidget(self.chk_relative)
 
+        # Dynamic Bonds Checkbox
+        self.chk_dynamic_bonds = QCheckBox("Dynamic Bonds")
+        self.chk_dynamic_bonds.setToolTip("Recalculate bonds at every frame (slower, but shows bond breaking/forming)")
+        self.chk_dynamic_bonds.setChecked(False)
+        self.chk_dynamic_bonds.toggled.connect(lambda: self.update_viewer(self.frame_idx))
+        ctrl_layout.addWidget(self.chk_dynamic_bonds)
+
         layout.addLayout(ctrl_layout)
         
         # 3. Export
@@ -387,7 +394,10 @@ class ScanResultDialog(QDialog):
         
         xyz = self.trajectory[idx]
         
-        if self.base_mol:
+        # Check for Dynamic Bonds setting
+        use_dynamic_bonds = self.chk_dynamic_bonds.isChecked() if hasattr(self, 'chk_dynamic_bonds') else False
+
+        if self.base_mol and not use_dynamic_bonds:
             # Efficient update: just change coordinates
             try:
                 # Parse coordinates from XYZ string
