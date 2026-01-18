@@ -73,6 +73,8 @@
             <ol class="step-list">
                 <li>必要なライブラリをインストールします。
                     <pre><code class="language-bash">pip install pyscf geometric matplotlib</code></pre>
+                    <p><em>※ "error: externally-managed-environment" と出る場合は、末尾に <code>--break-system-packages</code>
+                            を追加して実行してください。</em></p>
                 </li>
                 <li><a href="https://hiroyokoyama.github.io/moleditpy-plugins/explorer/?q=PySCF+Calculator"
                         target="_blank">Plugin Explorer</a> からプラグインをダウンロードします。</li>
@@ -102,7 +104,12 @@
                 <li>GUIアプリ（PyQt6）の実行に必要なライブラリをインストールします。
                     <pre><code class="language-bash">sudo apt install python3-pip \
 libgl1 libegl1 libxkbcommon-x11-0 libdbus-1-3 \
-libxcb-cursor0 libxcb-xinerama0</code></pre>
+libxcb-cursor0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 \
+libxcb-randr0 libxcb-render-util0 libxcb-shape0 libxcb-xinerama0</code></pre>
+                </li>
+                <li>Qtプラットフォーム環境変数を設定します（推奨設定）:
+                    <pre><code class="language-bash">echo 'export QT_QPA_PLATFORM=xcb' >> ~/.bashrc
+source ~/.bashrc</code></pre>
                 </li>
             </ol>
 
@@ -120,6 +127,8 @@ moleditpy-installer</code></pre>
                 </li>
                 <li><strong>PySCFと依存ライブラリのインストール:</strong>
                     <pre><code class="language-bash">pip install pyscf geometric matplotlib</code></pre>
+                    <p><em>※ "error: externally-managed-environment" と出る場合は、末尾に <code>--break-system-packages</code>
+                            を追加して実行してください。</em></p>
                 </li>
                 <li><strong>プラグインの配置:</strong>
                     <ul>

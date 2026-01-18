@@ -67,6 +67,8 @@
             <ol class="step-list">
                 <li>Install required libraries:
                     <pre><code class="language-bash">pip install pyscf geometric matplotlib</code></pre>
+                    <p><em>* If you see "error: externally-managed-environment", add
+                            <code>--break-system-packages</code> to the command.</em></p>
                 </li>
                 <li>Download the plugin from the <a
                         href="https://hiroyokoyama.github.io/moleditpy-plugins/explorer/?q=PySCF+Calculator"
@@ -100,7 +102,12 @@
                 <li>Install required system libraries for GUI apps (PyQt6):
                     <pre><code class="language-bash">sudo apt install python3-pip \
 libgl1 libegl1 libxkbcommon-x11-0 libdbus-1-3 \
-libxcb-cursor0 libxcb-xinerama0</code></pre>
+libxcb-cursor0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 \
+libxcb-randr0 libxcb-render-util0 libxcb-shape0 libxcb-xinerama0</code></pre>
+                </li>
+                <li>Set the Qt platform environment variable (Recommended for stability):
+                    <pre><code class="language-bash">echo 'export QT_QPA_PLATFORM=xcb' >> ~/.bashrc
+source ~/.bashrc</code></pre>
                 </li>
             </ol>
 
@@ -118,6 +125,8 @@ moleditpy-installer</code></pre>
                 </li>
                 <li><strong>Install PySCF & dependencies:</strong>
                     <pre><code class="language-bash">pip install pyscf geometric matplotlib</code></pre>
+                    <p><em>* If you see "error: externally-managed-environment", add
+                            <code>--break-system-packages</code> to the command.</em></p>
                 </li>
                 <li><strong>Install the Plugin:</strong>
                     <ul>
