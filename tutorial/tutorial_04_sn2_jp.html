@@ -131,11 +131,9 @@
                         <li>アニメーション再生ボタンを押し、反応の様子を確認します。</li>
                     </ul>
                     <img src="img/sn2_profile.png" alt="エネルギープロファイル" class="step-img">
-                    <p style="font-size: 0.9em; color: #555;">（グラフの右側はC-Br距離が長い初期状態：CH<sub>3</sub>Cl +
-                        Br<sup>-</sup>、左側はC-Br距離が短い生成物側：CH<sub>3</sub>Br + Cl<sup>-</sup>を表します）</p>
-                    <p style="font-size: 0.9em; color: #555;">
-                        活性化エネルギーの算出には、孤立の分子を計算した結果とTSの結果のエネルギーを比較する必要があります。真空中での計算のため、プロファイルはダブルウェル型となります。また、遷移状態は反応物よりも安定である可能性があります。
-                    </p>
+
+
+
                     <img src="img/sn2_scan_animation.gif" alt="スキャンアニメーション" class="step-img">
                 </li>
                 <li><strong>TS候補の選択:</strong>
@@ -172,7 +170,29 @@
                     <img src="img/sn2_img-mode.gif" alt="虚振動アニメーション" class="step-img">
                 </li>
             </ol>
+
+            </ol>
         </section>
+
+        <blockquote>
+            <strong>活性化エネルギーの算出:</strong><br>
+            正味の活性化エネルギーを求めるには、エネルギーの比較が必要です。
+            <ul>
+                <li><strong>E<sub>reactants</sub>:</strong> 孤立したクロロメタン(CH<sub>3</sub>Cl)と臭化物イオン(Br<sup>-</sup>)のエネルギーの和。
+                </li>
+                <li><strong>E<sub>TS</sub>:</strong> Step 4で得られた遷移状態のエネルギー。</li>
+                <li><strong>活性化エネルギー (E<sub>a</sub>):</strong>
+                    <code>E<sub>a</sub> = E<sub>TS</sub> - E<sub>reactants</sub></code>
+                </li>
+            </ul>
+            (参考: 1 Hartree &approx; 627.5 kcal/mol)<br><br>
+            <span style="font-size: 0.9em; font-weight: normal;">
+                (注:
+                活性化エネルギーの算出には、孤立の分子を計算した結果とTSの結果のエネルギーを比較する必要があります。真空中での計算のため、プロファイルはダブルウェル型となります。また、遷移状態は反応物よりも安定である可能性があります。)
+            </span>
+        </blockquote>
+
+
 
         <div class="nav-links">
             <a href="tutorial_03_acetone_jp.html" class="btn btn-secondary">&larr; アセトンに戻る</a>
