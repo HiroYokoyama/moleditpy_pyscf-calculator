@@ -225,10 +225,11 @@ class PySCFDialog(QDialog):
              "functional": self.calc_tab.functional_combo.currentText(),
              "basis": self.calc_tab.basis_combo.currentText(),
              "check_symmetry": self.calc_tab.check_symmetry.isChecked(),
-             "check_symmetry": self.calc_tab.check_symmetry.isChecked(),
              "spin_cycles": self.calc_tab.spin_cycles.value(),
              "conv_tol": self.calc_tab.edit_conv.text(),
-             "grid_level": self.calc_tab.spin_grid_level.value()
+             "grid_level": self.calc_tab.spin_grid_level.value(),
+             "solvent": self.calc_tab.solvent_combo.currentText(),
+             "scan_params": getattr(self.calc_tab, 'scan_params', None)
         }
         try:
              with open(json_path, 'w') as f:
@@ -253,10 +254,11 @@ class PySCFDialog(QDialog):
             "threads": 0,
             "memory": 4000,
             "check_symmetry": False,
-            "check_symmetry": False,
             "spin_cycles": 100,
             "conv_tol": "1e-9",
-            "grid_level": 3
+            "grid_level": 3,
+            "solvent": "None (Vacuum)",
+            "scan_params": None
         }
 
         # Load User Defaults
@@ -285,6 +287,15 @@ class PySCFDialog(QDialog):
             self.calc_tab.spin_cycles.setValue(int(defaults["spin_cycles"]))
             self.calc_tab.edit_conv.setText(defaults["conv_tol"])
             self.calc_tab.spin_grid_level.setValue(int(defaults["grid_level"]))
+            
+            if "solvent" in defaults:
+                self.calc_tab.solvent_combo.setCurrentText(defaults["solvent"])
+                
+            if "scan_params" in defaults and defaults["scan_params"]:
+                self.calc_tab.scan_params = defaults["scan_params"]
+                if "Scan" in defaults["job_type"]:
+                     if hasattr(self.calc_tab, 'btn_scan_config'):
+                         self.calc_tab.btn_scan_config.show()
 
     def load_settings(self):
         self.apply_defaults()
@@ -308,6 +319,7 @@ class PySCFDialog(QDialog):
             if "conv_tol" in s: self.calc_tab.edit_conv.setText(str(s["conv_tol"]))
             if "grid_level" in s: self.calc_tab.spin_grid_level.setValue(int(s["grid_level"]))
             if "scan_params" in s: self.calc_tab.scan_params = s["scan_params"]
+            if "solvent" in s: self.calc_tab.solvent_combo.setCurrentText(s["solvent"])
         
         raw_history = s.get("calc_history", [])
         self.calc_history = []
@@ -373,6 +385,7 @@ class PySCFDialog(QDialog):
             self.settings["conv_tol"] = self.calc_tab.edit_conv.text()
             self.settings["grid_level"] = self.calc_tab.spin_grid_level.value()
             self.settings["scan_params"] = getattr(self.calc_tab, 'scan_params', None)
+            self.settings["solvent"] = self.calc_tab.solvent_combo.currentText()
         
         self.settings["version"] = self.version
         

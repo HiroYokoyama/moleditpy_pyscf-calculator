@@ -22,6 +22,7 @@ try:
     import pyscf
     from pyscf import gto, scf, dft, lib, tools
     from pyscf.tools import cubegen
+    from pyscf import solvent # Ensure ddCOSMO mixin is available
 except ImportError:
     pyscf = None
 
@@ -142,6 +143,81 @@ class PySCFWorker(QThread):
         self.xyz_str = xyz_str
         self.config = config
 
+    def compute_numeric_hessian(self, mf, mol):
+        """
+        Manually compute Hessian via Finite Difference of Gradients.
+        Robust fallback for when Analytic Hessian fails (e.g. solvent surface issues).
+        """
+        self.log_signal.emit("  > Starting Finite Difference of Gradients (6 * N_atoms steps)...\n")
+        
+        # Prepare Scanner
+        # g_scanner automatically handles re-building molecule and re-running SCF
+        try:
+            g_scanner = mf.nuc_grad_method().as_scanner()
+        except:
+             # Fallback if as_scanner fails: just use mf.nuc_grad_method() and manual loop
+             grad_method = mf.nuc_grad_method()
+             def g_scanner(m):
+                 mf_scan = mf.copy()
+                 mf_scan.reset(m)
+                 # apply solvent if needed? Copies should preserve it.
+                 e = mf_scan.kernel()
+                 g = grad_method(mf_scan).kernel()
+                 return e, g
+
+        n_atoms = mol.natm
+        h_dim = n_atoms * 3
+        hessian = np.zeros((h_dim, h_dim))
+        
+        # Step size (Bohr)
+        delta = 0.005
+        
+        # Current geometry in Bohr (PySCF internal)
+        mol_calc = mol.copy()
+        try:
+             coords_bohr = mol_calc.atom_coords(unit='Bohr')
+        except: 
+             # Fallback if unit='Bohr' fails in older pyscf
+             coords_bohr = mol_calc.atom_coords() * 1.8897259886
+        
+        step_count = 0
+        total_steps = h_dim 
+        
+        for i_atom in range(n_atoms):
+            for i_cart in range(3): # x, y, z
+                # Construct displaced geometries
+                r_orig = coords_bohr[i_atom, i_cart]
+                
+                # Plus
+                coords_bohr[i_atom, i_cart] = r_orig + delta
+                mol_calc.set_geom_(coords_bohr, unit='Bohr')
+                _, g_plus = g_scanner(mol_calc)
+                
+                # Minus
+                coords_bohr[i_atom, i_cart] = r_orig - delta
+                mol_calc.set_geom_(coords_bohr, unit='Bohr')
+                _, g_minus = g_scanner(mol_calc)
+                
+                # Restore
+                coords_bohr[i_atom, i_cart] = r_orig
+                
+                # Central Difference
+                row_idx = i_atom * 3 + i_cart
+                hess_row = (g_plus - g_minus) / (2 * delta)
+                
+                hessian[row_idx, :] = hess_row.flatten()
+                
+                step_count += 1
+                if step_count % 3 == 0:
+                     self.log_signal.emit(f"    Atom {i_atom+1} done...\n")
+        
+        # Reshape to (natm, 3, natm, 3)
+        hessian = hessian.reshape((n_atoms, 3, n_atoms, 3))
+        # Symmetrize
+        hessian = 0.5 * (hessian + hessian.transpose(2,3,0,1))
+        
+        return hessian
+
     def run(self):
         if pyscf is None:
             self.error_signal.emit("PySCF is not installed in the python environment.")
@@ -239,6 +315,11 @@ class PySCFWorker(QThread):
                 n_threads = pyscf.lib.num_threads()
                 self.log_signal.emit(f"PySCF running with {n_threads} OpenMP threads.\n")
             except: pass
+            
+            # --- Parameters Setup ---
+            scan_params = self.config.get("scan_params")
+            # ------------------------
+
             # Select Method
             method_name = self.config.get("method", "RHF")
             functional = self.config.get("functional", "b3lyp")
@@ -253,6 +334,63 @@ class PySCFWorker(QThread):
                     self.log_signal.emit("Switching to UKS due to spin != 0.\n")
             
             # Save Input Log
+            # --- Solvent Setup ---
+            selected_solvent = self.config.get("solvent", "None (Vacuum)")
+            use_solvent = selected_solvent != "None (Vacuum)"
+            eps_value = 0.0
+
+            # solvent_eps = {
+            #     "Water": 78.2,
+            #     "Ethanol": 24.5,
+            #     "Methanol": 32.7,
+            #     "Acetone": 20.7,
+            #     "THF": 7.58,
+            #     "Chloroform": 4.81,
+            #     "Dichloromethane": 8.93,
+            #     "Toluene": 2.38,
+            #     "Benzene": 2.27
+            # }
+            
+            if use_solvent:
+                try:
+                    # Attempt to load standard PySCF solvent parameters
+                    # This is usually located in pyscf.solvent.ddcosmo.param.EPSILON (dict)
+                    # or accessible via pyscf.data.nist if customized, but ddCOSMO has its own.
+                    from pyscf.solvent import ddcosmo
+                    # Try to find the EPSILON dict
+                    if hasattr(ddcosmo, 'param') and hasattr(ddcosmo.param, 'EPSILON'):
+                        pyscf_eps = ddcosmo.param.EPSILON
+                    elif hasattr(ddcosmo, 'EPSILON'):
+                         pyscf_eps = ddcosmo.EPSILON
+                    else:
+                         # Fallback if structure differs (older/newer pyscf)
+                         # We can try importing explicit module
+                         import pyscf.solvent.ddcosmo.param as dd_param
+                         pyscf_eps = dd_param.EPSILON
+                    
+                    # Cleanup name (remove "(Vacuum)" part if still adhering to old logic, though check specific names)
+                    # Our combo box names map usually to standard keys (Water, Ethanol, etc.)
+                    # Note: PySCF keys are often lowercase? 
+                    # Let's check typical keys: 'water', 'ethanol'.
+                    # We will try both exact match and lowercase.
+                    
+                    lookup_name = selected_solvent
+                    if lookup_name not in pyscf_eps and lookup_name.lower() in pyscf_eps:
+                         lookup_name = lookup_name.lower()
+                    
+                    eps_value = pyscf_eps.get(lookup_name)
+                    
+                    if eps_value is None:
+                         self.log_signal.emit(f"Warning: Solvent '{selected_solvent}' not found in PySCF database. Defaulting to Water (78.2).\n")
+                         eps_value = 78.2
+                    else:
+                         self.log_signal.emit(f"Solvent Model: ddCOSMO ({selected_solvent}) using PySCF internal value: eps={eps_value}\n")
+
+                except Exception as e_solv:
+                    self.log_signal.emit(f"Error loading PySCF solvent data ({e_solv}). Defaulting to Water (78.2).\n")
+                    eps_value = 78.2
+            # ---------------------
+
             inp_file = os.path.join(out_dir, "pyscf_input.py")
             with open(inp_file, "w") as f:
                 f.write("# PySCF Input for MoleditPy PySCF Calculator plugin\n")
@@ -271,11 +409,14 @@ class PySCFWorker(QThread):
                 f.write(f"# Max Cycle: {self.config.get('max_cycle')}\n")
                 f.write(f"# Conv Tol: {self.config.get('conv_tol')}\n")
                 
-                scan_params = self.config.get("scan_params")
                 if scan_params:
                     f.write("# Scan Parameters:\n")
                     for k, v in scan_params.items():
                         f.write(f"#   {k}: {v}\n")
+                
+                if use_solvent:
+                     f.write(f"# Solvent: {selected_solvent} (eps={eps_value})\n")
+
                 
                 f.write("\n")
                 f.write("from pyscf import gto, scf, dft\n")
@@ -297,6 +438,10 @@ class PySCFWorker(QThread):
                     tol = float(self.config.get('conv_tol', '1e-9'))
                     f.write(f"mf.conv_tol = {tol}\n")
                 except: pass
+
+                if use_solvent:
+                     f.write(f"mf = mf.ddCOSMO()\n")
+                     f.write(f"mf.with_solvent.eps = {eps_value}\n")
 
                 f.write("mf.kernel()\n")
                 
@@ -452,6 +597,7 @@ class PySCFWorker(QThread):
                                 mf.grids.level = level
                                 if level >= 4: mf.grids.prune = False
                             except: pass
+                        
                         # --- Added: RO Support for Optimization Re-init ---
                         elif method_name == "ROHF": mf = scf.ROHF(mol_eq)
                         elif method_name == "ROKS":
@@ -463,6 +609,11 @@ class PySCFWorker(QThread):
                                 if level >= 4: mf.grids.prune = False
                             except: pass
                         # -----------------------------------------------
+
+                        # Re-apply solvent if needed
+                        if use_solvent and not hasattr(mf, 'with_solvent'):
+                             mf = mf.ddCOSMO()
+                             mf.with_solvent.eps = eps_value
                         
                         # Run Energy on optimized
                         mf.chkfile = chk_path
@@ -539,8 +690,21 @@ class PySCFWorker(QThread):
 
                     self.log_signal.emit("Calculating Hessian...\n")
                     try:
-                        h_obj = mf.Hessian()
-                        hessian = h_obj.kernel()
+                        hessian = None
+                        
+                        # Pre-emptive Skip for Solvent
+                        # User explicitly requested NO Vacuum fallback and NO numerical fallback.
+                        if use_solvent or hasattr(mf, 'with_solvent'):
+                             self.log_signal.emit("NOTE: Frequency analysis is skipped for Solvent calculations (Not Supported).\n")
+                             self.log_signal.emit("      (Analytic Hessian unavailable; Vacuum approximation disabled by user request.)\n")
+                             raise Exception("Frequency Analysis Skipped (Solvent Not Supported)")
+
+                        # Standard Calculation
+                        try:
+                            h_obj = mf.Hessian()
+                            hessian = h_obj.kernel()
+                        except (AttributeError, KeyError) as e:
+                            raise e
                         
                         from pyscf.hessian import thermo
                         self.log_signal.emit("Performing Harmonic Analysis...\n")
@@ -643,7 +807,10 @@ class PySCFWorker(QThread):
                             self.log_signal.emit(traceback.format_exc())
                             
                     except Exception as e_freq:
-                        self.log_signal.emit(f"Frequency analysis failed: {e_freq}\n{traceback.format_exc()}\n")
+                        if "Skipped" in str(e_freq):
+                            self.log_signal.emit(f"Note: {e_freq}\n")
+                        else:
+                            self.log_signal.emit(f"Frequency analysis failed: {e_freq}\n{traceback.format_exc()}\n")
 
                 if "TDDFT" in job_type:
                     self.log_signal.emit(f"Starting TDDFT Calculation...\n")
@@ -863,21 +1030,22 @@ class PySCFWorker(QThread):
                     except:
                         pass
                 
-                # Restore Python streams
-                if 'original_stdout' in locals(): 
-                    sys.stdout = original_stdout
-                if 'original_stderr' in locals(): 
-                    sys.stderr = original_stderr
-                
-                # Restore C-Level FDs
-                if 'capturer' in locals():
-                    try: 
-                        capturer.__exit__(None, None, None)
-                    except: 
-                        pass
-
         except Exception as e:
             self.error_signal.emit(str(e) + "\n" + traceback.format_exc())
+            
+        finally:
+            # Restore Python streams (Crucial for preventing threads crashing on reuse)
+            if 'original_stdout' in locals(): 
+                sys.stdout = original_stdout
+            if 'original_stderr' in locals(): 
+                sys.stderr = original_stderr
+            
+            # Restore C-Level FDs
+            if 'capturer' in locals():
+                try: 
+                    capturer.__exit__(None, None, None)
+                except: 
+                    pass
 
     def run_rigid_scan(self, mol, mf, params, results):
         self.log_signal.emit("\n===== Rigid Surface Scan =====\n")
@@ -981,6 +1149,51 @@ class PySCFWorker(QThread):
             # 3. Singleton Energy
             mf_step = copy.copy(mf)
             
+            # Ensure solvent is preserved in copy or re-applied
+            # If mf is already solvated, copy usually keeps it, but safe to check.
+            # Actually, `copy.copy(mf)` works for standard objects but let's be robust.
+            # If the user selected solvent, we can force re-application or rely on copy.
+            # However, for ddCOSMO, a shallow copy might be tricky with C-level objects.
+            # It is safer to rebuild or re-wrap if we are doing a fresh build.
+            # But here we are just resetting.
+            
+            # IMPORTANT: For Scan, we use copy.copy(mf). If mf has ddCOSMO applied,
+            # its class is already modified (e.g. RKS with ddCOSMO). 
+            # So reset() should respect it. 
+            
+            # BUT: checking `run_relaxed_scan` below recreates MF from scratch.
+            # So we should be consistent.
+            
+            # Let's add explicit solvent check for Rigid Scan anyway to be safe.
+            selected_solvent = self.config.get("solvent", "None")
+            if selected_solvent and "None" not in selected_solvent:
+                # If mf_step lost its solvent mixin (unlikely with copy but possible if reset clears it)
+                # We re-apply.
+                if not hasattr(mf_step, 'with_solvent'):
+                     from pyscf.solvent import ddcosmo
+                     try:
+                         # Attempt to load standard PySCF solvent parameters
+                         if hasattr(ddcosmo, 'param') and hasattr(ddcosmo.param, 'EPSILON'):
+                             pyscf_eps = ddcosmo.param.EPSILON
+                         elif hasattr(ddcosmo, 'EPSILON'):
+                              pyscf_eps = ddcosmo.EPSILON
+                         else:
+                              import pyscf.solvent.ddcosmo.param as dd_param
+                              pyscf_eps = dd_param.EPSILON
+                         
+                         lookup_name = selected_solvent
+                         if lookup_name not in pyscf_eps and lookup_name.lower() in pyscf_eps:
+                              lookup_name = lookup_name.lower() # PySCF uses lowercase mostly
+                         
+                         eps_val = pyscf_eps.get(lookup_name, 78.2)
+                         
+                         mf_step = mf_step.ddCOSMO()
+                         mf_step.with_solvent.eps = eps_val
+                     except:
+                         # Very safe fallback if internal lookup fails completely
+                         mf_step = mf_step.ddCOSMO()
+                         mf_step.with_solvent.eps = 78.2 # Water default
+
             # Save Checkpoint for this step (User Requested)
             step_chk = os.path.join(self.out_dir, f"scan_step_{i+1}.chk")
             mf_step.chkfile = step_chk
@@ -1147,6 +1360,34 @@ class PySCFWorker(QThread):
                 else:
                     raise ValueError(f"Unsupported method: {method_name}")
                 
+                # --- APPLY SOLVENT TO STEP MF (RELAXED SCAN) ---
+                selected_solvent = self.config.get("solvent", "None")
+                if selected_solvent and "None" not in selected_solvent:
+                     try:
+                         from pyscf.solvent import ddcosmo
+                         if hasattr(ddcosmo, 'param') and hasattr(ddcosmo.param, 'EPSILON'):
+                             pyscf_eps = ddcosmo.param.EPSILON
+                         elif hasattr(ddcosmo, 'EPSILON'):
+                              pyscf_eps = ddcosmo.EPSILON
+                         else:
+                              import pyscf.solvent.ddcosmo.param as dd_param
+                              pyscf_eps = dd_param.EPSILON
+                         
+                         lookup_name = selected_solvent
+                         if lookup_name not in pyscf_eps and lookup_name.lower() in pyscf_eps:
+                              lookup_name = lookup_name.lower()
+                         
+                         eps_val = pyscf_eps.get(lookup_name, 78.2)
+
+                         if not hasattr(step_mf, 'with_solvent'):
+                             step_mf = step_mf.ddCOSMO()
+                             step_mf.with_solvent.eps = eps_val
+                     except:
+                         if not hasattr(step_mf, 'with_solvent'):
+                             step_mf = step_mf.ddCOSMO()
+                             step_mf.with_solvent.eps = 78.2
+                # -----------------------------------------------
+
                 # Set checkpoint
                 step_chk = os.path.join(self.out_dir, f"scan_step_{i}.chk")
                 step_mf.chkfile = step_chk
@@ -1328,6 +1569,13 @@ class PySCFWorker(QThread):
             # Disable symmetry check
             mol_instance.symmetry = False 
             
+            # --- Fix: Propagate Solvent Model ---
+            if hasattr(mf, 'with_solvent'):
+                 if not hasattr(mf_temp, 'with_solvent'):
+                     mf_temp = mf_temp.ddCOSMO()
+                 mf_temp.with_solvent.eps = mf.with_solvent.eps
+            # ------------------------------------
+
             # Run SCF using the previous density matrix as a guess
             try:
                 if dm_guess is not None:

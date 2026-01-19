@@ -115,6 +115,22 @@ class CalcTab(QWidget):
             "lanl2dz"
         ])
         form_layout.addRow("Basis Set:", self.basis_combo)
+
+        # Solvent
+        self.solvent_combo = QComboBox()
+        self.solvent_combo.addItems([
+            "None (Vacuum)",
+            "Water",
+            "Ethanol",
+            "Methanol",
+            "Acetone",
+            "THF",
+            "Chloroform",
+            "Dichloromethane",
+            "Toluene",
+            "Benzene"
+        ])
+        form_layout.addRow("Solvent:", self.solvent_combo)
         
         self.charge_input = QComboBox() 
         self.charge_input.addItems([str(i) for i in range(-5, 6)]) 
@@ -480,9 +496,9 @@ class CalcTab(QWidget):
             "symmetry": self.check_symmetry.isChecked(),
             "break_symmetry": self.check_break_sym.isChecked(),
             "max_cycle": self.spin_cycles.value(),
-            "max_cycle": self.spin_cycles.value(),
             "conv_tol": self.edit_conv.text(),
             "grid_level": self.spin_grid_level.value(),
+            "solvent": self.solvent_combo.currentText(), 
             "out_dir": os.path.abspath(final_out_dir),
             "plugin_version": getattr(self.parent_dialog, 'version', '0.0.0')
         }
