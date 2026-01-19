@@ -339,52 +339,48 @@ class PySCFWorker(QThread):
             use_solvent = selected_solvent != "None (Vacuum)"
             eps_value = 0.0
 
-            # solvent_eps = {
-            #     "Water": 78.2,
-            #     "Ethanol": 24.5,
-            #     "Methanol": 32.7,
-            #     "Acetone": 20.7,
-            #     "THF": 7.58,
-            #     "Chloroform": 4.81,
-            #     "Dichloromethane": 8.93,
-            #     "Toluene": 2.38,
-            #     "Benzene": 2.27
-            # }
+            solvent_eps = {
+                "Water": 78.2,
+                "Ethanol": 24.5,
+                "Methanol": 32.7,
+                "Acetone": 20.7,
+                "THF": 7.58,
+                "Chloroform": 4.81,
+                "Dichloromethane": 8.93,
+                "Toluene": 2.38,
+                "Benzene": 2.27
+            }
             
             if use_solvent:
                 try:
-                    # Attempt to load standard PySCF solvent parameters
-                    # This is usually located in pyscf.solvent.ddcosmo.param.EPSILON (dict)
-                    # or accessible via pyscf.data.nist if customized, but ddCOSMO has its own.
-                    from pyscf.solvent import ddcosmo
-                    # Try to find the EPSILON dict
-                    if hasattr(ddcosmo, 'param') and hasattr(ddcosmo.param, 'EPSILON'):
-                        pyscf_eps = ddcosmo.param.EPSILON
-                    elif hasattr(ddcosmo, 'EPSILON'):
-                         pyscf_eps = ddcosmo.EPSILON
+                    # 1. Try Hardcoded Lookup (Most Reliable for Plugin workflow)
+                    if selected_solvent in solvent_eps:
+                        eps_value = solvent_eps[selected_solvent]
+                        self.log_signal.emit(f"Solvent Model: ddCOSMO ({selected_solvent}) using Hardcoded value: eps={eps_value}\n")
+                    
+                    # 2. Try PySCF Internal Lookup (Fallback)
                     else:
-                         # Fallback if structure differs (older/newer pyscf)
-                         # We can try importing explicit module
-                         import pyscf.solvent.ddcosmo.param as dd_param
-                         pyscf_eps = dd_param.EPSILON
-                    
-                    # Cleanup name (remove "(Vacuum)" part if still adhering to old logic, though check specific names)
-                    # Our combo box names map usually to standard keys (Water, Ethanol, etc.)
-                    # Note: PySCF keys are often lowercase? 
-                    # Let's check typical keys: 'water', 'ethanol'.
-                    # We will try both exact match and lowercase.
-                    
-                    lookup_name = selected_solvent
-                    if lookup_name not in pyscf_eps and lookup_name.lower() in pyscf_eps:
-                         lookup_name = lookup_name.lower()
-                    
-                    eps_value = pyscf_eps.get(lookup_name)
-                    
-                    if eps_value is None:
-                         self.log_signal.emit(f"Warning: Solvent '{selected_solvent}' not found in PySCF database. Defaulting to Water (78.2).\n")
-                         eps_value = 78.2
-                    else:
-                         self.log_signal.emit(f"Solvent Model: ddCOSMO ({selected_solvent}) using PySCF internal value: eps={eps_value}\n")
+                        from pyscf.solvent import ddcosmo
+                        # Try to find the EPSILON dict
+                        if hasattr(ddcosmo, 'param') and hasattr(ddcosmo.param, 'EPSILON'):
+                            pyscf_eps = ddcosmo.param.EPSILON
+                        elif hasattr(ddcosmo, 'EPSILON'):
+                             pyscf_eps = ddcosmo.EPSILON
+                        else:
+                             import pyscf.solvent.ddcosmo.param as dd_param
+                             pyscf_eps = dd_param.EPSILON
+                        
+                        lookup_name = selected_solvent
+                        if lookup_name not in pyscf_eps and lookup_name.lower() in pyscf_eps:
+                             lookup_name = lookup_name.lower()
+                        
+                        eps_value = pyscf_eps.get(lookup_name)
+                        
+                        if eps_value is None:
+                             self.log_signal.emit(f"Warning: Solvent '{selected_solvent}' not found in PySCF database. Defaulting to Water (78.2).\n")
+                             eps_value = 78.2
+                        else:
+                             self.log_signal.emit(f"Solvent Model: ddCOSMO ({selected_solvent}) using PySCF internal value: eps={eps_value}\n")
 
                 except Exception as e_solv:
                     self.log_signal.emit(f"Error loading PySCF solvent data ({e_solv}). Defaulting to Water (78.2).\n")
