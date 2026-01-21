@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MoleditPy Tutorial 4: S<sub>N</sub>2 Reaction and Transition State</title>
+    <link rel="stylesheet" href="tutorial_style.css">
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol";
+        }
+
+        .step-img {
+            width: 100%;
+            max-width: 600px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            margin: 1rem 0;
+            display: block;
+        }
+
+        .note {
+            background-color: #fff3cd;
+            color: #856404;
+            padding: 10px;
+            border-radius: 4px;
+            margin: 10px 0;
+            font-size: 0.9em;
+        }
+    </style>
+    <link rel="icon" href="img/favicon.ico" type="image/x-icon">
+</head>
+
+<body>
+    <div class="container">
+        <header>
+            <h1>MoleditPy PySCF Calculator Plugin Tutorial</h1>
+            <h2>4. Scanning S<sub>N</sub>2 Reaction and Finding Transition State</h2>
+            <p style="margin-top: 0.5rem; opacity: 0.8; font-size: 0.9rem;">(Level of Theory: B3LYP/ma-def2-svp)</p>
+        </header>
+
+        <nav class="tutorial-nav">
+            <details>
+                <summary>Tutorial Menu</summary>
+                <ul>
+                    <li><a href="index.html">Home</a></li>
+                    <li><a href="tutorial_00_setup_en.html">0. Setup</a></li>
+                    <li><a href="tutorial_01_butadiene_en.html">1. Butadiene</a></li>
+                    <li><a href="tutorial_02_acetone_en.html">2. Acetone</a></li>
+                    <li><a href="tutorial_03_ethane_en.html">3. Ethane</a></li>
+                    <li><a href="tutorial_04_sn2_en.html" class="active">4. S<sub>N</sub>2 Reaction</a></li>
+                </ul>
+            </details>
+        </nav>
+
+        <section>
+            <h2>Objective</h2>
+            <p>Using the S<sub>N</sub>2 substitution reaction between chloromethane (CH<sub>3</sub>Cl) and bromide ion
+                (Br<sup>-</sup>) as an example, we will perform a reaction coordinate scan (Relaxed Scan) to estimate
+                the energy barrier. Furthermore, using that structure as an initial guess, we will perform a Transition
+                State (TS) calculation and frequency analysis to confirm the imaginary frequency.</p>
+        </section>
+
+        <section>
+            <h2>Procedure</h2>
+
+            <h3>Step 1: Drawing and Arranging Molecules</h3>
+            <ol class="step-list">
+                <li><strong>Draw Molecules:</strong>
+                    <ul>
+                        <li>Draw Chloromethane (CH<sub>3</sub>Cl).</li>
+                        <li>Draw a Bromide ion (Br<sup>-</sup>) nearby.</li>
+                    </ul>
+                </li>
+                <li><strong>3D Conversion:</strong>
+                    <ul>
+                        <li>Click "Convert 2D to 3D" on the toolbar to convert to a 3D structure.</li>
+                    </ul>
+                    <img src="img/sn2_01_mol_draw.png" alt="Molecule drawing and 3D conversion" class="step-img">
+                </li>
+                <li><strong>Position Adjustment:</strong>
+                    <ul>
+                        <li>Use the "3D Edit > Move Group..." tool to place Br<sup>-</sup> on the backside attack
+                            position of the carbon atom (opposite to Cl).</li>
+                    </ul>
+                    <img src="img/sn2_02_move.png" alt="Group Move" class="step-img">
+                </li>
+                <li><strong>Bond Distance Adjustment:</strong>
+                    <ul>
+                        <li>Use the "3D Edit > Adjust Bond Length..." tool to set the C-Br distance to <strong>2.8
+                                Å</strong>.</li>
+                    </ul>
+                    <img src="img/sn2_03_bond_len.png" alt="Distance adjustment 2.8A" class="step-img">
+                </li>
+            </ol>
+
+            <h3>Step 2: Relaxed Scan Calculation</h3>
+            <ol class="step-list">
+                <li><strong>Launch PySCF Calculator:</strong>
+                    <ul>
+                        <li>Open Extensions > PySCF Calculator.</li>
+                    </ul>
+                </li>
+                <li><strong>Scan Configuration:</strong>
+                    <ul>
+                        <li>Set Mode to <strong>Relaxed Surface Scan</strong>.</li>
+                        <li>Click the "Configure Scan" button and set the Distance tab as follows:
+                            <ul>
+                                <li><strong>Start:</strong> 2.8 Å</li>
+                                <li><strong>End:</strong> 1.96 Å</li>
+                                <li><strong>Steps:</strong> 5</li>
+                            </ul>
+                        </li>
+                        <li>This setting calculates the process of Br approaching C.</li>
+                    </ul>
+                    <img src="img/sn2_05_scan_config.png" alt="Scan Config settings" class="step-img">
+                </li>
+                <li><strong>Level of Theory Settings:</strong>
+                    <ul>
+                        <li><strong>Method:</strong> RKS (B3LYP)</li>
+                        <li><strong>Basis:</strong> ma-def2-svp</li>
+                        <li><span class="note">Note: For anion calculations, basis sets containing diffuse functions
+                                (like ma-def2-svp) are recommended. It takes longer than STO-3G.</span></li>
+                    </ul>
+                </li>
+                <li><strong>Run Calculation:</strong> Click "Run Calculation". Please wait as it takes some time.</li>
+            </ol>
+
+            <h3>Step 3: Energy Diagram and TS Estimation</h3>
+            <ol class="step-list">
+                <li><strong>Check Results:</strong>
+                    <ul>
+                        <li>After calculation finishes, check the Energy Diagram. An energy barrier
+                            (mountain-shaped graph) should be displayed.</li>
+                        <li>Press the animation play button to see the reaction process.</li>
+                    </ul>
+                    <img src="img/sn2_profile.png" alt="Energy Profile" class="step-img">
+
+
+
+                    <img src="img/sn2_scan_animation.gif" alt="Scan Animation" class="step-img">
+                </li>
+                <li><strong>Select TS Candidate:</strong>
+                    <ul>
+                        <li>Click the <strong>Highest Point</strong> on the graph.</li>
+                        <li>This reflects the structure of that step in the main window. This serves as a good initial
+                            structure for the Transition State (TS).</li>
+                    </ul>
+                    <img src="img/sn2_08_select_highest.png" alt="Select TS Candidate" class="step-img">
+                </li>
+            </ol>
+
+            <h3>Step 4: Transition State (TS) Calculation + Freq</h3>
+            <ol class="step-list">
+                <li><strong>Change Calculation Settings:</strong>
+                    <ul>
+                        <li>Return to the Calculation tab.</li>
+                        <li>Change <strong>Job Type</strong> to <code>TS Optimization + Frequency</code>.</li>
+                        <li>Do not change other settings (B3LYP / ma-def2-svp).</li>
+                    </ul>
+                    <img src="img/sn2_11_ts_setup.png" alt="TS Calculation Setup" class="step-img">
+                </li>
+                <li><strong>Run Calculation:</strong> Click "Run Calculation" again.</li>
+            </ol>
+
+            <h3>Step 5: Confirm Imaginary Frequency</h3>
+            <ol class="step-list">
+                <li><strong>Check Vibrational Modes:</strong>
+                    <ul>
+                        <li>After calculation completion, check the Vibrational Modes list.</li>
+                        <li>Confirm that there is exactly one <strong>Imaginary Frequency (negative frequency)</strong>.
+                            This indicates a transition state.</li>
+                        <li>Select that mode and confirm via animation that atoms are moving along the reaction
+                            coordinate.</li>
+                    </ul>
+                    <img src="img/sn2_13_imag_mode.png" alt="Check Imaginary Frequency" class="step-img">
+                    <img src="img/sn2_img-mode.gif" alt="Imaginary Frequency Animation" class="step-img">
+                </li>
+            </ol>
+
+            </ol>
+        </section>
+
+        <blockquote>
+            <strong>Calculation of Activation Energy:</strong><br>
+            Comparison of energy is required for calculating the activation energy.
+            <ul>
+                <li><strong>E<sub>reactants</sub>:</strong> Sum of energies of isolated Chloromethane (CH<sub>3</sub>Cl)
+                    and Bromide ion (Br<sup>-</sup>).</li>
+                <li><strong>E<sub>TS</sub>:</strong> Energy of the Transition State obtained in Step 4.</li>
+                <li><strong>Activation Energy (E<sub>a</sub>):</strong>
+                    <code>E<sub>a</sub> = E<sub>TS</sub> - E<sub>reactants</sub></code>
+                </li>
+            </ul>
+            (Note: 1 Hartree &approx; 627.5 kcal/mol)<br><br>
+            <span style="font-size: 0.9em; font-weight: normal;">
+                (Note: Since the calculation is performed in a vacuum, the profile becomes
+                a double-well type. Also, the transition state might be more stable than the reactants.)
+            </span>
+        </blockquote>
+
+
+
+        <div class="nav-links">
+            <a href="tutorial_03_ethane_en.html" class="btn btn-secondary">&larr; Back to Ethane</a>
+            <a href="index.html" class="btn">Home &rarr;</a>
+        </div>
+    </div>
+</body>
+
+</html>
