@@ -46,46 +46,43 @@
             <h3>Step 1: Install MoleditPy</h3>
             <ol class="step-list">
                 <li>Open your terminal and run the following command to install the package:
-                    <pre><code class="language-bash">pip install moleditpy-installer --break-system-packages</code></pre>
-                    <p><em>* The <code>--break-system-packages</code> flag is required on recent Linux distributions
-                            (e.g., Ubuntu 24.04).</em></p>
+                    <pre><code class="language-bash"><span class="cmd">pip install moleditpy-installer</span></code></pre>
+                    <p><em>* On recent Linux distributions (e.g., Ubuntu 24.04), you may need to add the
+                            <code>--break-system-packages</code> flag if you encounter an error.</em></p>
                     <details>
                         <summary style="cursor: pointer; color: #007bff; font-size: 0.9em;">(Alternative) Using a
                             virtual environment</summary>
                         <div
                             style="font-size: 0.9em; margin-top: 5px; border-left: 3px solid #ccc; padding-left: 10px;">
                             If you prefer not to modify your system packages, create a virtual environment:
-                            <pre><code class="language-bash">python3 -m venv myenv
-source myenv/bin/activate
-pip install moleditpy-installer</code></pre>
+                            <pre><code class="language-bash"><span class="cmd">python3 -m venv myenv</span><span class="cmd">source myenv/bin/activate</span><span class="cmd">pip install moleditpy-installer</span></code></pre>
                         </div>
                     </details>
                     <p><em>* Check the installation log. If you see a warning "WARNING: The script moleditpy-installer
                             is installed in ... which is not on PATH", please use that full path.</em></p>
                 </li>
                 <li>Add the local binary path to your shell configuration (Recommended):
-                    <pre><code class="language-bash">echo 'export PATH=$PATH:~/.local/bin' >> ~/.bashrc
-source ~/.bashrc</code></pre>
+                    <pre><code class="language-bash"><span class="cmd">echo 'export PATH=$PATH:~/.local/bin' >> ~/.bashrc</span><span class="cmd">source ~/.bashrc</span></code></pre>
                     <p><em>* This ensures you can run commands like `moleditpy` and `moleditpy-installer` directly.</em>
                     </p>
                 </li>
 
                 <li>Create the desktop shortcut:
-                    <pre><code class="language-bash">moleditpy-installer</code></pre>
+                    <pre><code class="language-bash"><span class="cmd">moleditpy-installer</span></code></pre>
                     <p><em>* If the command is not found (and you haven't set PATH), check the <code>pip install</code>
                             log for the full path (e.g.
                             <strong><code>~/.local/bin/moleditpy-installer</code></strong>).</em></p>
                 </li>
                 <li>Launch the application to verify installation (first run may take a moment):
-                    <pre><code class="language-bash">moleditpy</code></pre>
+                    <pre><code class="language-bash"><span class="cmd">moleditpy</span></code></pre>
                 </li>
             </ol>
 
             <h3>Step 2: Install PySCF Calculator Plugin</h3>
             <ol class="step-list">
                 <li>Install required libraries:
-                    <pre><code class="language-bash">pip install pyscf geometric matplotlib --break-system-packages</code></pre>
-                    <p><em>* If you are using a virtual environment, you can omit
+                    <pre><code class="language-bash"><span class="cmd">pip install pyscf geometric matplotlib</span></code></pre>
+                    <p><em>* If you encounter an error on recent Linux, please add
                             <code>--break-system-packages</code>.</em></p>
                 </li>
                 <li>Download the plugin from the <a
@@ -110,22 +107,18 @@ source ~/.bashrc</code></pre>
             <h3>Step 1: Setup WSL</h3>
             <ol class="step-list">
                 <li>Open PowerShell as Administrator and run:
-                    <pre><code class="language-powershell">wsl --install</code></pre>
+                    <pre><code class="language-powershell"><span class="cmd">wsl --install</span></code></pre>
                     <p><em>* You may need to restart your computer. After restarting, create a username and password for
                             Ubuntu.</em></p>
                 </li>
                 <li>Open the Ubuntu terminal and update package lists:
-                    <pre><code class="language-bash">sudo apt update</code></pre>
+                    <pre><code class="language-bash"><span class="cmd">sudo apt update</span></code></pre>
                 </li>
                 <li>Install required system libraries for GUI apps (PyQt6):
-                    <pre><code class="language-bash">sudo apt install python3-pip \
-libgl1 libegl1 libxkbcommon-x11-0 libdbus-1-3 \
-libxcb-cursor0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 \
-libxcb-randr0 libxcb-render-util0 libxcb-shape0 libxcb-xinerama0</code></pre>
+                    <pre><code class="language-bash"><span class="cmd">sudo apt install python3-pip \</span><span class="continue">libgl1 libegl1 libxkbcommon-x11-0 libdbus-1-3 \</span><span class="continue">libxcb-cursor0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 \</span><span class="continue">libxcb-randr0 libxcb-render-util0 libxcb-shape0 libxcb-xinerama0</span></code></pre>
                 </li>
                 <li>Set the Qt platform environment variable (Recommended for stability):
-                    <pre><code class="language-bash">echo 'export QT_QPA_PLATFORM=xcb' >> ~/.bashrc
-source ~/.bashrc</code></pre>
+                    <pre><code class="language-bash"><span class="cmd">echo 'export QT_QPA_PLATFORM=xcb' >> ~/.bashrc</span><span class="cmd">source ~/.bashrc</span></code></pre>
                 </li>
             </ol>
 
@@ -133,7 +126,7 @@ source ~/.bashrc</code></pre>
             <p>Run these commands inside your WSL (Ubuntu) terminal.</p>
             <ol class="step-list">
                 <li><strong>Install MoleditPy:</strong>
-                    <pre><code class="language-bash">pip install moleditpy-installer --break-system-packages</code></pre>
+                    <pre><code class="language-bash"><span class="cmd">pip install moleditpy-installer --break-system-packages</span></code></pre>
                     <p><em>* The <code>--break-system-packages</code> flag is required on recent Linux distributions
                             (e.g., Ubuntu 24.04).</em></p>
                     <details>
@@ -142,15 +135,13 @@ source ~/.bashrc</code></pre>
                         <div
                             style="font-size: 0.9em; margin-top: 5px; border-left: 3px solid #ccc; padding-left: 10px;">
                             If you prefer not to modify your system packages, create a virtual environment:
-                            <pre><code class="language-bash">python3 -m venv myenv
-source myenv/bin/activate
-pip install moleditpy-installer</code></pre>
+                            <pre><code class="language-bash"><span class="cmd">python3 -m venv myenv</span><span class="cmd">source myenv/bin/activate</span><span class="cmd">pip install moleditpy-installer</span></code></pre>
                         </div>
                     </details>
 
                 </li>
                 <li><strong>Install PySCF & dependencies:</strong>
-                    <pre><code class="language-bash">pip install pyscf geometric matplotlib --break-system-packages</code></pre>
+                    <pre><code class="language-bash"><span class="cmd">pip install pyscf geometric matplotlib --break-system-packages</span></code></pre>
                     <p><em>* If you are using a virtual environment, you can omit
                             <code>--break-system-packages</code>.</em></p>
                 </li>
@@ -164,12 +155,12 @@ pip install moleditpy-installer</code></pre>
                             <p>You can access it by typing <code>\\wsl$\Ubuntu\home\YourName\.moleditpy\plugins\</code>
                                 in the address bar or via "Linux" in the navigation pane.</p>
                             <p><em>(Ensure the directory exists first)</em></p>
-                            <pre><code class="language-bash">mkdir -p ~/.moleditpy/plugins</code></pre>
+                            <pre><code class="language-bash"><span class="cmd">mkdir -p ~/.moleditpy/plugins</span></code></pre>
                         </li>
                     </ul>
                 </li>
                 <li><strong>Launch:</strong>
-                    <pre><code class="language-bash">moleditpy</code></pre>
+                    <pre><code class="language-bash"><span class="cmd">moleditpy</span></code></pre>
                     <p>MoleditPy will launch as a Linux GUI application via WSL.</p>
                 </li>
             </ol>
@@ -180,6 +171,7 @@ pip install moleditpy-installer</code></pre>
             <a href="tutorial_01_butadiene_en.html" class="btn">Next: Butadiene Tutorial &rarr;</a>
         </div>
     </div>
+    <script src="tutorial_script.js"></script>
 </body>
 
 </html>

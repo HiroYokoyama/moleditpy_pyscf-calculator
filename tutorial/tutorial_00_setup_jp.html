@@ -52,31 +52,29 @@
             <h3>Step 1: MoleditPy本体のインストール</h3>
             <ol class="step-list">
                 <li>ターミナルを開き、以下のコマンドを実行してインストーラーを導入します。
-                    <pre><code class="language-bash">pip install moleditpy-installer --break-system-packages</code></pre>
-                    <p><em>※ 最近のLinuxディトリビューション（Ubuntu 24.04など）では <code>--break-system-packages</code> フラグが必須です。</em>
+                    <pre><code class="language-bash"><span class="cmd">pip install moleditpy-installer</span></code></pre>
+                    <p><em>※ 最近のLinuxディトリビューション（Ubuntu 24.04など）でエラーが出る場合は <code>--break-system-packages</code>
+                            フラグを追加してください。</em>
                     </p>
                     <details>
                         <summary style="cursor: pointer; color: #007bff; font-size: 0.9em;">(代替案) 仮想環境を使用する場合</summary>
                         <div
                             style="font-size: 0.9em; margin-top: 5px; border-left: 3px solid #ccc; padding-left: 10px;">
                             システムパッケージを変更したくない場合は、仮想環境を作成してください：
-                            <pre><code class="language-bash">python3 -m venv myenv
-source myenv/bin/activate
-pip install moleditpy-installer</code></pre>
+                            <pre><code class="language-bash"><span class="cmd">python3 -m venv myenv</span><span class="cmd">source myenv/bin/activate</span><span class="cmd">pip install moleditpy-installer</span></code></pre>
                         </div>
                     </details>
                     <p><em>※ インストールログを確認してください。「WARNING: The script moleditpy-installer is installed in ... which is not
                             on PATH」のような警告が表示された場合、そのフルパスを使用してください。</em></p>
                 </li>
                 <li>コマンドが実行できるようにPATHを通します（推奨）：
-                    <pre><code class="language-bash">echo 'export PATH=$PATH:~/.local/bin' >> ~/.bashrc
-source ~/.bashrc</code></pre>
+                    <pre><code class="language-bash"><span class="cmd">echo 'export PATH=$PATH:~/.local/bin' >> ~/.bashrc</span><span class="cmd">source ~/.bashrc</span></code></pre>
                     <p><em>※ これにより `moleditpy` や `moleditpy-installer` コマンドを直接実行できるようになります。デフォルトでは
                             <code>~/.local/bin</code> にインストールされることが多いためです。</em></p>
                 </li>
 
                 <li>ショートカット作成コマンドを実行します。
-                    <pre><code class="language-bash">moleditpy-installer</code></pre>
+                    <pre><code class="language-bash"><span class="cmd">moleditpy-installer</span></code></pre>
                     <p><em>※ コマンドが見つからない場合（かつPATHも通していない場合）は、<code>pip install</code> のログを確認し、警告に出ているパス（例:
                             <code>~/.local/bin/moleditpy-installer</code>）を使用してください。</em></p>
                 </li>
@@ -88,8 +86,8 @@ source ~/.bashrc</code></pre>
             <h3>Step 2: PySCF Calculatorプラグインの導入</h3>
             <ol class="step-list">
                 <li>必要なライブラリをインストールします。
-                    <pre><code class="language-bash">pip install pyscf geometric matplotlib --break-system-packages</code></pre>
-                    <p><em>※ 仮想環境を使用している場合は <code>--break-system-packages</code> は不要です。</em></p>
+                    <pre><code class="language-bash"><span class="cmd">pip install pyscf geometric matplotlib</span></code></pre>
+                    <p><em>※ 最近のLinux等でエラーが出る場合は <code>--break-system-packages</code> を追加してください。</em></p>
                 </li>
                 <li><a href="https://hiroyokoyama.github.io/moleditpy-plugins/explorer/?q=PySCF+Calculator"
                         target="_blank">Plugin Explorer</a> からプラグインをダウンロードします。</li>
@@ -110,21 +108,17 @@ source ~/.bashrc</code></pre>
             <h3>Step 1: WSLのセットアップ</h3>
             <ol class="step-list">
                 <li>PowerShellを「管理者として実行」し、以下のコマンドでWSL（Ubuntu）をインストールします。
-                    <pre><code class="language-powershell">wsl --install</code></pre>
+                    <pre><code class="language-powershell"><span class="cmd">wsl --install</span></code></pre>
                     <p><em>※インストール完了後、PCの再起動が必要になる場合があります。再起動後、ユーザー名とパスワードを設定してください。</em></p>
                 </li>
                 <li>Ubuntuのターミナルを開き、パッケージリストを更新します。
-                    <pre><code class="language-bash">sudo apt update</code></pre>
+                    <pre><code class="language-bash"><span class="cmd">sudo apt update</span></code></pre>
                 </li>
                 <li>GUIアプリ（PyQt6）の実行に必要なライブラリをインストールします。
-                    <pre><code class="language-bash">sudo apt install python3-pip \
-libgl1 libegl1 libxkbcommon-x11-0 libdbus-1-3 \
-libxcb-cursor0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 \
-libxcb-randr0 libxcb-render-util0 libxcb-shape0 libxcb-xinerama0</code></pre>
+                    <pre><code class="language-bash"><span class="cmd">sudo apt install python3-pip \</span><span class="continue">libgl1 libegl1 libxkbcommon-x11-0 libdbus-1-3 \</span><span class="continue">libxcb-cursor0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 \</span><span class="continue">libxcb-randr0 libxcb-render-util0 libxcb-shape0 libxcb-xinerama0</span></code></pre>
                 </li>
                 <li>Qtプラットフォーム環境変数を設定します（推奨設定）:
-                    <pre><code class="language-bash">echo 'export QT_QPA_PLATFORM=xcb' >> ~/.bashrc
-source ~/.bashrc</code></pre>
+                    <pre><code class="language-bash"><span class="cmd">echo 'export QT_QPA_PLATFORM=xcb' >> ~/.bashrc</span><span class="cmd">source ~/.bashrc</span></code></pre>
                 </li>
             </ol>
 
@@ -132,22 +126,20 @@ source ~/.bashrc</code></pre>
             <p>WSLのターミナル内で、Linuxと同様の手順を実行します。</p>
             <ol class="step-list">
                 <li><strong>MoleditPyのインストール:</strong>
-                    <pre><code class="language-bash">pip install moleditpy-installer --break-system-packages</code></pre>
+                    <pre><code class="language-bash"><span class="cmd">pip install moleditpy-installer --break-system-packages</span></code></pre>
                     <p><em>※ Ubuntu 24.04などでは <code>--break-system-packages</code> が必要です。</em></p>
                     <details>
                         <summary style="cursor: pointer; color: #007bff; font-size: 0.9em;">(代替案) 仮想環境を使用する場合</summary>
                         <div
                             style="font-size: 0.9em; margin-top: 5px; border-left: 3px solid #ccc; padding-left: 10px;">
                             システムパッケージを変更したくない場合は、仮想環境を作成してください：
-                            <pre><code class="language-bash">python3 -m venv myenv
-source myenv/bin/activate
-pip install moleditpy-installer</code></pre>
+                            <pre><code class="language-bash"><span class="cmd">python3 -m venv myenv</span><span class="cmd">source myenv/bin/activate</span><span class="cmd">pip install moleditpy-installer</span></code></pre>
                         </div>
                     </details>
 
                 </li>
                 <li><strong>PySCFと依存ライブラリのインストール:</strong>
-                    <pre><code class="language-bash">pip install pyscf geometric matplotlib --break-system-packages</code></pre>
+                    <pre><code class="language-bash"><span class="cmd">pip install pyscf geometric matplotlib --break-system-packages</span></code></pre>
                     <p><em>※ 仮想環境を使用している場合は <code>--break-system-packages</code> は不要です。</em></p>
                 </li>
                 <li><strong>プラグインの配置:</strong>
@@ -159,7 +151,7 @@ pip install moleditpy-installer</code></pre>
                             <p>アドレスバーに <code>\\wsl$\Ubuntu\home\YourName\.moleditpy\plugins\</code>
                                 等を入力するか、ナビゲーションウィンドウの「Linux」からアクセスできます。</p>
                             <p><em>（事前にフォルダを作成しておく必要があります）</em></p>
-                            <pre><code class="language-bash">mkdir -p ~/.moleditpy/plugins</code></pre>
+                            <pre><code class="language-bash"><span class="cmd">mkdir -p ~/.moleditpy/plugins</span></code></pre>
                         </li>
                     </ul>
                 </li>
@@ -175,6 +167,7 @@ pip install moleditpy-installer</code></pre>
             <a href="tutorial_01_butadiene_jp.html" class="btn">次へ: ブタジエンのチュートリアル &rarr;</a>
         </div>
     </div>
+    <script src="tutorial_script.js"></script>
 </body>
 
 </html>
