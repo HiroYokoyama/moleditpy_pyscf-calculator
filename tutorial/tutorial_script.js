@@ -5,8 +5,21 @@ document.addEventListener("DOMContentLoaded", function () {
     codeBlocks.forEach(function (codeBlock) {
         const pre = codeBlock.parentNode;
 
-        // Ensure the pre has relative positioning for the button
-        pre.style.position = "relative";
+        // Check if already wrapped
+        if (pre.parentNode.classList.contains("code-wrapper")) {
+            return;
+        }
+
+        // Create a wrapper for the pre element
+        const wrapper = document.createElement("div");
+        wrapper.className = "code-wrapper";
+        wrapper.style.position = "relative";
+
+        // Insert wrapper before pre
+        pre.parentNode.insertBefore(wrapper, pre);
+
+        // Move pre inside wrapper
+        wrapper.appendChild(pre);
 
         // Create the button
         const button = document.createElement("button");
@@ -35,7 +48,7 @@ document.addEventListener("DOMContentLoaded", function () {
             });
         });
 
-        // Append button to the pre tag
-        pre.appendChild(button);
+        // Append button to the wrapper (not the pre)
+        wrapper.appendChild(button);
     });
 });

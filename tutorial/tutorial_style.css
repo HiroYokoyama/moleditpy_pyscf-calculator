@@ -174,8 +174,14 @@ pre {
     margin-bottom: 1.5rem;
     font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
     border: 1px solid #e2e8f0;
-    position: relative;
-    /* Ensure button positioning context */
+    border: 1px solid #e2e8f0;
+    margin: 0;
+    /* Margin moved to wrapper */
+    width: 100%;
+}
+
+.code-wrapper {
+    margin-bottom: 1.5rem;
 }
 
 /* Copy Button */
@@ -196,7 +202,8 @@ pre {
     /* Use UI font, not monospace */
 }
 
-pre:hover .copy-btn {
+pre:hover .copy-btn,
+.code-wrapper:hover .copy-btn {
     opacity: 1;
 }
 
