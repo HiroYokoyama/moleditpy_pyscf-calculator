@@ -15,6 +15,7 @@ class ScanDialog(QDialog):
         super().__init__(parent)
         self.context = context
         self.mw = context.get_main_window() if context else None
+        self.was_measurement_active = False
         
         # Scan Parameters
         self.selected_atoms = []
@@ -31,16 +32,16 @@ class ScanDialog(QDialog):
                 # Try to restore visual selection in viewer
                 try:
                     if self.mw:
+                        e3d = getattr(self.mw, "edit_3d_manager", None)
                         # Restore Unordered Set (for visual highlighting)
-                        if hasattr(self.mw, 'selected_atoms_3d'):
-                            self.mw.selected_atoms_3d = set(self.selected_atoms)
+                        if e3d and hasattr(e3d, "selected_atoms_3d"):
+                            e3d.selected_atoms_3d = set(self.selected_atoms)
                         
                         # Restore ORDERED List (crucial for Angle/Dihedral definition)
-                        if hasattr(self.mw, 'selected_atoms_for_measurement'):
-                            self.mw.selected_atoms_for_measurement = list(self.selected_atoms)
-
-                        if hasattr(self.mw, 'gl_widget'):
-                            self.mw.gl_widget.update()
+                        if e3d and hasattr(e3d, "selected_atoms_for_measurement"):
+                            e3d.selected_atoms_for_measurement = list(self.selected_atoms)
+                        if e3d and hasattr(e3d, "update_3d_selection_display"):
+                            e3d.update_3d_selection_display()
                 except: pass
             
             # Update UI state first (calculates current value)
@@ -58,13 +59,14 @@ class ScanDialog(QDialog):
         
         # Auto-activate Selection Mode (Measurement Mode)
         try:
-            if self.mw and hasattr(self.mw, 'toggle_measurement_mode'):
+            if self.mw and hasattr(self.mw, "edit_3d_manager"):
+                e3d = self.mw.edit_3d_manager
                 # Check current state
-                self.was_measurement_active = getattr(self.mw, 'measurement_mode', False)
+                self.was_measurement_active = bool(getattr(e3d, "measurement_mode", False))
                 if not self.was_measurement_active:
-                    self.mw.toggle_measurement_mode(True)
-                    if hasattr(self.mw, 'measurement_action'):
-                        self.mw.measurement_action.setChecked(True)
+                    e3d.toggle_measurement_mode(True)
+                    if hasattr(self.mw, "init_manager") and hasattr(self.mw.init_manager, "measurement_action"):
+                        self.mw.init_manager.measurement_action.setChecked(True)
         except Exception as e:
             print(f"Failed to activate selection mode: {e}")
 
@@ -126,20 +128,23 @@ class ScanDialog(QDialog):
     def _auto_update_selection(self):
         """Check main window selection and update state."""
         if not self.mw: return
+        e3d = getattr(self.mw, "edit_3d_manager", None)
+        if not e3d:
+            return
 
         # Get Selection (Logic adapted from atom_colorizer)
         new_selection = []
         
         # 1. Check measurement selection (First Priority - Preserves Order)
-        if hasattr(self.mw, 'selected_atoms_for_measurement') and self.mw.selected_atoms_for_measurement:
+        if hasattr(e3d, "selected_atoms_for_measurement") and e3d.selected_atoms_for_measurement:
              # Typically list of ints in click order
-             new_selection = [x for x in self.mw.selected_atoms_for_measurement if isinstance(x, int)]
+             new_selection = [x for x in e3d.selected_atoms_for_measurement if isinstance(x, int)]
 
         # 2. Check direct 3D selection (Fallback - Unordered Set)
-        elif hasattr(self.mw, 'selected_atoms_3d') and self.mw.selected_atoms_3d:
+        elif hasattr(e3d, "selected_atoms_3d") and e3d.selected_atoms_3d:
             # Note: Set is unordered. We can't guarantee A-B-C order. 
             # But sorting breaks geometry too. Better to rely on Measurement Mode.
-            new_selection = list(self.mw.selected_atoms_3d)
+            new_selection = list(e3d.selected_atoms_3d)
 
         # Limit to 4 atoms
         if len(new_selection) > 4:
@@ -218,18 +223,17 @@ class ScanDialog(QDialog):
                 "atoms": self.selected_atoms,
                 "start": start,
                 "end": end,
-                "end": end,
                 "steps": steps
             }
             self.scan_configured.emit(self.scan_params)
             
             # Deactivate Selection Mode
             try:
-                if self.mw and hasattr(self.mw, 'toggle_measurement_mode'):
+                if self.mw and hasattr(self.mw, "edit_3d_manager"):
                     # User requested exit from select mode
-                    self.mw.toggle_measurement_mode(False)
-                    if hasattr(self.mw, 'measurement_action'):
-                        self.mw.measurement_action.setChecked(False)
+                    self.mw.edit_3d_manager.toggle_measurement_mode(False)
+                    if hasattr(self.mw, "init_manager") and hasattr(self.mw.init_manager, "measurement_action"):
+                        self.mw.init_manager.measurement_action.setChecked(False)
             except:
                 pass
                 
@@ -237,3 +241,15 @@ class ScanDialog(QDialog):
             
         except ValueError:
             QMessageBox.warning(self, "Invalid Input", "Please enter valid numeric values.")
+
+    def closeEvent(self, event):
+        try:
+            if hasattr(self, "sel_timer") and self.sel_timer.isActive():
+                self.sel_timer.stop()
+            if self.mw and hasattr(self.mw, "edit_3d_manager"):
+                self.mw.edit_3d_manager.toggle_measurement_mode(self.was_measurement_active)
+                if hasattr(self.mw, "init_manager") and hasattr(self.mw.init_manager, "measurement_action"):
+                    self.mw.init_manager.measurement_action.setChecked(self.was_measurement_active)
+        except Exception:
+            pass
+        super().closeEvent(event)

@@ -304,7 +304,7 @@ class ScanResultDialog(QDialog):
             # Use same logic as xyz_giffer: prefer main window's estimate_bonds_from_distances
             if hasattr(mw, 'estimate_bonds_from_distances'):
                 try:
-                    mw.estimate_bonds_from_distances(mol)
+                    mw.io_manager.estimate_bonds_from_distances(mol)
                 except Exception as e:
                     print(f"estimate_bonds_from_distances failed: {e}")
             
@@ -324,8 +324,8 @@ class ScanResultDialog(QDialog):
                 self.context.current_molecule = self.base_mol
             
             # Initial draw
-            if hasattr(mw, 'draw_molecule_3d'):
-                mw.draw_molecule_3d(self.base_mol)
+            if hasattr(mw, "view_3d_manager") and hasattr(mw.view_3d_manager, "draw_molecule_3d"):
+                mw.view_3d_manager.draw_molecule_3d(self.base_mol)
                 if hasattr(mw, 'plotter'):
                     mw.plotter.reset_camera()
                     mw.plotter.update()
@@ -417,8 +417,8 @@ class ScanResultDialog(QDialog):
                 # The context.current_molecule setter might not trigger redraw if it's the same object
                 # So we might need to call draw_molecule_3d directly if available
                 mw = self.context.get_main_window()
-                if hasattr(mw, 'draw_molecule_3d'):
-                    mw.draw_molecule_3d(self.base_mol)
+                if hasattr(mw, "view_3d_manager") and hasattr(mw.view_3d_manager, "draw_molecule_3d"):
+                    mw.view_3d_manager.draw_molecule_3d(self.base_mol)
                 else:
                     self.context.current_molecule = self.base_mol
             except Exception as e:

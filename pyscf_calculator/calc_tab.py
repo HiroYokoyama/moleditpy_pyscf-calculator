@@ -446,7 +446,7 @@ class CalcTab(QWidget):
         
         if not os.path.isabs(raw_out_dir):
             mw = self.context.get_main_window()
-            current_path = getattr(mw, 'current_file_path', None)
+            current_path = getattr(getattr(mw, "init_manager", None), "current_file_path", None)
             
             if not current_path:
                 fallback_base = os.path.expanduser("~")
@@ -460,9 +460,9 @@ class CalcTab(QWidget):
                                              QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
                 
                 if reply == QMessageBox.StandardButton.Yes:
-                    if hasattr(mw, 'save_project'):
-                        mw.save_project()
-                    current_path = getattr(mw, 'current_file_path', None)
+                    if hasattr(mw, "io_manager") and hasattr(mw.io_manager, "save_project"):
+                        mw.io_manager.save_project()
+                    current_path = getattr(getattr(mw, "init_manager", None), "current_file_path", None)
             
             if current_path:
                 base_dir = os.path.dirname(current_path)
@@ -570,7 +570,7 @@ class CalcTab(QWidget):
              mw = self.context.get_main_window()
              if mw:
                  mw.has_unsaved_changes = True
-                 mw.update_window_title()
+                 mw.state_manager.update_window_title()
 
         self.log("\n---------------------------------\nCalculation Finished.")
         self.cleanup_ui_state()

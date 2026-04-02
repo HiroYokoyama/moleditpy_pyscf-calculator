@@ -130,7 +130,7 @@ class PySCFDialog(QDialog):
                 if hasattr(mw, 'has_unsaved_changes'):
                     mw.has_unsaved_changes = True
                     if hasattr(mw, 'update_window_title'):
-                        mw.update_window_title()
+                        mw.state_manager.update_window_title()
         except: pass
         # Delegate to VisTab
         if hasattr(self, 'vis_tab'):
@@ -315,7 +315,6 @@ class PySCFDialog(QDialog):
             if "memory" in s: self.calc_tab.spin_memory.setValue(int(s["memory"]))
             if "check_symmetry" in s: self.calc_tab.check_symmetry.setChecked(bool(s["check_symmetry"]))
             if "spin_cycles" in s: self.calc_tab.spin_cycles.setValue(int(s["spin_cycles"]))
-            if "spin_cycles" in s: self.calc_tab.spin_cycles.setValue(int(s["spin_cycles"]))
             if "conv_tol" in s: self.calc_tab.edit_conv.setText(str(s["conv_tol"]))
             if "grid_level" in s: self.calc_tab.spin_grid_level.setValue(int(s["grid_level"]))
             if "scan_params" in s: self.calc_tab.scan_params = s["scan_params"]
@@ -328,7 +327,7 @@ class PySCFDialog(QDialog):
         if self.context:
             try:
                 mw = self.context.get_main_window()
-                current_path = getattr(mw, 'current_file_path', None)
+                current_path = getattr(getattr(mw, "init_manager", None), "current_file_path", None)
                 if current_path:
                     project_dir = os.path.dirname(current_path)
             except: pass
@@ -381,7 +380,6 @@ class PySCFDialog(QDialog):
             self.settings["memory"] = self.calc_tab.spin_memory.value()
             self.settings["check_symmetry"] = self.calc_tab.check_symmetry.isChecked()
             self.settings["spin_cycles"] = self.calc_tab.spin_cycles.value()
-            self.settings["spin_cycles"] = self.calc_tab.spin_cycles.value()
             self.settings["conv_tol"] = self.calc_tab.edit_conv.text()
             self.settings["grid_level"] = self.calc_tab.spin_grid_level.value()
             self.settings["scan_params"] = getattr(self.calc_tab, 'scan_params', None)
@@ -397,7 +395,7 @@ class PySCFDialog(QDialog):
             if is_relative_setting:
                  try:
                     mw = self.context.get_main_window()
-                    current_path = getattr(mw, 'current_file_path', None)
+                    current_path = getattr(getattr(mw, "init_manager", None), "current_file_path", None)
                     if current_path:
                         project_dir = os.path.dirname(current_path)
                         relative_history = []
@@ -415,8 +413,8 @@ class PySCFDialog(QDialog):
         try:
             if self.context:
                  mw = self.context.get_main_window()
-                 if hasattr(mw, 'current_file_path') and mw.current_file_path:
-                     self.settings["associated_filename"] = os.path.basename(mw.current_file_path)
+                 if hasattr(mw, "init_manager") and mw.init_manager.current_file_path:
+                     self.settings["associated_filename"] = os.path.basename(mw.init_manager.current_file_path)
         except: pass
 
     def save_settings(self):

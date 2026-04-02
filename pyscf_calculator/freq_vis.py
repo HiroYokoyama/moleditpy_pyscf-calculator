@@ -231,8 +231,8 @@ class FreqVisualizer(QWidget):
             conf.SetAtomPosition(i, Point3D(x, y, z))
 
         # Redraw once
-        if hasattr(self.mw, 'draw_molecule_3d'):
-             self.mw.draw_molecule_3d(self.mol)
+        if hasattr(self.mw, "view_3d_manager") and hasattr(self.mw.view_3d_manager, "draw_molecule_3d"):
+             self.mw.view_3d_manager.draw_molecule_3d(self.mol)
         
         if not self.is_playing: 
              self.update_vectors()
@@ -314,8 +314,8 @@ class FreqVisualizer(QWidget):
             nz = bz + dz * factor
             conf.SetAtomPosition(i, Point3D(nx, ny, nz))
             
-        if hasattr(self.mw, 'draw_molecule_3d'):
-             self.mw.draw_molecule_3d(self.mol)
+        if hasattr(self.mw, "view_3d_manager") and hasattr(self.mw.view_3d_manager, "draw_molecule_3d"):
+             self.mw.view_3d_manager.draw_molecule_3d(self.mol)
         
         # Remove vectors during animation to avoid clutter/mismatch
         try:
@@ -407,8 +407,8 @@ class FreqVisualizer(QWidget):
                     nz = bz + dz * factor
                     conf.SetAtomPosition(j, Point3D(nx, ny, nz))
                 
-                if hasattr(self.mw, 'draw_molecule_3d'):
-                     self.mw.draw_molecule_3d(self.mol)
+                if hasattr(self.mw, "view_3d_manager") and hasattr(self.mw.view_3d_manager, "draw_molecule_3d"):
+                     self.mw.view_3d_manager.draw_molecule_3d(self.mol)
                      QApplication.processEvents()
                      time.sleep(0.05) # Allow render to catch up
                 

@@ -101,5 +101,5 @@ def update_molecule_from_xyz(context, xyz_content, mark_modified=True):
             try:
                 if mw and hasattr(mw, 'has_unsaved_changes'):
                     mw.has_unsaved_changes = was_dirty
-                    mw.update_window_title()
+                    mw.state_manager.update_window_title()
             except: pass

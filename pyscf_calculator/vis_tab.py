@@ -394,7 +394,7 @@ class VisTab(QWidget):
                 mw = self.context.get_main_window()
                 if mw:
                     mw.has_unsaved_changes = True
-                    mw.update_window_title()
+                    mw.state_manager.update_window_title()
             self._history_changed = False
 
     def on_load_finished(self, result_data):
@@ -406,7 +406,7 @@ class VisTab(QWidget):
                  mw = self.context.get_main_window()
                  if mw:
                      mw.has_unsaved_changes = True
-                     mw.update_window_title()
+                     mw.state_manager.update_window_title()
              self._history_changed = False
          
          try:
@@ -505,7 +505,7 @@ class VisTab(QWidget):
                         mw = self.context.get_main_window()
                         if mw:
                             mw.has_unsaved_changes = True
-                            mw.update_window_title()
+                            mw.state_manager.update_window_title()
                     except: pass
                 
                 self.update_geometry(self.optimized_xyz)
@@ -515,7 +515,7 @@ class VisTab(QWidget):
                     if hasattr(mw, 'plotter'): mw.plotter.reset_camera()
                     is_manual_load = getattr(self, 'loading_update_struct', True)
                     if is_manual_load and hasattr(mw, 'minimize_2d_panel'):
-                        mw.minimize_2d_panel()
+                        mw.ui_manager.minimize_2d_panel()
                 except: pass
 
                 try:
@@ -1107,7 +1107,7 @@ class VisTab(QWidget):
         update_molecule_from_xyz(self.context, xyz)
         try:
             mw = self.context.get_main_window()
-            if hasattr(mw, 'push_undo_state'): mw.push_undo_state()
+            if hasattr(mw, 'push_undo_state'): mw.edit_actions_manager.push_undo_state()
         except: pass
         self.log("Geometry updated.")
 
