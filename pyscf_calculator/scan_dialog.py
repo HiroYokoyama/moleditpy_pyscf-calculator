@@ -1,12 +1,10 @@
-import numpy as np
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, 
-    QPushButton, QMessageBox, QGroupBox, QFormLayout, QTableWidget, 
-    QTableWidgetItem, QAbstractItemView, QHeaderView
+    QPushButton, QMessageBox, QGroupBox, QFormLayout
 )
-from PyQt6.QtCore import Qt, QTimer, pyqtSignal
-from rdkit import Chem
+from PyQt6.QtCore import QTimer, pyqtSignal
 from rdkit.Chem import rdMolTransforms
+import logging
 
 class ScanDialog(QDialog):
     scan_configured = pyqtSignal(dict)
@@ -42,7 +40,8 @@ class ScanDialog(QDialog):
                             e3d.selected_atoms_for_measurement = list(self.selected_atoms)
                         if e3d and hasattr(e3d, "update_3d_selection_display"):
                             e3d.update_3d_selection_display()
-                except: pass
+                except Exception as _e:
+                    logging.warning("[scan_dialog.py:45] silenced: %s", _e)
             
             # Update UI state first (calculates current value)
             self.update_ui_state()
@@ -234,8 +233,8 @@ class ScanDialog(QDialog):
                     self.mw.edit_3d_manager.toggle_measurement_mode(False)
                     if hasattr(self.mw, "init_manager") and hasattr(self.mw.init_manager, "measurement_action"):
                         self.mw.init_manager.measurement_action.setChecked(False)
-            except:
-                pass
+            except Exception as _e:
+                logging.warning("[scan_dialog.py:237] silenced: %s", _e)
                 
             self.accept()
             
@@ -244,12 +243,12 @@ class ScanDialog(QDialog):
 
     def closeEvent(self, event):
         try:
-            if hasattr(self, "sel_timer") and self.sel_timer.isActive():
+            if getattr(self, "sel_timer", None) is not None and self.sel_timer.isActive():
                 self.sel_timer.stop()
             if self.mw and hasattr(self.mw, "edit_3d_manager"):
                 self.mw.edit_3d_manager.toggle_measurement_mode(self.was_measurement_active)
                 if hasattr(self.mw, "init_manager") and hasattr(self.mw.init_manager, "measurement_action"):
                     self.mw.init_manager.measurement_action.setChecked(self.was_measurement_active)
-        except Exception:
-            pass
+        except Exception as _e:
+            logging.warning("[scan_dialog.py:253] silenced: %s", _e)
         super().closeEvent(event)

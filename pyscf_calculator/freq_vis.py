@@ -1,14 +1,15 @@
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, 
     QTreeWidget, QTreeWidgetItem, QHeaderView, QDoubleSpinBox, 
-    QSlider, QCheckBox, QGroupBox, QSpinBox, QDialog, 
+    QCheckBox, QGroupBox, QSpinBox, QDialog, 
     QFileDialog, QMessageBox, QApplication, QFormLayout, QDialogButtonBox # Added QFormLayout, QDialogButtonBox
 )
-from PyQt6.QtGui import QPainter, QPen, QColor, QFont, QPaintEvent, QPalette
+from PyQt6.QtGui import QPainter, QPen, QColor, QPalette
 from PyQt6.QtCore import Qt, QTimer, QPointF
 import numpy as np
 import traceback
 import time
+import logging
 
 try:
     from PIL import Image
@@ -249,13 +250,15 @@ class FreqVisualizer(QWidget):
                 self.mw.plotter.remove_actor("pyscf_iso_p")
                 self.mw.plotter.remove_actor("pyscf_iso_n")
                 self.mw.plotter.remove_actor("pyscf_mapped")
-            except: pass
+            except Exception as _e:
+                logging.warning("[freq_vis.py:252] silenced: %s", _e)
             
         if not self.chk_vectors.isChecked(): 
             try:
                 if hasattr(self.mw, 'plotter') and self.mw.plotter: 
                     self.mw.plotter.render()
-            except: pass
+            except Exception as _e:
+                logging.warning("[freq_vis.py:258] silenced: %s", _e)
             return
             
         item = self.list_freq.currentItem()
@@ -263,7 +266,8 @@ class FreqVisualizer(QWidget):
             try:
                 if hasattr(self.mw, 'plotter') and self.mw.plotter: 
                     self.mw.plotter.render()
-            except: pass
+            except Exception as _e:
+                logging.warning("[freq_vis.py:266] silenced: %s", _e)
             return
 
         idx = self.list_freq.indexOfTopLevelItem(item)
@@ -281,7 +285,8 @@ class FreqVisualizer(QWidget):
            if hasattr(self.mw, 'plotter') and self.mw.plotter:
                self.vector_actor = self.mw.plotter.add_arrows(coords, vectors, mag=scale, color='lightgreen', show_scalar_bar=False)
                self.mw.plotter.render()
-        except: pass
+        except Exception as _e:
+            logging.warning("[freq_vis.py:284] silenced: %s", _e)
 
     def animate_frame(self):
         if not self.is_playing: return
@@ -325,7 +330,8 @@ class FreqVisualizer(QWidget):
             
             if hasattr(self.mw, 'plotter') and self.mw.plotter:
                  self.mw.plotter.render()
-        except: pass
+        except Exception as _e:
+            logging.warning("[freq_vis.py:328] silenced: %s", _e)
 
 
 
@@ -461,7 +467,7 @@ class FreqVisualizer(QWidget):
     def cleanup(self):
         try:
             # Stop Timer explicitly to prevent callbacks after destruction
-            if hasattr(self, 'timer') and self.timer.isActive():
+            if getattr(self, 'timer', None) is not None and self.timer.isActive():
                 self.timer.stop()
             self.is_playing = False
             
@@ -470,7 +476,8 @@ class FreqVisualizer(QWidget):
                  self.vector_actor = None
                  # Do NOT render during cleanup. It causes Segfaults (0x100).
                  # self.mw.plotter.render() 
-        except: pass
+        except Exception as _e:
+            logging.warning("[freq_vis.py:473] silenced: %s", _e)
 
 class SpectrumDialog(QDialog):
     def __init__(self, freqs, intensities, title="IR Spectrum", parent=None):
@@ -572,7 +579,6 @@ class SpectrumWidget(QWidget):
         
         sigma = self.width_val # FWHM-like parameter
         
-        import math
         
         if self.use_gaussian:
              # Gaussian: exp( - (x-mu)^2 / (2*sigma^2) ) ... actually FWHM to sigma conversion?
@@ -693,5 +699,4 @@ class SpectrumWidget(QWidget):
         label = "Intensity (Inverted)" if self.invert_y else "Intensity"
         painter.drawText(0, 0, label)
         painter.restore()
-
 

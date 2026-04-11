@@ -1,11 +1,10 @@
 import os
-import glob
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, 
     QComboBox, QFileDialog, QMessageBox, QMenu, QApplication,
     QToolTip
 )
-from PyQt6.QtCore import Qt, QRect
+from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QPainter, QPen, QColor, QFont, QAction
 
 try:
@@ -183,7 +182,7 @@ class EnergyDiagramDialog(QDialog):
         
     def mouseDoubleClickEvent(self, event):
         # Reset to 3x HOMO-LUMO gap centered on the gap
-        if hasattr(self, 'homo_energy') and hasattr(self, 'lumo_energy'):
+        if getattr(self, 'homo_energy', None) is not None and hasattr(self, 'lumo_energy'):
             gap = abs(self.lumo_energy - self.homo_energy)
             center = (self.homo_energy + self.lumo_energy) / 2
             range_size = gap * 3
@@ -205,7 +204,7 @@ class EnergyDiagramDialog(QDialog):
              best_hit = None
              min_dist = 1000.0
              
-             if hasattr(self, 'hit_zones'):
+             if getattr(self, 'hit_zones', None) is not None:
                   for rect, index, label, spin_suffix in self.hit_zones:
                       # Check X-bounds first (strict)
                       if point.x() >= rect.left() and point.x() <= rect.right():
@@ -285,9 +284,6 @@ class EnergyDiagramDialog(QDialog):
         else:
              # File not found
              self.status_label.setText(f"File not found: {label}")
-             # User Request: Use orbital number for label
-             # Use safe 0-based syntax for worker
-             mo_task_label = f"#{index}"
              
              # User Request: Confirm dialog "same with the rest"
              reply = QMessageBox.question(
@@ -310,12 +306,12 @@ class EnergyDiagramDialog(QDialog):
 
     def mouseMoveEvent(self, event):
         # Check if hovering over a clickable orbital level (when not dragging)
-        if not (hasattr(self, 'dragging') and self.dragging):
+        if not (getattr(self, 'dragging', None) is not None and self.dragging):
             pos = event.position()
             point = pos.toPoint()
             
             hovering_over_orbital = False
-            if hasattr(self, 'hit_zones'):
+            if getattr(self, 'hit_zones', None) is not None:
                 hit_found = False
                 for rect, index, label, spin_suffix in self.hit_zones:
                     if rect.contains(point):
@@ -342,7 +338,7 @@ class EnergyDiagramDialog(QDialog):
                 self.setCursor(Qt.CursorShape.ArrowCursor)
         
         # Handle drag-to-zoom functionality
-        if hasattr(self, 'dragging') and self.dragging:
+        if getattr(self, 'dragging', None) is not None and self.dragging:
             current_y = event.position().y()
             delta_y = current_y - self.last_mouse_y
             
@@ -385,19 +381,19 @@ class EnergyDiagramDialog(QDialog):
             widgets_to_restore = []
             
             # Hide top buttons and bottom label
-            if hasattr(self, 'unit_combo'): 
+            if getattr(self, 'unit_combo', None) is not None: 
                 self.unit_combo.setVisible(False)
                 widgets_to_restore.append(self.unit_combo)
 
-            if hasattr(self, 'lbl_unit'):
+            if getattr(self, 'lbl_unit', None) is not None:
                 self.lbl_unit.setVisible(False)
                 widgets_to_restore.append(self.lbl_unit)
                 
-            if hasattr(self, 'btn_save'):
+            if getattr(self, 'btn_save', None) is not None:
                 self.btn_save.setVisible(False)
                 widgets_to_restore.append(self.btn_save)
                 
-            if hasattr(self, 'status_label'):
+            if getattr(self, 'status_label', None) is not None:
                 self.status_label.setVisible(False)
                 widgets_to_restore.append(self.status_label)
             

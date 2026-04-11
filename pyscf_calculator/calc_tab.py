@@ -1,13 +1,13 @@
 import os
-import traceback
 from rdkit import Chem
 
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QComboBox, 
     QPushButton, QSpinBox, QCheckBox, QGroupBox, QFormLayout, 
-    QMessageBox, QLineEdit, QFileDialog, QProgressBar, QTextEdit, QToolTip
+    QMessageBox, QLineEdit, QFileDialog, QProgressBar, QTextEdit
 )
 from PyQt6.QtCore import Qt, QTimer
+import logging
 
 # Local Imports
 try:
@@ -275,16 +275,16 @@ class CalcTab(QWidget):
         
         job = self.job_type_combo.currentText()
         if "Scan" in job:
-            if hasattr(self, 'btn_scan_config'): self.btn_scan_config.show()
+            if getattr(self, 'btn_scan_config', None) is not None: self.btn_scan_config.show()
         else:
-            if hasattr(self, 'btn_scan_config'): self.btn_scan_config.hide()
+            if getattr(self, 'btn_scan_config', None) is not None: self.btn_scan_config.hide()
         
         is_unrestricted = method in ["UKS", "UHF"]
-        if hasattr(self, 'check_break_sym'):
+        if getattr(self, 'check_break_sym', None) is not None:
              self.check_break_sym.setEnabled(is_unrestricted)
         
         job = self.job_type_combo.currentText()
-        if hasattr(self, 'lbl_nstates') and hasattr(self, 'nstates_input'):
+        if getattr(self, 'lbl_nstates', None) is not None and hasattr(self, 'nstates_input'):
              is_tddft = (job == "TDDFT")
              self.lbl_nstates.setVisible(is_tddft)
              self.nstates_input.setVisible(is_tddft)
@@ -320,12 +320,10 @@ class CalcTab(QWidget):
             else: self.charge_input.setCurrentText(str(charge))
             
             target_str = str(suggested_spin)
-            found = False
             for i in range(self.spin_input.count()):
                 text = self.spin_input.itemText(i)
                 if text.startswith(target_str + " "):
                     self.spin_input.setCurrentIndex(i)
-                    found = True
                     break
             
             current_method = self.method_combo.currentText()
@@ -393,8 +391,8 @@ class CalcTab(QWidget):
                 self.spin_input.setToolTip(msg)
                 self.charge_input.setToolTip(msg)
                     
-        except:
-            pass
+        except Exception as _e:
+            logging.warning("[calc_tab.py:396] silenced: %s", _e)
 
     def browse_out_dir(self):
         d = QFileDialog.getExistingDirectory(self, "Select Output Directory")
@@ -410,11 +408,12 @@ class CalcTab(QWidget):
              QMessageBox.critical(self, "Error", "ScanDialog not imported.")
              return
 
-        if not hasattr(self, 'scan_params'): self.scan_params = None
+        if getattr(self, 'scan_params', None) is None: self.scan_params = None
         
-        if hasattr(self, '_scan_config_dlg'):
+        if getattr(self, '_scan_config_dlg', None) is not None:
             try: self._scan_config_dlg.close()
-            except: pass
+            except Exception as _e:
+                logging.warning("[calc_tab.py:417] silenced: %s", _e)
             
         self._scan_config_dlg = ScanDialog(self, self.context, initial_params=self.scan_params)
         self._scan_config_dlg.scan_configured.connect(self.on_scan_configured)
@@ -472,7 +471,7 @@ class CalcTab(QWidget):
 
         job_type = self.job_type_combo.currentText()
         if "Scan" in job_type:
-            if not hasattr(self, 'scan_params') or not self.scan_params:
+            if not getattr(self, 'scan_params', None):
                 reply = QMessageBox.question(self, "Scan Not Configured", 
                     "Scan parameters are missing. Configure now?", 
                     QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
@@ -533,7 +532,7 @@ class CalcTab(QWidget):
         self.worker.start()
 
     def stop_calculation(self):
-        if hasattr(self, 'worker') and self.worker and self.worker.isRunning():
+        if getattr(self, 'worker', None) is not None and self.worker and self.worker.isRunning():
             self.log("\nStopping calculation...")
             
             try:
@@ -541,8 +540,8 @@ class CalcTab(QWidget):
                 self.worker.finished_signal.disconnect()
                 self.worker.error_signal.disconnect()
                 self.worker.result_signal.disconnect()
-            except:
-                pass
+            except Exception as _e:
+                logging.warning("[calc_tab.py:544] silenced: %s", _e)
 
             if not self.worker.wait(500):
                 self.worker.terminate()
@@ -585,4 +584,3 @@ class CalcTab(QWidget):
         self.stop_btn.setEnabled(False)
         self.progress_bar.hide()
         self.worker = None
-

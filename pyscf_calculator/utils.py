@@ -1,6 +1,6 @@
 import os
-import shutil
 from rdkit import Chem
+import logging
 
 def get_unique_path(path):
     """
@@ -92,7 +92,8 @@ def update_molecule_from_xyz(context, xyz_content, mark_modified=True):
             try:
                 if mw and hasattr(mw, 'has_unsaved_changes'):
                     was_dirty = mw.has_unsaved_changes
-            except: pass
+            except Exception as _e:
+                logging.warning("[utils.py:95] silenced: %s", _e)
 
         context.current_molecule = new_mol
         
@@ -102,4 +103,5 @@ def update_molecule_from_xyz(context, xyz_content, mark_modified=True):
                 if mw and hasattr(mw, 'has_unsaved_changes'):
                     mw.has_unsaved_changes = was_dirty
                     mw.state_manager.update_window_title()
-            except: pass
+            except Exception as _e:
+                logging.warning("[utils.py:105] silenced: %s", _e)

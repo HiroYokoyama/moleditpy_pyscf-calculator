@@ -2,7 +2,6 @@ import os
 import glob
 import traceback
 import csv
-import json
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, 
     QListWidget, QListWidgetItem, QGroupBox, QLineEdit, 
@@ -10,6 +9,7 @@ from PyQt6.QtWidgets import (
     QTableWidget, QTableWidgetItem, QHeaderView, QDockWidget, QFileDialog, QDialog
 )
 from PyQt6.QtCore import Qt, QTimer
+import logging
 
 
 # Local Imports
@@ -413,7 +413,8 @@ class VisTab(QWidget):
              # Cleanup
              if self.freq_vis:
                  try: self.freq_vis.cleanup()
-                 except: pass
+                 except Exception as _e:
+                     logging.warning("[vis_tab.py:416] silenced: %s", _e)
                  self.freq_vis = None
              
              if self.freq_dock:
@@ -422,7 +423,8 @@ class VisTab(QWidget):
                      mw.removeDockWidget(self.freq_dock)
                      self.freq_dock.deleteLater()
                      self.freq_dock = None
-                 except: pass
+                 except Exception as _e:
+                     logging.warning("[vis_tab.py:425] silenced: %s", _e)
              
              self.clear_3d_actors()
              self.visualizer = None
@@ -431,11 +433,11 @@ class VisTab(QWidget):
          except Exception as cleanup_err:
              self.log(f"Warning during initial cleanup: {cleanup_err}")
          
-         if result_data.get("chkfile"):
+         if result_data.get("chkfile", None):
              self.chkfile_path = result_data["chkfile"]
              self.last_out_dir = os.path.dirname(self.chkfile_path)
              
-         if result_data.get("mo_energy"):
+         if result_data.get("mo_energy", None):
              self.mo_data = {
                  "energies": result_data["mo_energy"],
                  "occupations": result_data["mo_occ"],
@@ -444,11 +446,11 @@ class VisTab(QWidget):
              self.btn_show_diagram.setEnabled(True)
              self.btn_run_analysis.setEnabled(True)
              
-         if result_data.get("loaded_xyz"):
+         if result_data.get("loaded_xyz", None):
              self.optimized_xyz = result_data["loaded_xyz"]
              self.parent_dialog.optimized_xyz = result_data["loaded_xyz"]  # Expose to parent
              self.btn_load_geom.setEnabled(True)
-         elif result_data.get("optimized_xyz"):
+         elif result_data.get("optimized_xyz", None):
              self.optimized_xyz = result_data["optimized_xyz"]
              self.parent_dialog.optimized_xyz = result_data["optimized_xyz"]  # Expose to parent
              self.btn_load_geom.setEnabled(True)
@@ -472,7 +474,7 @@ class VisTab(QWidget):
              self.log(f"Found {len(cubes)} existing visualization files.")
              self.disable_existing_analysis_items(cubes)
 
-         if result_data.get("thermo_data"):
+         if result_data.get("thermo_data", None):
              self.thermo_data = result_data["thermo_data"]
              self.btn_show_thermo.setEnabled(True)
          
@@ -482,7 +484,7 @@ class VisTab(QWidget):
          if should_update_geom and self.optimized_xyz:
              def update_and_finalize():
                 # Strict Check: ONLY update source if it is an optimization result
-                is_opt = result_data.get("optimized_xyz") or getattr(self, '_pending_is_opt', False)
+                is_opt = result_data.get("optimized_xyz", None) or getattr(self, '_pending_is_opt', False)
                 
                 # Clear pending flag
                 self._pending_is_opt = False
@@ -506,7 +508,8 @@ class VisTab(QWidget):
                         if mw:
                             mw.has_unsaved_changes = True
                             mw.state_manager.update_window_title()
-                    except: pass
+                    except Exception as _e:
+                        logging.warning("[vis_tab.py:509] silenced: %s", _e)
                 
                 self.update_geometry(self.optimized_xyz)
                 
@@ -516,7 +519,8 @@ class VisTab(QWidget):
                     is_manual_load = getattr(self, 'loading_update_struct', True)
                     if is_manual_load and hasattr(mw, 'minimize_2d_panel'):
                         mw.ui_manager.minimize_2d_panel()
-                except: pass
+                except Exception as _e:
+                    logging.warning("[vis_tab.py:519] silenced: %s", _e)
 
                 try:
                     self.finalize_load(result_data, cubes)
@@ -540,26 +544,30 @@ class VisTab(QWidget):
              try: 
                  self.freq_vis.cleanup()
                  self.freq_vis = None
-             except: pass
+             except Exception as _e:
+                 logging.warning("[vis_tab.py:543] silenced: %s", _e)
 
          if self.freq_dock:
              try:
                  self.freq_dock.close()
                  self.freq_dock.deleteLater()
-             except: pass
+             except Exception as _e:
+                 logging.warning("[vis_tab.py:549] silenced: %s", _e)
              self.freq_dock = None
 
-         if hasattr(self, 'scan_dlg') and self.scan_dlg:
+         if getattr(self, 'scan_dlg', None) is not None and self.scan_dlg:
              try: self.scan_dlg.close()
-             except: pass
+             except Exception as _e:
+                 logging.warning("[vis_tab.py:554] silenced: %s", _e)
          self.scan_dlg = None
          
-         if hasattr(self, 'tddft_dlg') and self.tddft_dlg:
+         if getattr(self, 'tddft_dlg', None) is not None and self.tddft_dlg:
              try: self.tddft_dlg.close()
-             except: pass
+             except Exception as _e:
+                 logging.warning("[vis_tab.py:559] silenced: %s", _e)
          self.tddft_dlg = None
 
-         if result_data.get("freq_data"):
+         if result_data.get("freq_data", None):
              self.log("Frequency data found in result.")
              self.freq_data = result_data["freq_data"]
              try:
@@ -572,7 +580,7 @@ class VisTab(QWidget):
                          mol, 
                          self.freq_data['freqs'], 
                          self.freq_data['modes'],
-                         intensities=self.freq_data.get('intensities')
+                         intensities=self.freq_data.get('intensities', None)
                      )
                      
                      mw = self.context.get_main_window()
@@ -584,13 +592,13 @@ class VisTab(QWidget):
                      self.freq_dock.raise_()
              except Exception as e:
                  self.log(f"Error opening Frequency Visualizer: {e}")
-         elif result_data.get("freq_data"):
+         elif result_data.get("freq_data", None):
              if FreqVisualizer is None:
                  self.log("Frequency Visualizer module invalid or not imported.")
              else:
                  self.log("Frequency Visualizer skipped: No molecule loaded in context.")
          
-         if result_data.get("tddft_data"):
+         if result_data.get("tddft_data", None):
              try:
                  from .tddft_table import TddftTable
                  self.tddft_dlg = TddftTable(self.context.get_main_window(), result_data["tddft_data"])
@@ -598,10 +606,10 @@ class VisTab(QWidget):
              except Exception as e:
                  self.log(f"Error opening TDDFT Results: {e}")
 
-         if result_data.get("scan_results"):
+         if result_data.get("scan_results", None):
              self.log("Scan results found.")
              scan_res = result_data["scan_results"]
-             traj_path = result_data.get("scan_trajectory_path")
+             traj_path = result_data.get("scan_trajectory_path", None)
              
              # Parse trajectory if path exists
              trajectory = []
@@ -626,18 +634,19 @@ class VisTab(QWidget):
                                  trajectory.append(block)
                                  idx += natoms + 2
                              except: break
-                 except: pass
+                 except Exception as _e:
+                     logging.warning("[vis_tab.py:629] silenced: %s", _e)
 
              try:
                  from .scan_results import ScanResultDialog
                  
                  # Use trajectories from result_data if available (likely fresher)
                  final_traj = trajectory
-                 if result_data.get("scan_trajectory"):
+                 if result_data.get("scan_trajectory", None):
                      final_traj = result_data["scan_trajectory"]
                  
                  dlg = ScanResultDialog(
-                     scan_result_dir=result_data.get('out_dir'), 
+                     scan_result_dir=result_data.get('out_dir', None), 
                      parent=self.context.get_main_window(), 
                      results=scan_res, 
                      trajectory=final_traj,
@@ -707,7 +716,8 @@ class VisTab(QWidget):
                          occ_a = safe_occ(occupations)
                 else:
                     occ_a = safe_occ(occupations)
-            except: pass
+            except Exception as _e:
+                logging.warning("[vis_tab.py:710] silenced: %s", _e)
         
         elif scf_type in ["ROKS", "ROHF"]:
             is_roks = True
@@ -810,7 +820,8 @@ class VisTab(QWidget):
                             if (bn.startswith(f"{mo_idx}_") or bn.startswith(f"{padded_idx}_")) and bn.endswith(".cube"):
                                 should_disable = True
                                 break
-                    except: pass
+                    except Exception as _e:
+                        logging.warning("[vis_tab.py:813] silenced: %s", _e)
                 else:
                     for bn in basenames:
                         if ".cube" in bn:
@@ -862,21 +873,6 @@ class VisTab(QWidget):
         self.btn_run_analysis.setEnabled(False)
         self.parent_dialog.progress_bar.show()
         self.prop_worker.start()
-
-    def load_file_by_path(self, path):
-        path = os.path.normpath(path)
-        # Try to find in file list
-        for i in range(self.file_list.count()):
-            item = self.file_list.item(i)
-            # Use tooltip for full path
-            if os.path.normpath(item.toolTip()) == path:
-                self.file_list.setCurrentItem(item)
-                self.on_file_selected(item)
-                return
-        
-        # Fallback: Load directly if exists
-        if os.path.exists(path):
-             self.visualizer.load_file(path)
 
     def generate_specific_orbital(self, index, label=None, spin_suffix=""):
         # index is 0-based index of the orbital
@@ -969,7 +965,8 @@ class VisTab(QWidget):
         
         if self.mapped_visualizer: 
              try: self.mapped_visualizer.clear_actors()
-             except: pass
+             except Exception as _e:
+                 logging.warning("[vis_tab.py:972] silenced: %s", _e)
         
         self.loaded_file = path
         if not self.visualizer: self.visualizer = CubeVisualizer(self.context.get_main_window())
@@ -992,7 +989,8 @@ class VisTab(QWidget):
         
         if self.visualizer: 
             try: self.visualizer.clear_actors()
-            except: pass
+            except Exception as _e:
+                logging.warning("[vis_tab.py:995] silenced: %s", _e)
         
         if not self.mapped_visualizer:
             self.mapped_visualizer = MappedVisualizer(self.context.get_main_window())
@@ -1071,27 +1069,35 @@ class VisTab(QWidget):
              if not mw or not hasattr(mw, 'plotter') or mw.plotter is None: return
              
              try: mw.plotter.remove_actor("pyscf_iso_p")
-             except: pass
+             except Exception as _e:
+                 logging.warning("[vis_tab.py:1074] silenced: %s", _e)
              try: mw.plotter.remove_actor("pyscf_iso_n")
-             except: pass
+             except Exception as _e:
+                 logging.warning("[vis_tab.py:1076] silenced: %s", _e)
              try: mw.plotter.remove_actor("pyscf_mapped")
-             except: pass
+             except Exception as _e:
+                 logging.warning("[vis_tab.py:1078] silenced: %s", _e)
              
              if self.visualizer:
                  try: self.visualizer.clear_actors()
-                 except: pass
+                 except Exception as _e:
+                     logging.warning("[vis_tab.py:1082] silenced: %s", _e)
              if self.mapped_visualizer:
                  try: self.mapped_visualizer.clear_actors()
-                 except: pass
+                 except Exception as _e:
+                     logging.warning("[vis_tab.py:1085] silenced: %s", _e)
              
              if not self.parent_dialog.closing:
                  try: mw.plotter.render()
-                 except: pass
-        except: pass
+                 except Exception as _e:
+                     logging.warning("[vis_tab.py:1089] silenced: %s", _e)
+        except Exception as _e:
+            logging.warning("[vis_tab.py:1090] silenced: %s", _e)
         
         if self.freq_vis:
             try: self.freq_vis.cleanup()
-            except: pass
+            except Exception as _e:
+                logging.warning("[vis_tab.py:1094] silenced: %s", _e)
 
     def load_optimized_geometry(self):
         if self.optimized_xyz:
@@ -1102,13 +1108,15 @@ class VisTab(QWidget):
         self.clear_3d_actors()
         if self.freq_vis:
             try: self.freq_vis.cleanup()
-            except: pass
+            except Exception as _e:
+                logging.warning("[vis_tab.py:1105] silenced: %s", _e)
             self.freq_vis = None
         update_molecule_from_xyz(self.context, xyz)
         try:
             mw = self.context.get_main_window()
             if hasattr(mw, 'push_undo_state'): mw.edit_actions_manager.push_undo_state()
-        except: pass
+        except Exception as _e:
+            logging.warning("[vis_tab.py:1111] silenced: %s", _e)
         self.log("Geometry updated.")
 
     def add_custom_mo(self):
@@ -1157,7 +1165,8 @@ class VisTab(QWidget):
                              diff = comp_idx - lumo_i
                              lb = "LUMO" if diff == 0 else f"LUMO+{diff}"
                              display_label = f"{lb} (Index {idx})"
-                 except: pass
+                 except Exception as _e:
+                     logging.warning("[vis_tab.py:1160] silenced: %s", _e)
         else:
              task_data = text.upper().replace(" ", "")
              display_label = task_data
@@ -1174,7 +1183,7 @@ class VisTab(QWidget):
 
     def show_energy_diagram(self):
         if not self.mo_data: return
-        if hasattr(self, 'energy_dlg') and self.energy_dlg:
+        if getattr(self, 'energy_dlg', None) is not None and self.energy_dlg:
              self.energy_dlg.close()
              self.energy_dlg = None
         self.energy_dlg = EnergyDiagramDialog(self.mo_data, parent=self, result_dir=self.last_out_dir)
@@ -1284,7 +1293,7 @@ class VisTab(QWidget):
 
     def on_calculation_finished(self, result_data):
         """Called when a calculation finishes to auto-load results."""
-        out_dir = result_data.get("out_dir")
+        out_dir = result_data.get("out_dir", None)
         if out_dir:
             self.result_path_display.setText(out_dir)
             # update_structure=True to refresh geometry if optimized
@@ -1293,11 +1302,11 @@ class VisTab(QWidget):
 
     def close_freq_window(self):
         """Close frequency visualization dock/window if open."""
-        if hasattr(self, 'freq_dock') and self.freq_dock:
+        if getattr(self, 'freq_dock', None) is not None and self.freq_dock:
             try: self.freq_dock.close()
-            except: pass
+            except Exception as _e:
+                logging.warning("[vis_tab.py:1298] silenced: %s", _e)
         self.freq_dock = None
         self.freq_vis = None
-
 
 

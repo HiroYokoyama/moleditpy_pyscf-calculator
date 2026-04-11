@@ -1,5 +1,5 @@
 PLUGIN_NAME = "PySCF Calculator"
-PLUGIN_VERSION = "2.0.0"
+PLUGIN_VERSION = "2.1.0"
 PLUGIN_AUTHOR = "HiroYokoyama"
 PLUGIN_DESCRIPTION = (
     "Perform PySCF quantum chemistry calculations directly in MoleditPy. "
@@ -24,7 +24,6 @@ def initialize(context):
         return PLUGIN_SETTINGS
 
     def load_project_state(data):
-        global PLUGIN_SETTINGS
         PLUGIN_SETTINGS.clear()
         PLUGIN_SETTINGS.update(data)
         
@@ -35,7 +34,6 @@ def initialize(context):
     dialog_instance = None
     
     def handle_reset():
-        nonlocal dialog_instance
         # 1. Clear Global Settings (Model)
         # Remove association with previous file
         if "associated_filename" in PLUGIN_SETTINGS:

@@ -1,16 +1,14 @@
 import sys
 import os
 import io
-import tempfile
-import traceback
-import tempfile
+import json
 import traceback
 import numpy as np
 import math
 import re
-import copy
 import shutil
 from PyQt6.QtCore import QThread, pyqtSignal
+import logging
 try:
     from rdkit import Chem
     from rdkit.Chem import rdMolTransforms
@@ -20,9 +18,8 @@ except ImportError:
 # We import pyscf inside the thread or check availability
 try:
     import pyscf
-    from pyscf import gto, scf, dft, lib, tools
-    from pyscf.tools import cubegen
-    from pyscf import solvent # Ensure ddCOSMO mixin is available
+    from pyscf import gto, scf, dft
+    from pyscf import solvent # noqa: F401 # Ensure ddCOSMO mixin is available
 except ImportError:
     pyscf = None
 
@@ -71,7 +68,7 @@ class CaptureStdOut:
         # Flush
         sys.stdout.flush()
         sys.stderr.flush()
-        if hasattr(self, 'log_file'): self.log_file.flush()
+        if getattr(self, 'log_file', None) is not None: self.log_file.flush()
 
         # Restore
         if self.saved_stdout_fd is not None:
@@ -82,7 +79,7 @@ class CaptureStdOut:
             os.dup2(self.saved_stderr_fd, self.original_stderr_fd)
             os.close(self.saved_stderr_fd)
             
-        if hasattr(self, 'log_file'): self.log_file.close()
+        if getattr(self, 'log_file', None) is not None: self.log_file.close()
 
 class StreamToSignal(io.TextIOBase):
     def __init__(self, signal, target_stream=None):
@@ -105,21 +102,20 @@ class StreamToSignal(io.TextIOBase):
             try:
                 self.target_stream.write(text)
                 self.target_stream.flush()
-            except: 
-                pass
+            except Exception as _e:
+                logging.warning("[worker.py:108] silenced: %s", _e)
             
     def flush(self):
         if self.target_stream:
             try: 
                 self.target_stream.flush()
-            except: 
-                pass
+            except Exception as _e:
+                logging.warning("[worker.py:115] silenced: %s", _e)
             
     def close(self):
         # Mark as destroyed to stop signal emissions
         self._destroyed = True
         # Do not close system stdout here
-        pass
 
     @property
     def encoding(self):
@@ -181,7 +177,6 @@ class PySCFWorker(QThread):
              coords_bohr = mol_calc.atom_coords() * 1.8897259886
         
         step_count = 0
-        total_steps = h_dim 
         
         for i_atom in range(n_atoms):
             for i_cart in range(3): # x, y, z
@@ -225,7 +220,7 @@ class PySCFWorker(QThread):
 
         try:
             # Prepare Output Root Directory
-            root_dir = self.config.get("out_dir")
+            root_dir = self.config.get("out_dir", None)
             if not root_dir:
                 root_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "output")
                 
@@ -314,10 +309,11 @@ class PySCFWorker(QThread):
             try:
                 n_threads = pyscf.lib.num_threads()
                 self.log_signal.emit(f"PySCF running with {n_threads} OpenMP threads.\n")
-            except: pass
+            except Exception as _e:
+                logging.warning("[worker.py:317] silenced: %s", _e)
             
             # --- Parameters Setup ---
-            scan_params = self.config.get("scan_params")
+            scan_params = self.config.get("scan_params", None)
             # ------------------------
 
             # Select Method
@@ -374,7 +370,7 @@ class PySCFWorker(QThread):
                         if lookup_name not in pyscf_eps and lookup_name.lower() in pyscf_eps:
                              lookup_name = lookup_name.lower()
                         
-                        eps_value = pyscf_eps.get(lookup_name)
+                        eps_value = pyscf_eps.get(lookup_name, None)
                         
                         if eps_value is None:
                              self.log_signal.emit(f"Warning: Solvent '{selected_solvent}' not found in PySCF database. Defaulting to Water (78.2).\n")
@@ -400,7 +396,7 @@ class PySCFWorker(QThread):
                 f.write(f"# Multiplicity: {spin_mult if 'spin_mult' in locals() else spin_2s + 1}\n")
                 f.write(f"# Threads: {n_threads}\n")
                 f.write(f"# Memory: {self.config.get('memory')} MB\n")
-                if "TDDFT" in self.config.get('job_type'):
+                if "TDDFT" in self.config.get('job_type', None):
                     f.write(f"# TDN States: {self.config.get('nstates')}\n")
                 f.write(f"# Max Cycle: {self.config.get('max_cycle')}\n")
                 f.write(f"# Conv Tol: {self.config.get('conv_tol')}\n")
@@ -433,7 +429,8 @@ class PySCFWorker(QThread):
                 try:
                     tol = float(self.config.get('conv_tol', '1e-9'))
                     f.write(f"mf.conv_tol = {tol}\n")
-                except: pass
+                except Exception as _e:
+                    logging.warning("[worker.py:436] silenced: %s", _e)
 
                 if use_solvent:
                      f.write(f"mf = mf.ddCOSMO()\n")
@@ -441,7 +438,7 @@ class PySCFWorker(QThread):
 
                 f.write("mf.kernel()\n")
                 
-                if "TDDFT" in self.config.get('job_type'):
+                if "TDDFT" in self.config.get('job_type', None):
                     f.write("\n# TDDFT Calculation\n")
                     f.write("from pyscf import tdscf\n")
                     f.write(f"td = tdscf.TDDFT(mf) if 'KS' in '{method_name}' else tdscf.TDHF(mf)\n")
@@ -462,7 +459,8 @@ class PySCFWorker(QThread):
                     level = self.config.get("grid_level", 3)
                     mf.grids.level = level
                     if level >= 4: mf.grids.prune = False
-                except: pass
+                except Exception as _e:
+                    logging.warning("[worker.py:465] silenced: %s", _e)
             elif method_name == "UKS":
                 mf = dft.UKS(mol)
                 mf.xc = functional
@@ -470,7 +468,8 @@ class PySCFWorker(QThread):
                     level = self.config.get("grid_level", 3)
                     mf.grids.level = level
                     if level >= 4: mf.grids.prune = False
-                except: pass
+                except Exception as _e:
+                    logging.warning("[worker.py:473] silenced: %s", _e)
             # --- Added: RO Support ---
             elif method_name == "ROHF":
                 mf = scf.ROHF(mol)
@@ -481,7 +480,8 @@ class PySCFWorker(QThread):
                     level = self.config.get("grid_level", 3)
                     mf.grids.level = level
                     if level >= 4: mf.grids.prune = False
-                except: pass
+                except Exception as _e:
+                    logging.warning("[worker.py:484] silenced: %s", _e)
             # ------------------------
             else:
                 # Default fallback or error
@@ -504,7 +504,8 @@ class PySCFWorker(QThread):
             try:
                 tol_str = self.config.get("conv_tol", "1e-9")
                 mf.conv_tol = float(tol_str)
-            except: pass
+            except Exception as _e:
+                logging.warning("[worker.py:507] silenced: %s", _e)
 
             # Redirect stdout/stderr to capture ALL output (including geometric)
             sys.stdout.flush()
@@ -522,7 +523,7 @@ class PySCFWorker(QThread):
                 
                 # --- SCAN DISPATCH ---
                 if "Scan" in job_type:
-                    scan_params = self.config.get("scan_params")
+                    scan_params = self.config.get("scan_params", None)
                     if not scan_params:
                         self.error_signal.emit("Scan parameters missing.")
                         return
@@ -584,7 +585,8 @@ class PySCFWorker(QThread):
                                 level = self.config.get("grid_level", 3)
                                 mf.grids.level = level
                                 if level >= 4: mf.grids.prune = False
-                            except: pass
+                            except Exception as _e:
+                                logging.warning("[worker.py:587] silenced: %s", _e)
                         elif method_name == "UKS": 
                             mf = dft.UKS(mol_eq)
                             mf.xc = functional
@@ -592,7 +594,8 @@ class PySCFWorker(QThread):
                                 level = self.config.get("grid_level", 3)
                                 mf.grids.level = level
                                 if level >= 4: mf.grids.prune = False
-                            except: pass
+                            except Exception as _e:
+                                logging.warning("[worker.py:595] silenced: %s", _e)
                         
                         # --- Added: RO Support for Optimization Re-init ---
                         elif method_name == "ROHF": mf = scf.ROHF(mol_eq)
@@ -603,7 +606,8 @@ class PySCFWorker(QThread):
                                 level = self.config.get("grid_level", 3)
                                 mf.grids.level = level
                                 if level >= 4: mf.grids.prune = False
-                            except: pass
+                            except Exception as _e:
+                                logging.warning("[worker.py:606] silenced: %s", _e)
                         # -----------------------------------------------
 
                         # Re-apply solvent if needed
@@ -772,8 +776,6 @@ class PySCFWorker(QThread):
                         # Save freq_data and thermo_data to JSON file
                         freq_json_path = os.path.join(self.out_dir, "freq_analysis.json")
                         try:
-                            import json
-                            
                             # Custom JSON encoder to handle all edge cases
                             class SafeEncoder(json.JSONEncoder):
                                 def default(self, obj):
@@ -844,7 +846,8 @@ class PySCFWorker(QThread):
                         # Or explicitly set stdout
                         try:
                             td_obj.stdout = stream
-                        except: pass
+                        except Exception as _e:
+                            logging.warning("[worker.py:847] silenced: %s", _e)
                         
                         self.log_signal.emit(f"Calculating {nstates} Excited States...\n")
                         td_obj.kernel()
@@ -917,7 +920,6 @@ class PySCFWorker(QThread):
                         
                         # Save as JSON for reloading
                         try:
-                            import json
                             json_file = os.path.join(self.out_dir, "tddft_results.json")
                             with open(json_file, 'w') as f:
                                 json.dump({"tddft_data": tddft_list}, f, indent=2)
@@ -1023,8 +1025,8 @@ class PySCFWorker(QThread):
                 if 'stream' in locals() and hasattr(stream, 'close'):
                     try:
                         stream.close()  # Marks _destroyed = True
-                    except:
-                        pass
+                    except Exception as _e:
+                        logging.warning("[worker.py:1026] silenced: %s", _e)
                 
         except Exception as e:
             self.error_signal.emit(str(e) + "\n" + traceback.format_exc())
@@ -1040,8 +1042,8 @@ class PySCFWorker(QThread):
             if 'capturer' in locals():
                 try: 
                     capturer.__exit__(None, None, None)
-                except: 
-                    pass
+                except Exception as _e:
+                    logging.warning("[worker.py:1043] silenced: %s", _e)
 
     def run_rigid_scan(self, mol, mf, params, results):
         self.log_signal.emit("\n===== Rigid Surface Scan =====\n")
@@ -1092,7 +1094,8 @@ class PySCFWorker(QThread):
             try:
                 rw_mol.UpdatePropertyCache(strict=False)
                 Chem.GetSymmSSSR(rw_mol)
-            except: pass
+            except Exception as _e:
+                logging.warning("[worker.py:1095] silenced: %s", _e)
 
         # Use the explicit connectivity molecule
         rd_mol = rw_mol
@@ -1334,7 +1337,8 @@ class PySCFWorker(QThread):
                         level = self.config.get("grid_level", 3)
                         step_mf.grids.level = level
                         if level >= 4: step_mf.grids.prune = False
-                    except: pass
+                    except Exception as _e:
+                        logging.warning("[worker.py:1337] silenced: %s", _e)
                 elif method_name == "UKS":
                     step_mf = dft.UKS(step_mol)
                     step_mf.xc = functional
@@ -1342,7 +1346,8 @@ class PySCFWorker(QThread):
                         level = self.config.get("grid_level", 3)
                         step_mf.grids.level = level
                         if level >= 4: step_mf.grids.prune = False
-                    except: pass
+                    except Exception as _e:
+                        logging.warning("[worker.py:1345] silenced: %s", _e)
                 elif method_name == "ROHF":
                     step_mf = scf.ROHF(step_mol)
                 elif method_name == "ROKS":
@@ -1352,7 +1357,8 @@ class PySCFWorker(QThread):
                         level = self.config.get("grid_level", 3)
                         step_mf.grids.level = level
                         if level >= 4: step_mf.grids.prune = False
-                    except: pass
+                    except Exception as _e:
+                        logging.warning("[worker.py:1355] silenced: %s", _e)
                 else:
                     raise ValueError(f"Unsupported method: {method_name}")
                 
@@ -1415,8 +1421,8 @@ class PySCFWorker(QThread):
                 try:
                     tol_str = self.config.get("conv_tol", "1e-9")
                     step_mf.conv_tol = float(tol_str)
-                except:
-                    pass
+                except Exception as _e:
+                    logging.warning("[worker.py:1418] silenced: %s", _e)
                 
                 mol_eq = optimize(step_mf, constraints=const_file)
                 
@@ -1594,8 +1600,7 @@ class PySCFWorker(QThread):
         self.log_signal.emit(f" > Computing Dipole Derivatives (Numerical 6N={6*natm} steps)...")
         
         # Logging progress since this can be slow
-        steps_total = natm * 6
-        step_count = 0
+        natm * 6
         
         for i in range(natm):
             for j in range(3): # x, y, z
@@ -2051,7 +2056,8 @@ class PropertyWorker(QThread):
             # Restore C-Level FDs
             if 'capturer' in locals():
                 try: capturer.__exit__(None, None, None)
-                except: pass
+                except Exception as _e:
+                    logging.warning("[worker.py:2054] silenced: %s", _e)
 
 
 class LoadWorker(QThread):
@@ -2068,7 +2074,6 @@ class LoadWorker(QThread):
             return
 
         try:
-            import json
             from pyscf import lib, scf
             
             results = {"out_dir": os.path.dirname(self.chkfile)}
@@ -2131,8 +2136,8 @@ class LoadWorker(QThread):
             
             # Load SCF Data
             scf_data = scf.chkfile.load(self.chkfile, 'scf')
-            mo_energy = scf_data.get('mo_energy')
-            mo_occ = scf_data.get('mo_occ')
+            mo_energy = scf_data.get('mo_energy', None)
+            mo_occ = scf_data.get('mo_occ', None)
             
             # Identify Type (Enhanced: UHF, RHF, ROKS, ROHF)
             scf_type = "RHF"
@@ -2151,7 +2156,6 @@ class LoadWorker(QThread):
             # Step 2: Check for Restricted Open-shell (ROKS/ROHF)
             # ROKS has 2D mo_occ: shape (2, N) for Alpha/Beta occupancies
             # and contains partial occupancy (values near 1.0)
-            is_roks = False
             if not is_uhf:  # Only check if not already identified as UHF
                 try:
                     if isinstance(mo_occ, np.ndarray) and mo_occ.ndim == 2:
@@ -2162,7 +2166,6 @@ class LoadWorker(QThread):
                                 has_partial_occ = True
                                 break
                         if has_partial_occ:
-                            is_roks = True
                             scf_type = "ROKS"
                     elif isinstance(mo_occ, list):
                         # Handle list of lists case
@@ -2176,11 +2179,10 @@ class LoadWorker(QThread):
                                 if has_partial_occ:
                                     break
                             if has_partial_occ:
-                                is_roks = True
                                 scf_type = "ROKS"
-                except Exception as e_roks:
+                except Exception:
                     # If ROKS detection fails, default to RHF (safe fallback)
-                    pass
+                    logging.warning("[worker.py:2181] silenced")
                     
             if is_uhf:
                 scf_type = "UHF"
@@ -2193,14 +2195,14 @@ class LoadWorker(QThread):
                      # Numpy 2D case
                         if hasattr(mo_energy, 'tolist'): mo_energy = mo_energy.tolist()
                         if hasattr(mo_occ, 'tolist'): mo_occ = mo_occ.tolist()
-                except Exception as e_conv:
+                except Exception:
                     pass  # Keep as-is if conversion fails
             else:
                  # RHF/ROKS Case
                  try:
                      if hasattr(mo_energy, 'tolist'): mo_energy = mo_energy.tolist()
                      if hasattr(mo_occ, 'tolist'): mo_occ = mo_occ.tolist()
-                 except Exception as e_conv:
+                 except Exception:
                      pass  # Keep as-is if conversion fails
             
             # Attempt to extract optimized XYZ if present (or just current geometry)
@@ -2223,7 +2225,6 @@ class LoadWorker(QThread):
             }
             
             # --- Load Post-Process Data (Freq/Thermo) ---
-            import json
             base_dir = os.path.dirname(self.chkfile)
             freq_file = os.path.join(base_dir, "freq_analysis.json")
             
@@ -2277,4 +2278,3 @@ class LoadWorker(QThread):
         except Exception as e:
             traceback.print_exc()
             self.error_signal.emit(str(e))
-

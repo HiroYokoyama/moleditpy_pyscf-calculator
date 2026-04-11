@@ -1,23 +1,21 @@
 import os
-import io
 import traceback
 import matplotlib
 matplotlib.use('QtAgg')
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg
 from matplotlib.figure import Figure
-import matplotlib.pyplot as plt
 import matplotlib.collections
 
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QPushButton, QLabel,
-    QSlider, QFileDialog, QMessageBox, QWidget, QComboBox,
-    QSpinBox, QCheckBox, QFormLayout, QDialogButtonBox, QApplication
+    QSlider, QFileDialog, QMessageBox, QComboBox, QSpinBox,
+    QCheckBox, QFormLayout, QDialogButtonBox
 )
 from PyQt6.QtCore import Qt, QTimer
-from PyQt6.QtGui import QIcon
 
 from rdkit import Chem
-from rdkit.Chem import rdDetermineBonds, rdGeometry
+from rdkit.Chem import rdGeometry
+import logging
 
 try:
     from PIL import Image
@@ -53,7 +51,7 @@ class ScanResultDialog(QDialog):
         self.plot_data()
         
         # Set focus to Play button so user can start manually with Enter/Space
-        if hasattr(self, 'btn_play'):
+        if getattr(self, 'btn_play', None) is not None:
             self.btn_play.setFocus()
             self.btn_play.setDefault(True)
 
@@ -163,8 +161,8 @@ class ScanResultDialog(QDialog):
         HARTREE_TO_KJMOL = 2625.5
         HARTREE_TO_KCALMOL = 627.509
         
-        unit = self.unit_combo.currentText() if hasattr(self, 'unit_combo') else "Hartree"
-        is_rel = self.chk_relative.isChecked() if hasattr(self, 'chk_relative') else False
+        unit = self.unit_combo.currentText() if getattr(self, 'unit_combo', None) is not None else "Hartree"
+        is_rel = self.chk_relative.isChecked() if getattr(self, 'chk_relative', None) is not None else False
         
         x = [r['value'] for r in self.results]
         y_hartree_abs = [r['energy'] for r in self.results]
@@ -212,26 +210,28 @@ class ScanResultDialog(QDialog):
         """Replot when energy unit changes"""
         self.plot_data()
         # Restore highlight if exists
-        if hasattr(self, 'frame_idx') and self.frame_idx >= 0:
+        if getattr(self, 'frame_idx', None) is not None and self.frame_idx >= 0:
             self.highlight_point(self.frame_idx)
         
         self.canvas.draw()
 
     def highlight_point(self, idx):
         # Remove old highlight if exists
-        if hasattr(self, '_highlight_marker'):
+        if getattr(self, '_highlight_marker', None) is not None:
             try: self._highlight_marker.remove()
-            except: pass
-        if hasattr(self, '_highlight_line'):
+            except Exception as _e:
+                logging.warning("[scan_results.py:224] silenced: %s", _e)
+        if getattr(self, '_highlight_line', None) is not None:
             try: self._highlight_line.remove()
-            except: pass
+            except Exception as _e:
+                logging.warning("[scan_results.py:227] silenced: %s", _e)
             
         # Get coordinate value
         x = self.results[idx]['value']
         
         # Get absolute energy and calculate energy according to relative checkbox
         y_abs = self.results[idx]['energy']
-        is_rel = self.chk_relative.isChecked() if hasattr(self, 'chk_relative') else False
+        is_rel = self.chk_relative.isChecked() if getattr(self, 'chk_relative', None) is not None else False
         
         if is_rel:
             all_energies = [r['energy'] for r in self.results]
@@ -243,7 +243,7 @@ class ScanResultDialog(QDialog):
         # Apply same conversion as plot_data
         HARTREE_TO_KJMOL = 2625.5
         HARTREE_TO_KCALMOL = 627.509
-        unit = self.unit_combo.currentText() if hasattr(self, 'unit_combo') else "Hartree"
+        unit = self.unit_combo.currentText() if getattr(self, 'unit_combo', None) is not None else "Hartree"
         
         if unit == "kJ/mol":
             y = y_hartree * HARTREE_TO_KJMOL
@@ -343,7 +343,7 @@ class ScanResultDialog(QDialog):
         """Update and show tooltip on hover"""
         vis = self.annot.get_visible()
         if event.inaxes == self.canvas.axes:
-            if hasattr(self, 'scatter') and self.scatter:
+            if getattr(self, 'scatter', None) is not None and self.scatter:
                 cont, ind = self.scatter.contains(event)
                 if cont:
                     idx = ind['ind'][0]
@@ -395,7 +395,7 @@ class ScanResultDialog(QDialog):
         xyz = self.trajectory[idx]
         
         # Check for Dynamic Bonds setting
-        use_dynamic_bonds = self.chk_dynamic_bonds.isChecked() if hasattr(self, 'chk_dynamic_bonds') else False
+        use_dynamic_bonds = self.chk_dynamic_bonds.isChecked() if getattr(self, 'chk_dynamic_bonds', None) is not None else False
 
         if self.base_mol and not use_dynamic_bonds:
             # Efficient update: just change coordinates
@@ -421,7 +421,7 @@ class ScanResultDialog(QDialog):
                     mw.view_3d_manager.draw_molecule_3d(self.base_mol)
                 else:
                     self.context.current_molecule = self.base_mol
-            except Exception as e:
+            except Exception:
                 # Fallback to full reload if efficient update fails
                 from .utils import update_molecule_from_xyz
                 update_molecule_from_xyz(self.context, xyz, mark_modified=False)
@@ -484,16 +484,18 @@ class ScanResultDialog(QDialog):
     def clear_selection(self):
         """Remove highlight marker and line from the graph"""
         try:
-            if hasattr(self, '_highlight_marker') and self._highlight_marker:
+            if getattr(self, '_highlight_marker', None) is not None and self._highlight_marker:
                 self._highlight_marker.remove()
                 self._highlight_marker = None
-        except: pass
+        except Exception as _e:
+            logging.warning("[scan_results.py:490] silenced: %s", _e)
         
         try:
-            if hasattr(self, '_highlight_line') and self._highlight_line:
+            if getattr(self, '_highlight_line', None) is not None and self._highlight_line:
                 self._highlight_line.remove()
                 self._highlight_line = None
-        except: pass
+        except Exception as _e:
+            logging.warning("[scan_results.py:496] silenced: %s", _e)
         
         self.canvas.draw()
 

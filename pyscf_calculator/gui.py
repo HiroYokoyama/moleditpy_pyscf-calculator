@@ -5,7 +5,8 @@ import traceback
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QTabWidget, QMessageBox, QWidget, QToolTip
 )
-from PyQt6.QtCore import Qt, QTimer
+from PyQt6.QtCore import QTimer
+import logging
 
 # Local Imports
 try:
@@ -15,7 +16,6 @@ try:
     from .calc_tab import CalcTab
     from .vis_tab import VisTab
 except ImportError:
-    import traceback
     traceback.print_exc()
     PySCFWorker = None
     LoadWorker = None
@@ -79,7 +79,7 @@ class PySCFDialog(QDialog):
     def update_proxies(self):
         # Create proxies for properties that tabs might expect on parent
         # or that I want to expose for convenience.
-        if hasattr(self, 'calc_tab'):
+        if getattr(self, 'calc_tab', None) is not None:
             self.out_dir_edit = self.calc_tab.out_dir_edit
             self.progress_bar = self.calc_tab.progress_bar
             self.run_btn = self.calc_tab.run_btn
@@ -98,14 +98,14 @@ class PySCFDialog(QDialog):
             self.edit_conv = self.calc_tab.edit_conv
             self.spin_grid_level = self.calc_tab.spin_grid_level
         
-        if hasattr(self, 'vis_tab'):
+        if getattr(self, 'vis_tab', None) is not None:
             self.btn_load_geom = self.vis_tab.btn_load_geom
 
     def log(self, message):
         if self.closing: return
-        if hasattr(self, 'calc_tab'):
+        if getattr(self, 'calc_tab', None) is not None:
             self.calc_tab.log(message)
-        elif hasattr(self, 'vis_tab'):
+        elif getattr(self, 'vis_tab', None) is not None:
              # Fallback log?
              print(message)
 
@@ -115,7 +115,7 @@ class PySCFDialog(QDialog):
         self.log("Processing results...")
         
         # Update History
-        out_dir = result_data.get("out_dir")
+        out_dir = result_data.get("out_dir", None)
         if out_dir:
             self.calc_history.append(out_dir)
             # Limit history
@@ -131,26 +131,27 @@ class PySCFDialog(QDialog):
                     mw.has_unsaved_changes = True
                     if hasattr(mw, 'update_window_title'):
                         mw.state_manager.update_window_title()
-        except: pass
+        except Exception as _e:
+            logging.warning("[gui.py:134] silenced: %s", _e)
         # Delegate to VisTab
-        if hasattr(self, 'vis_tab'):
+        if getattr(self, 'vis_tab', None) is not None:
             self.vis_tab.on_calculation_finished(result_data)
 
     def on_error(self, err_msg):
         self.log(f"\nERROR: {err_msg}")
         QMessageBox.critical(self, "Error", err_msg)
-        if hasattr(self, 'calc_tab'):
+        if getattr(self, 'calc_tab', None) is not None:
             self.calc_tab.cleanup_ui_state()
 
     def closeEvent(self, event):
         self.closing = True
         
         # Stop CalcTab Worker
-        if hasattr(self, 'calc_tab'):
+        if getattr(self, 'calc_tab', None) is not None:
             self.calc_tab.stop_calculation()
             
         # Cleanup VisTab Actors/Workers
-        if hasattr(self, 'vis_tab'):
+        if getattr(self, 'vis_tab', None) is not None:
             self.vis_tab.clear_3d_actors()
             if self.vis_tab.load_worker and self.vis_tab.load_worker.isRunning():
                  self.vis_tab.load_worker.terminate()
@@ -166,10 +167,10 @@ class PySCFDialog(QDialog):
     def on_document_reset(self):
         """Callback to reset plugin state when the document is reset (File -> New)."""
         # Abort workers
-        if hasattr(self, 'calc_tab'):
+        if getattr(self, 'calc_tab', None) is not None:
              self.calc_tab.stop_calculation()
         
-        if hasattr(self, 'vis_tab'):
+        if getattr(self, 'vis_tab', None) is not None:
              if self.vis_tab.load_worker and self.vis_tab.load_worker.isRunning():
                  self.vis_tab.load_worker.terminate()
              self.vis_tab.load_worker = None
@@ -205,14 +206,14 @@ class PySCFDialog(QDialog):
         # Reset Defaults
         self.apply_defaults()
         
-        if hasattr(self, 'vis_tab'):
+        if getattr(self, 'vis_tab', None) is not None:
              self.vis_tab.lbl_struct_source.setText("")
         
         self.log("Document reset: Plugin state cleared.")
 
     def save_custom_defaults(self):
         # Proxy to CalcTab's settings mostly
-        if not hasattr(self, 'calc_tab'): return
+        if getattr(self, 'calc_tab', None) is None: return
         
         json_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "settings.json")
         local_settings = {
@@ -268,9 +269,10 @@ class PySCFDialog(QDialog):
                  with open(json_path, 'r') as f:
                      user_defaults = json.load(f)
                      defaults.update(user_defaults)
-             except: pass
+             except Exception as _e:
+                 logging.warning("[gui.py:271] silenced: %s", _e)
         
-        if hasattr(self, 'calc_tab'):
+        if getattr(self, 'calc_tab', None) is not None:
             self.calc_tab.job_type_combo.setCurrentText(defaults["job_type"])
             self.calc_tab.method_combo.setCurrentText(defaults["method"])
             self.calc_tab.functional_combo.setCurrentText(defaults["functional"])
@@ -301,7 +303,7 @@ class PySCFDialog(QDialog):
         self.apply_defaults()
         
         s = self.settings
-        if hasattr(self, 'calc_tab'):
+        if getattr(self, 'calc_tab', None) is not None:
             if "job_type" in s: self.calc_tab.job_type_combo.setCurrentText(s["job_type"])
             if "method" in s: self.calc_tab.method_combo.setCurrentText(s["method"])
             if "functional" in s: self.calc_tab.functional_combo.setCurrentText(s["functional"])
@@ -330,21 +332,23 @@ class PySCFDialog(QDialog):
                 current_path = getattr(getattr(mw, "init_manager", None), "current_file_path", None)
                 if current_path:
                     project_dir = os.path.dirname(current_path)
-            except: pass
+            except Exception as _e:
+                logging.warning("[gui.py:333] silenced: %s", _e)
         
         for h_path in raw_history:
              final_path = h_path
              try:
                  if not os.path.isabs(h_path) and project_dir:
                      final_path = os.path.normpath(os.path.join(project_dir, h_path))
-             except: pass
+             except Exception as _e:
+                 logging.warning("[gui.py:340] silenced: %s", _e)
              self.calc_history.append(final_path)
 
         loaded_source = s.get("struct_source", None)
         if loaded_source:
              self.struct_source = loaded_source
              
-        if hasattr(self, 'vis_tab') and self.struct_source:
+        if getattr(self, 'vis_tab', None) is not None and self.struct_source:
              self.vis_tab.lbl_struct_source.setText(f"Structure Source: {self.struct_source}")
 
         if self.calc_history:
@@ -361,12 +365,12 @@ class PySCFDialog(QDialog):
                  # Auto-load logic
                  if os.path.exists(last_path) and os.path.isdir(last_path):
                      self.log(f"Auto-loading latest result: {last_path}")
-                     if hasattr(self, 'vis_tab'):
+                     if getattr(self, 'vis_tab', None) is not None:
                          QTimer.singleShot(200, lambda: self.vis_tab.load_result_folder(last_path, update_structure=False))
 
     def update_internal_state(self):
         # Syncs UI to self.settings for saving project
-        if hasattr(self, 'calc_tab'):
+        if getattr(self, 'calc_tab', None) is not None:
             self.settings["job_type"] = self.calc_tab.job_type_combo.currentText()
             self.settings["method"] = self.calc_tab.method_combo.currentText()
             self.settings["functional"] = self.calc_tab.functional_combo.currentText()
@@ -389,7 +393,7 @@ class PySCFDialog(QDialog):
         
         # History
         history_to_save = self.calc_history
-        if hasattr(self, 'calc_tab'):
+        if getattr(self, 'calc_tab', None) is not None:
             out_dir_val = self.calc_tab.out_dir_edit.text().strip()
             is_relative_setting = not os.path.isabs(out_dir_val)
             if is_relative_setting:
@@ -405,7 +409,8 @@ class PySCFDialog(QDialog):
                                 relative_history.append(rel)
                             except: relative_history.append(h_path)
                         history_to_save = relative_history
-                 except: pass
+                 except Exception as _e:
+                     logging.warning("[gui.py:408] silenced: %s", _e)
         
         self.settings["calc_history"] = history_to_save
         self.settings["struct_source"] = self.struct_source
@@ -415,8 +420,8 @@ class PySCFDialog(QDialog):
                  mw = self.context.get_main_window()
                  if hasattr(mw, "init_manager") and mw.init_manager.current_file_path:
                      self.settings["associated_filename"] = os.path.basename(mw.init_manager.current_file_path)
-        except: pass
+        except Exception as _e:
+            logging.warning("[gui.py:418] silenced: %s", _e)
 
     def save_settings(self):
         self.update_internal_state()
-

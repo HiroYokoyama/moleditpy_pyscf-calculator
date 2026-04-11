@@ -2,6 +2,7 @@ import numpy as np
 import pyvista as pv
 import os
 from PyQt6.QtGui import QColor
+import logging
 
 def parse_cube_data(filename):
     """
@@ -194,7 +195,8 @@ class CubeVisualizer:
              try:
                  if self.mw.plotter.ren_win:
                      return self.mw.plotter
-             except: pass
+             except Exception as _e:
+                 logging.warning("[vis.py:197] silenced: %s", _e)
         return None
 
     def load_file(self, filename):
@@ -248,17 +250,18 @@ class CubeVisualizer:
                 self.plotter.render()
         except Exception as e:
             # print(f"Iso update error: {e}")
-            pass
+            logging.warning("[vis.py:249] silenced: %s", e)
 
     def clear_actors(self):
         # Remove actors if they exist and plotter is valid
-        if not hasattr(self, 'plotter') or self.plotter is None:
+        if getattr(self, 'plotter', None) is None:
              return
              
         try:
             self.plotter.remove_actor("pyscf_iso_p")
             self.plotter.remove_actor("pyscf_iso_n")
-        except: pass
+        except Exception as _e:
+            logging.warning("[vis.py:261] silenced: %s", _e)
         
         self.actors.clear()
         # Do NOT render here. Caller handles it. Rendering on close causes crashes.
@@ -281,23 +284,9 @@ class MappedVisualizer:
              try:
                  if self.mw.plotter.ren_win:
                      return self.mw.plotter
-             except: pass
+             except Exception as _e:
+                 logging.warning("[vis.py:284] silenced: %s", _e)
         return None
-
-    def clear_actors(self):
-        # Remove actors if they exist and plotter is valid
-        if not self.plotter:
-             return
-
-        try:
-            if self.actor:
-                self.plotter.remove_actor(self.actor)
-                self.actor = None 
-            self.plotter.remove_actor("pyscf_mapped")
-        except: pass
-        
-        # Do NOT render here.
-        # self.plotter.render()
 
     def load_files(self, surf_file, prop_file):
         try:
@@ -336,7 +325,7 @@ class MappedVisualizer:
             if iso.n_points == 0: return (-0.1, 0.1)
             
             mapped = iso.sample(self.grid_prop)
-            mvals = mapped.point_data.get("values") # sampled data remains 'values' generally
+            mvals = mapped.point_data.get("values", None) # sampled data remains 'values' generally
             
             if mvals is not None and len(mvals) > 0:
                 return (float(mvals.min()), float(mvals.max()))
@@ -394,7 +383,7 @@ class MappedVisualizer:
             traceback.print_exc()
 
     def clear_actors(self):
-        if not hasattr(self, 'plotter') or self.plotter is None: return
+        if getattr(self, 'plotter', None) is None: return
 
         try:
             if self.actor:
@@ -403,4 +392,5 @@ class MappedVisualizer:
             self.plotter.remove_actor("pyscf_mapped")
             # Do NOT render here.
             # self.plotter.render()
-        except: pass
+        except Exception as _e:
+            logging.warning("[vis.py:406] silenced: %s", _e)
