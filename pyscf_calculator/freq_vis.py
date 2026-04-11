@@ -10,6 +10,10 @@ import numpy as np
 import traceback
 import time
 import logging
+try:
+    from rdkit.Geometry import Point3D
+except ImportError:
+    Point3D = None
 
 try:
     from PIL import Image
@@ -41,15 +45,11 @@ class FreqVisualizer(QWidget):
             
             self.freqs.append(float(f))
 
-        self.modes = modes # List of mode vectors (each is N_atoms x 3)
+        self.modes = np.array(modes) # NumPy array of mode vectors (Mode x N_atoms x 3)
         self.intensities = intensities # List of intensities (optional)
         
-        # Store original coordinates
-        self.base_coords = []
-        conf = self.mol.GetConformer()
-        for i in range(self.mol.GetNumAtoms()):
-            p = conf.GetAtomPosition(i)
-            self.base_coords.append((p.x, p.y, p.z))
+        # Store original coordinates as NumPy array
+        self.base_coords = self.mol.GetConformer().GetPositions()
             
         self.timer = QTimer()
         self.timer.timeout.connect(self.animate_frame)
@@ -113,11 +113,15 @@ class FreqVisualizer(QWidget):
         self.btn_play = QPushButton("Play")
         self.btn_play.clicked.connect(self.toggle_play)
         anim_layout.addWidget(self.btn_play)
-        
-        # self.btn_spectrum = QPushButton("Show Spectrum")
-        # self.btn_spectrum.clicked.connect(self.show_spectrum)
-        # anim_layout.addWidget(self.btn_spectrum)
-        
+
+        anim_layout.addWidget(QLabel("FPS:"))
+        self.spin_fps = QSpinBox()
+        self.spin_fps.setRange(1, 60)
+        self.spin_fps.setValue(20)
+        self.spin_fps.setFixedWidth(55)
+        self.spin_fps.valueChanged.connect(self._update_timer_interval)
+        anim_layout.addWidget(self.spin_fps)
+
         anim_layout.addWidget(QLabel("Amplitude:"))
         self.spin_amp = QDoubleSpinBox()
         self.spin_amp.setRange(0.01, 10.0)
@@ -125,7 +129,7 @@ class FreqVisualizer(QWidget):
         self.spin_amp.setDecimals(2)
         self.spin_amp.setValue(1.0)
         anim_layout.addWidget(self.spin_amp)
-        
+
         c_layout.addLayout(anim_layout)
         
         # Export GIF
@@ -169,12 +173,12 @@ class FreqVisualizer(QWidget):
         self.update_vectors()
             
     def on_freq_selected(self, current, previous):
-        if not current: 
+        if not current:
             return # select_none handles reset
-            
-        if self.is_playing:
-             pass 
-        else:
+
+        self._cached_anim_idx = self.list_freq.indexOfTopLevelItem(current)
+
+        if not self.is_playing:
             self.reset_geometry()
             self.update_vectors()
             
@@ -191,6 +195,12 @@ class FreqVisualizer(QWidget):
         self.update_vectors()
         QApplication.processEvents()
 
+    def _update_timer_interval(self):
+        interval = max(1, int(1000 / self.spin_fps.value()))
+        if self.timer.isActive():
+            self.timer.stop()
+            self.timer.start(interval)
+
     def toggle_play(self):
         if self.is_playing:
             self.is_playing = False
@@ -200,7 +210,8 @@ class FreqVisualizer(QWidget):
             QApplication.processEvents()
         else:
             if not self.list_freq.currentItem(): return
-            self.timer.start(50)
+            interval = max(1, int(1000 / self.spin_fps.value()))
+            self.timer.start(interval)
             self.is_playing = True
             self.btn_play.setText("Stop")
             
@@ -227,9 +238,7 @@ class FreqVisualizer(QWidget):
 
     def reset_geometry(self):
         conf = self.mol.GetConformer()
-        from rdkit.Geometry import Point3D
-        for i, (x, y, z) in enumerate(self.base_coords):
-            conf.SetAtomPosition(i, Point3D(x, y, z))
+        conf.SetPositions(self.base_coords)
 
         # Redraw once
         if hasattr(self.mw, "view_3d_manager") and hasattr(self.mw.view_3d_manager, "draw_molecule_3d"):
@@ -290,48 +299,38 @@ class FreqVisualizer(QWidget):
 
     def animate_frame(self):
         if not self.is_playing: return
-        
+        if getattr(self, '_animating', False): return  # skip if previous draw still processing events
+
         item = self.list_freq.currentItem()
-        if not item: 
+        if not item:
             self.toggle_play()
             return
-        idx = self.list_freq.indexOfTopLevelItem(item)
+
+        # Use cached index — avoids tree search every frame
+        if not hasattr(self, '_cached_anim_idx'):
+            self._cached_anim_idx = self.list_freq.indexOfTopLevelItem(item)
+        idx = self._cached_anim_idx
         mode = self.modes[idx]
-        
+
         self.animation_step += 1
-        # Match ORCA logic: 20 frames per cycle
         cycle_pos = (self.animation_step % 20) / 20.0
         phase = cycle_pos * 2 * np.pi
-        
-        # Amplitude handling
-        amp = self.spin_amp.value()
-        
-        factor = np.sin(phase) * amp
-        
-        # Update atoms
-        conf = self.mol.GetConformer()
-        from rdkit.Geometry import Point3D
-        
-        for i, (bx, by, bz) in enumerate(self.base_coords):
-            dx, dy, dz = mode[i]
-            nx = bx + dx * factor
-            ny = by + dy * factor
-            nz = bz + dz * factor
-            conf.SetAtomPosition(i, Point3D(nx, ny, nz))
-            
-        if hasattr(self.mw, "view_3d_manager") and hasattr(self.mw.view_3d_manager, "draw_molecule_3d"):
-             self.mw.view_3d_manager.draw_molecule_3d(self.mol)
-        
-        # Remove vectors during animation to avoid clutter/mismatch
+        factor = np.sin(phase) * self.spin_amp.value()
+
+        self._animating = True
         try:
-            if self.vector_actor and hasattr(self.mw, 'plotter') and self.mw.plotter:
-                 self.mw.plotter.remove_actor(self.vector_actor)
-                 self.vector_actor = None
-            
-            if hasattr(self.mw, 'plotter') and self.mw.plotter:
-                 self.mw.plotter.render()
-        except Exception as _e:
-            logging.warning("[freq_vis.py:328] silenced: %s", _e)
+            conf = self.mol.GetConformer()
+            # Vectorized position update: Coords + Mode * sin(phase) * Amplitude
+            new_pos = self.base_coords + mode * factor
+            conf.SetPositions(new_pos)
+
+            if hasattr(self.mw, "view_3d_manager"):
+                self.mw.view_3d_manager.draw_molecule_3d(self.mol)
+
+            # NOTE: redundant vector removal removed. draw_molecule_3d already calls plotter.clear().
+            # If we wanted to show vectors, we would call add_arrows here without extra renders.
+        finally:
+            self._animating = False
 
 
 
@@ -355,7 +354,7 @@ class FreqVisualizer(QWidget):
         
         spin_fps = QSpinBox()
         spin_fps.setRange(1, 60)
-        spin_fps.setValue(20)
+        spin_fps.setValue(self.spin_fps.value())
         
         # Check standard transparency preference
         chk_transparent = QCheckBox()
@@ -403,15 +402,10 @@ class FreqVisualizer(QWidget):
                 scale = self.spin_amp.value() 
                 factor = np.sin(phase) * scale
                 
-                # Apply displacement manually
+                # Vectorized displacement
                 conf = self.mol.GetConformer()
-                from rdkit.Geometry import Point3D
-                for j, (bx, by, bz) in enumerate(self.base_coords):
-                    dx, dy, dz = mode[j]
-                    nx = bx + dx * factor
-                    ny = by + dy * factor
-                    nz = bz + dz * factor
-                    conf.SetAtomPosition(j, Point3D(nx, ny, nz))
+                new_pos = self.base_coords + mode * factor
+                conf.SetPositions(new_pos)
                 
                 if hasattr(self.mw, "view_3d_manager") and hasattr(self.mw.view_3d_manager, "draw_molecule_3d"):
                      self.mw.view_3d_manager.draw_molecule_3d(self.mol)

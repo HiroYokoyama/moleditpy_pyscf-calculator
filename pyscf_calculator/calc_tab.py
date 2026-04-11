@@ -564,12 +564,17 @@ class CalcTab(QWidget):
 
     def on_finished(self):
         self.parent_dialog.update_internal_state()
-        
+
         if self.context:
              mw = self.context.get_main_window()
              if mw:
                  mw.has_unsaved_changes = True
                  mw.state_manager.update_window_title()
+                 # Collapse 2D editor so plugins (3D view etc.) have full space
+                 splitter = getattr(getattr(mw, 'init_manager', None), 'splitter', None)
+                 if splitter:
+                     splitter.setCollapsible(0, True)
+                     QTimer.singleShot(0, lambda: splitter.setSizes([0, splitter.width()]))
 
         self.log("\n---------------------------------\nCalculation Finished.")
         self.cleanup_ui_state()

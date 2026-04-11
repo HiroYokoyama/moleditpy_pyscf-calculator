@@ -3,6 +3,7 @@ import os
 import io
 import json
 import traceback
+import copy
 import numpy as np
 import math
 import re
@@ -102,15 +103,15 @@ class StreamToSignal(io.TextIOBase):
             try:
                 self.target_stream.write(text)
                 self.target_stream.flush()
-            except Exception as _e:
-                logging.warning("[worker.py:108] silenced: %s", _e)
-            
+            except:
+                pass
+
     def flush(self):
         if self.target_stream:
-            try: 
+            try:
                 self.target_stream.flush()
-            except Exception as _e:
-                logging.warning("[worker.py:115] silenced: %s", _e)
+            except:
+                pass
             
     def close(self):
         # Mark as destroyed to stop signal emissions
@@ -2052,12 +2053,13 @@ class PropertyWorker(QThread):
         finally:
             if 'original_stdout' in locals():
                 sys.stdout = original_stdout
-            
+            if 'original_stderr' in locals():
+                sys.stderr = original_stderr
+
             # Restore C-Level FDs
             if 'capturer' in locals():
                 try: capturer.__exit__(None, None, None)
-                except Exception as _e:
-                    logging.warning("[worker.py:2054] silenced: %s", _e)
+                except: pass
 
 
 class LoadWorker(QThread):
