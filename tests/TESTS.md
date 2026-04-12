@@ -33,6 +33,7 @@ python -m pytest tests/test_worker_pyscf_availability.py -v
 | `TestWorkerWithoutPySCF` | `PySCFWorker.run()` and `PropertyWorker.run()` emit `error_signal` and do **not** emit `finished_signal` when `pyscf is None` |
 | `TestWorkerMolBuildFailure` | `PySCFWorker.run()` emits `error_signal("Molecule Build Failed: …")` for both `ValueError` and `RuntimeError` from `gto.M()`, and does not emit `finished_signal` |
 | `TestWorkerSpinParsing` | Spin multiplicity string `"N (Label)"` is converted to `2S = N-1`; plain integer strings and invalid strings fall back correctly |
+| `TestWorkerMolBuildSuccessPath` | `mol.build()` is called; `mol.stdout` is assigned; exception after build → `error_signal`; `out_dir` loop increments past existing directories (`job_1` taken → `job_2`); `threads=4` → `pyscf.lib.num_threads(4)` |
 | `TestWorkerWithRealPySCF` *(skipped if pyscf absent)* | Real `gto.M` builds H₂; real RHF energy converges near −1.117 Hartree |
 
 **Design note:** The helper `_load_worker_with_pyscf_mock(pyscf_value)` force-reinstalls Qt stubs before each load to prevent `test_worker_streams.py`'s `QThread=MagicMock()` from corrupting the base class of `PySCFWorker`.
@@ -149,6 +150,7 @@ Covers `get_unique_path`, `rdkit_to_xyz`, and `update_molecule_from_xyz` for PDB
 | `TestNumericHessianStop` | `_stop_requested=True` at entry raises `InterruptedError`; log message contains "stopped" |
 | `TestNumericHessianCompute` | Shape `(n,3,n,3)`, symmetry `H[i,j,k,l]==H[k,l,i,j]`, zero-gradient → zero Hessian, progress log per atom, start log message |
 | `TestNumericHessianFallback` | When `as_scanner()` raises, manual fallback branch returns a valid-shaped Hessian |
+| `TestNumericHessianAtomCoordsFallback` | When `mol.atom_coords(unit='Bohr')` raises `TypeError` (older PySCF), fallback to `atom_coords() * 1.8897` still produces valid symmetric Hessian |
 
 ---
 
@@ -161,6 +163,77 @@ Covers `get_unique_path`, `rdkit_to_xyz`, and `update_molecule_from_xyz` for PDB
 | `TestPropertyWorkerEmptyTasks` | Empty task list → `finished_signal` emitted, `result_signal` dict contains `"files": []`, no `error_signal` |
 | `TestHomoLumoDetection` | RHF 1-D array, UHF tuple `(alpha, beta)`, ROKS 2-D array, plain list, and all-occupied (lumo_idx=-1 guard) all complete without error |
 | `TestPropertyWorkerStop` | `_stop_requested=True` before loop → loop exits early, `files=[]`, no error |
+
+---
+
+### test_worker_single_point.py
+**End-to-end Single Point run (all PySCF mocked, real temp directory)**
+
+| Class | What is tested |
+|---|---|
+| `TestSinglePointCompletion` | `finished_signal` and `result_signal` both emitted; no `error_signal`; result contains `chkfile`, `out_dir`, `cube_files=[]`; `pyscf_input.py` written inside `job_1/` subdirectory |
+| `TestSinglePointMOExtraction` | RHF 1-D `mo_energy` → `scf_type="RHF"`; UHF tuple → `scf_type="UHF"` + nested lists; `mo_energy=None` → empty lists with warning logged |
+| `TestMethodSelection` | RHF + `spin="1"` stays RHF; RHF + `spin="2"` auto-switches to UHF; `method="RKS"` dispatches `dft.RKS` |
+| `TestSolventSetup` | `solvent="Water"` uses hardcoded `eps=78.2` and logs the solvent name; vacuum default leaves `ddCOSMO` uncalled |
+| `TestOuterExceptionHandler` | `mol.build()` raising a plain `Exception` (not caught by inner handler) propagates to outer handler → `error_signal` emitted |
+
+**Design note:** `_run_single_point()` helper sets `w.config["out_dir"] = tmpdir` (real temp dir so file writes succeed), then patches only `CaptureStdOut`.  PySCF modules (`gto`, `scf`, `dft`) are mocked directly on the module object (`_mod.gto = gto_mock`).
+
+---
+
+### test_worker_capture_stdout.py
+**CaptureStdOut context manager and StreamToSignal auxiliary methods**
+
+| Class | What is tested |
+|---|---|
+| `TestCaptureStdOutInit` | Filename stored; `_saved_fd1`/`_saved_fd2` initialised to `None` |
+| `TestCaptureStdOutEnter` | Returns open log file; OS-level FDs saved and redirected; file opened in append mode |
+| `TestCaptureStdOutExitErrors` | Closed FD during restore logs a WARNING instead of raising; flush error on exit is swallowed; `log_file` is `None` after exit |
+| `TestCaptureStdOutEnterFileFallback` | When `sys.__stdout__.fileno()` raises `io.UnsupportedOperation`, fallback FD=1 is used |
+| `TestCaptureStdOutExitFlushErrors` | `sys.stdout.flush()` raising during `__exit__` is silently swallowed |
+| `TestStreamToSignalFlush` | `flush()` delegates to target stream; no-target case does not raise; errors on target flush are swallowed |
+| `TestStreamToSignalIsatty` | Returns `False` when no target; delegates to target's `isatty()`; returns `False` when target has no `isatty` attribute |
+
+---
+
+### test_vis_build_grid.py
+**`build_grid_from_meta()` — pure numpy grid construction**
+
+| Class | What is tested |
+|---|---|
+| `TestBuildGridUnitConversion` | Origin converted Bohr → Å; `is_angstrom_header=True` skips conversion; `x_vec` scaled by cell size; zero origin stays zero |
+| `TestBuildGridDimensions` | `grid.dimensions` set to `[nx, ny, nz]`; total points = `nx×ny×nz` |
+| `TestBuildGridPointData` | `"values"` key present in result; point count matches `nx×ny×nz`; data reshaped in F-order |
+| `TestBuildGridAnisotropic` | Non-cubic voxels produce correct point spacing along each axis |
+
+---
+
+### test_freq_vis_spectrum.py
+**`SpectrumWidget.recalc_curve()` — Gaussian and Lorentzian convolution**
+
+Uses `SpectrumWidget.__new__` + manual attribute initialisation to bypass `QWidget.__init__` (no running QApplication needed).
+
+| Class | What is tested |
+|---|---|
+| `TestRecalcCurveEmpty` | Empty `freqs` returns early; pre-set `curve_x`/`curve_y` are unchanged |
+| `TestRecalcCurveGaussian` | X-grid length 1000, starts at 0, ends at `max_wn`; peak centre within 10 cm⁻¹ of target frequency; intensity doubles peak height; non-negative; two separated peaks both visible; FWHM conversion verified at exp(−0.5) point (3% grid tolerance) |
+| `TestRecalcCurveLorentzian` | Peak at target frequency; peak height equals intensity; non-negative; length 1000; half-width-at-half-max verified (2% tolerance) |
+| `TestSetParams` | Wider sigma → wider half-max region; switches Gaussian ↔ Lorentzian; different `max_wn` changes grid endpoint |
+
+**Design note:** Qt stubs are force-installed (`sys.modules[k] = v`) to prevent cross-file stub pollution when test files are collected in the same process.
+
+---
+
+### test_freq_vis_normalizer.py
+**`FreqVisualizer` frequency normalisation and `SpectrumWidget` real constructor**
+
+| Class | What is tested |
+|---|---|
+| `TestFreqVisualizerNormalization` | Plain float list; list/tuple/ndarray single-element unwrapping; empty inner list → `0.0`; complex with zero imag → real part; complex imaginary-only → `-(abs(imag))`; complex mixed → `-(abs(imag))`; all output elements are `float`; empty input; `modes` stored as ndarray; `intensities` stored or `None` |
+| `TestSpectrumWidgetInit` | Real constructor sets `freqs`, `intensities`, `width_val=20.0`, `max_wn=4000.0`, `use_gaussian=True`; `recalc_curve()` called → `curve_x`/`curve_y` length 1000 |
+| `TestSpectrumWidgetSetParams` | `set_params()` updates `width_val`, `max_wn`, `invert_y`, `use_gaussian`; triggers recalculation (`curve_x[-1]` reflects new `max_wn`); Gaussian and Lorentzian both produce non-zero peaks |
+
+**Design note:** `QPalette` requires a proper class stub (`class _QPalette: class ColorRole: Base = 0`) rather than `MagicMock` because `freq_vis.py` accesses `QPalette.ColorRole.Base` as a class attribute.
 
 ---
 
@@ -263,21 +336,21 @@ If the main app renames or removes a `PluginContext` method:
 
 ## Coverage Summary (as of last run)
 
-| Module | Coverage |
-|---|---|
-| `tddft_table.py` | **100%** |
-| `__init__.py` | **95%** |
-| `utils.py` | **88%** |
-| `worker.py` | ~25% |
-| `gui.py` | 31% |
-| `scan_results.py` | 22% |
-| `calc_tab.py` | 22% |
-| `scan_dialog.py` | 21% |
-| `energy_diag.py` | ~40% |
-| `vis.py` | ~35% |
-| `vis_tab.py` | 0% |
-| `freq_vis.py` | 0% |
-| **Total** | **~22%** |
+| Module | Coverage | Recent gains |
+|---|---|---|
+| `tddft_table.py` | **100%** | — |
+| `__init__.py` | **95%** | — |
+| `utils.py` | **88%** | — |
+| `worker.py` | ~33% | +8 pp (Single Point end-to-end, numeric Hessian, mol-build success path) |
+| `gui.py` | 31% | — |
+| `scan_results.py` | 22% | — |
+| `calc_tab.py` | 22% | — |
+| `scan_dialog.py` | 21% | — |
+| `energy_diag.py` | ~22% | — |
+| `vis.py` | ~47% | +12 pp (`build_grid_from_meta` full path) |
+| `vis_tab.py` | 0% | — |
+| `freq_vis.py` | ~19% | +19 pp (SpectrumWidget constructor/recalc, FreqVisualizer normalisation) |
+| **Total** | **~25%** | +3 pp |
 
 The low overall coverage is expected: `vis.py`, `vis_tab.py`, and `freq_vis.py` contain Qt widget code that requires a live display to instantiate meaningfully, and `worker.py`'s calculation body requires a functioning PySCF installation with real molecule data.
 
