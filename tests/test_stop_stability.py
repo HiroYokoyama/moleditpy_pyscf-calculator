@@ -6,8 +6,10 @@ Coverage:
   - CaptureStdOut: FD restoration is atomic per-FD; failures are reported via logging
   - StreamToSignal: write() always forwards to target_stream; signal gates on _destroyed
   - PySCFWorker: cooperative stop flag and _stream attribute initialise correctly
+  - PropertyWorker/LoadWorker: cooperative stop flags initialise correctly
   - CalcTab._on_worker_stopped: idempotent (double-call safe)
   - CalcTab.stop_calculation: sequence of operations is correct
+  - PySCFDialog._safe_stop_worker: sequence of operations is correct
 
 Run with:
     python -m pytest tests/test_stop_stability.py -v
@@ -21,7 +23,7 @@ import logging
 import unittest
 import importlib
 import importlib.util
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, patch, call
 
 # ---------------------------------------------------------------------------
 # We import worker.py and calc_tab.py directly via importlib so that we
@@ -83,7 +85,7 @@ def _install_stubs():
         "QWidget", "QVBoxLayout", "QHBoxLayout", "QLabel", "QComboBox",
         "QPushButton", "QSpinBox", "QCheckBox", "QGroupBox", "QFormLayout",
         "QMessageBox", "QLineEdit", "QFileDialog", "QProgressBar", "QTextEdit",
-        "QDialog", "QSizePolicy", "QScrollArea", "QFrame",
+        "QDialog", "QSizePolicy", "QScrollArea", "QFrame", "QTabWidget", "QToolTip"
     ]:
         setattr(qt_widgets, name, MagicMock)
     pyqt6.QtWidgets = qt_widgets
@@ -115,12 +117,20 @@ _worker_mod = _load_module_direct(
 CaptureStdOut = _worker_mod.CaptureStdOut
 StreamToSignal = _worker_mod.StreamToSignal
 PySCFWorker = _worker_mod.PySCFWorker
+PropertyWorker = _worker_mod.PropertyWorker
+LoadWorker = _worker_mod.LoadWorker
 
 _calc_tab_mod = _load_module_direct(
     os.path.join("pyscf_calculator", "calc_tab.py"),
     "pyscf_calculator_calc_tab_under_test",
 )
 CalcTab = _calc_tab_mod.CalcTab
+
+_gui_mod = _load_module_direct(
+    os.path.join("pyscf_calculator", "gui.py"),
+    "pyscf_calculator_gui_under_test",
+)
+PySCFDialog = _gui_mod.PySCFDialog
 
 
 # ===========================================================================
@@ -301,6 +311,23 @@ class TestPySCFWorkerFields(unittest.TestCase):
     def test_stream_is_none(self):
         self.assertIsNone(self._make_worker()._stream)
 
+class TestOtherWorkersFields(unittest.TestCase):
+    """Verify LoadWorker and PropertyWorker cooperative fields."""
+
+    def test_property_worker_fields(self):
+        w = PropertyWorker.__new__(PropertyWorker)
+        w.chkfile = None; w.tasks = []; w.out_dir = None
+        w._stop_requested = False
+        w._stream = None
+        self.assertFalse(w._stop_requested)
+        self.assertIsNone(w._stream)
+
+    def test_load_worker_fields(self):
+        w = LoadWorker.__new__(LoadWorker)
+        w.chkfile = None
+        w._stop_requested = False
+        self.assertFalse(w._stop_requested)
+
 
 # ===========================================================================
 # CalcTab._on_worker_stopped — idempotency
@@ -409,6 +436,35 @@ class TestStopCalculationSequence(unittest.TestCase):
         tab, worker, _ = self._make_tab()
         CalcTab.stop_calculation(tab)
         worker.finished.connect.assert_called()
+
+
+# ===========================================================================
+# PySCFDialog._safe_stop_worker
+# ===========================================================================
+
+class TestSafeStopWorker(unittest.TestCase):
+    def _make_dialog(self):
+        dialog = MagicMock(spec=PySCFDialog)
+        # bind the real method
+        dialog._safe_stop_worker = PySCFDialog._safe_stop_worker.__get__(dialog)
+        return dialog
+
+    def test_safe_stop_sets_flag(self):
+        dialog = self._make_dialog()
+        worker = MagicMock()
+        worker.isRunning.return_value = True
+        worker._stop_requested = False
+        dialog._safe_stop_worker(worker)
+        self.assertTrue(worker._stop_requested)
+
+    def test_safe_stop_calls_terminate_on_timeout(self):
+        dialog = self._make_dialog()
+        worker = MagicMock()
+        worker.isRunning.return_value = True
+        worker.wait.return_value = False
+        dialog._safe_stop_worker(worker)
+        worker.terminate.assert_called_once()
+        worker.wait.assert_has_calls([call(1500), call(500)])
 
 
 if __name__ == "__main__":

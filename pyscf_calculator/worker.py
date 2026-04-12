@@ -1735,6 +1735,8 @@ class PropertyWorker(QThread):
         self.chkfile = chkfile
         self.tasks = tasks # expecting list of orbital names like "HOMO", "LUMO+1" etc. or "ESP"
         self.out_dir = out_dir
+        self._stop_requested = False
+        self._stream = None
 
     def run(self):
         if pyscf is None:
@@ -1756,6 +1758,7 @@ class PropertyWorker(QThread):
             original_stdout = sys.stdout
             original_stderr = sys.stderr
             stream = StreamToSignal(self.log_signal, target_stream=f_log)
+            self._stream = stream
             sys.stdout = stream
             sys.stderr = stream
 
@@ -1822,6 +1825,10 @@ class PropertyWorker(QThread):
             results = {"files": []}
             
             for task in self.tasks:
+                if self._stop_requested:
+                    self.log_signal.emit("Property generation stopped by user.\n")
+                    break
+
                 if task == "ESP":
                     # Generate Unique Paths
                     from .utils import get_unique_path
@@ -2087,6 +2094,9 @@ class PropertyWorker(QThread):
                     from .utils import get_unique_path
                     f_path = get_unique_path(f_path_base)
                     
+                    if getattr(self, '_stop_requested', False):
+                        break
+                    
                     self.log_signal.emit(f"Generating {os.path.basename(f_path)} (Index {idx}{spin_suffix})...\n")
                     tools.cubegen.orbital(mol, f_path, target_coeff[:, idx])
                     results["files"].append(f_path)
@@ -2095,13 +2105,19 @@ class PropertyWorker(QThread):
             self.finished_signal.emit()
             
         except Exception as e:
-            self.error_signal.emit(str(e) + "\n" + traceback.format_exc())
+            if not getattr(self, '_stop_requested', False):
+                self.error_signal.emit(str(e) + "\n" + traceback.format_exc())
+            else:
+                logging.info("[worker.py] PropertyWorker stopped by user: %s", e)
             
         finally:
-            if 'original_stdout' in locals():
-                sys.stdout = original_stdout
-            if 'original_stderr' in locals():
-                sys.stderr = original_stderr
+            if getattr(self, '_stream', None) is not None and hasattr(self._stream, 'close'):
+                try: self._stream.close()
+                except Exception: pass
+            self._stream = None
+
+            if 'original_stdout' in locals(): sys.stdout = original_stdout
+            if 'original_stderr' in locals(): sys.stderr = original_stderr
 
             # Restore C-Level FDs
             if 'capturer' in locals():
@@ -2116,6 +2132,7 @@ class LoadWorker(QThread):
     def __init__(self, chkfile):
         super().__init__()
         self.chkfile = chkfile
+        self._stop_requested = False
 
     def run(self):
         if pyscf is None:
@@ -2229,9 +2246,9 @@ class LoadWorker(QThread):
                                     break
                             if has_partial_occ:
                                 scf_type = "ROKS"
-                except Exception:
+                except Exception as _e:
                     # If ROKS detection fails, default to RHF (safe fallback)
-                    logging.warning("[worker.py:2181] silenced")
+                    logging.warning("[worker.py] PySCF ROKS detection silenced: %s", _e)
                     
             if is_uhf:
                 scf_type = "UHF"
@@ -2244,15 +2261,15 @@ class LoadWorker(QThread):
                      # Numpy 2D case
                         if hasattr(mo_energy, 'tolist'): mo_energy = mo_energy.tolist()
                         if hasattr(mo_occ, 'tolist'): mo_occ = mo_occ.tolist()
-                except Exception:
-                    pass  # Keep as-is if conversion fails
+                except Exception as _e:
+                    logging.warning("[worker.py] Array conversion failed on UHF: %s", _e)
             else:
                  # RHF/ROKS Case
                  try:
                      if hasattr(mo_energy, 'tolist'): mo_energy = mo_energy.tolist()
                      if hasattr(mo_occ, 'tolist'): mo_occ = mo_occ.tolist()
-                 except Exception:
-                     pass  # Keep as-is if conversion fails
+                 except Exception as _e:
+                     logging.warning("[worker.py] Array conversion failed on RHF/ROKS: %s", _e)
             
             # Attempt to extract optimized XYZ if present (or just current geometry)
             coords = mol.atom_coords(unit='Ang')

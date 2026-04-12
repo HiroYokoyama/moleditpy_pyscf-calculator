@@ -143,6 +143,25 @@ class PySCFDialog(QDialog):
         if getattr(self, 'calc_tab', None) is not None:
             self.calc_tab.cleanup_ui_state()
 
+    def _safe_stop_worker(self, worker):
+        if worker and worker.isRunning():
+            worker._stop_requested = True
+            try:
+                if getattr(worker, '_stream', None):
+                    worker._stream.close()
+            except Exception: pass
+            
+            try:
+                if hasattr(worker, 'finished_signal'): worker.finished_signal.disconnect()
+                if hasattr(worker, 'error_signal'): worker.error_signal.disconnect()
+                if hasattr(worker, 'log_signal'): worker.log_signal.disconnect()
+                if hasattr(worker, 'result_signal'): worker.result_signal.disconnect()
+            except Exception: pass
+            
+            if not worker.wait(1500):
+                worker.terminate()
+                worker.wait(500)
+
     def closeEvent(self, event):
         self.closing = True
         
@@ -153,10 +172,8 @@ class PySCFDialog(QDialog):
         # Cleanup VisTab Actors/Workers
         if getattr(self, 'vis_tab', None) is not None:
             self.vis_tab.clear_3d_actors()
-            if self.vis_tab.load_worker and self.vis_tab.load_worker.isRunning():
-                 self.vis_tab.load_worker.terminate()
-            if self.vis_tab.prop_worker and self.vis_tab.prop_worker.isRunning():
-                 self.vis_tab.prop_worker.terminate()
+            self._safe_stop_worker(self.vis_tab.load_worker)
+            self._safe_stop_worker(self.vis_tab.prop_worker)
             
             # Close Dock
             if self.vis_tab.freq_dock:
@@ -171,12 +188,10 @@ class PySCFDialog(QDialog):
              self.calc_tab.stop_calculation()
         
         if getattr(self, 'vis_tab', None) is not None:
-             if self.vis_tab.load_worker and self.vis_tab.load_worker.isRunning():
-                 self.vis_tab.load_worker.terminate()
+             self._safe_stop_worker(self.vis_tab.load_worker)
              self.vis_tab.load_worker = None
              
-             if self.vis_tab.prop_worker and self.vis_tab.prop_worker.isRunning():
-                 self.vis_tab.prop_worker.terminate()
+             self._safe_stop_worker(self.vis_tab.prop_worker)
              self.vis_tab.prop_worker = None
              
              self.vis_tab.clear_3d_actors()
