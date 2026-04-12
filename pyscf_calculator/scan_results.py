@@ -302,10 +302,10 @@ class ScanResultDialog(QDialog):
             mw = self.context.get_main_window()
             
             # Use same logic as xyz_giffer: prefer main window's estimate_bonds_from_distances
-            if hasattr(mw, 'estimate_bonds_from_distances'):
+            if hasattr(mw, 'io_manager') and hasattr(mw.io_manager, 'estimate_bonds_from_distances'):
                 try:
                     mw.io_manager.estimate_bonds_from_distances(mol)
-                except Exception as e:
+                except Exception as _e:
                     print(f"estimate_bonds_from_distances failed: {e}")
             
             # Also try rdDetermineBonds as a secondary supplement if 0 bonds were found

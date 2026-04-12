@@ -523,7 +523,7 @@ class VisTab(QWidget):
                     mw = self.context.get_main_window()
                     if hasattr(mw, 'plotter'): mw.plotter.reset_camera()
                     is_manual_load = getattr(self, 'loading_update_struct', True)
-                    if is_manual_load and hasattr(mw, 'minimize_2d_panel'):
+                    if is_manual_load and hasattr(mw, 'ui_manager') and hasattr(mw.ui_manager, 'minimize_2d_panel'):
                         mw.ui_manager.minimize_2d_panel()
                 except Exception as _e:
                     logging.warning("[vis_tab.py:519] silenced: %s", _e)
@@ -1120,7 +1120,8 @@ class VisTab(QWidget):
         update_molecule_from_xyz(self.context, xyz)
         try:
             mw = self.context.get_main_window()
-            if hasattr(mw, 'push_undo_state'): mw.edit_actions_manager.push_undo_state()
+            if hasattr(mw, 'edit_actions_manager') and hasattr(mw.edit_actions_manager, 'push_undo_state'): 
+                mw.edit_actions_manager.push_undo_state()
         except Exception as _e:
             logging.warning("[vis_tab.py:1111] silenced: %s", _e)
         self.log("Geometry updated.")
