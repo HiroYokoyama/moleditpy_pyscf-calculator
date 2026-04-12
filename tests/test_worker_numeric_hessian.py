@@ -234,5 +234,59 @@ class TestNumericHessianFallback(unittest.TestCase):
         self.assertEqual(hess.shape, (n, 3, n, 3))
 
 
+# ===========================================================================
+# atom_coords(unit='Bohr') fallback (lines 204-206)
+# ===========================================================================
+
+class TestNumericHessianAtomCoordsFallback(unittest.TestCase):
+    """
+    If mol.atom_coords(unit='Bohr') raises (older PySCF), the code falls back
+    to mol.atom_coords() * 1.8897... (lines 204-206).
+    The hessian must still have valid shape.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.mod = _load_worker_mod(MagicMock())
+
+    def test_fallback_when_unit_bohr_raises(self):
+        w = _make_worker(self.mod)
+        n = 2
+        mol = _make_mock_mol(n_atoms=n)
+        mf = _make_mock_mf(n_atoms=n)
+
+        # Make atom_coords raise only when called with unit='Bohr'
+        coords = np.zeros((n, 3))
+        coords[1, 0] = 1.0
+
+        def _atom_coords_side_effect(*args, **kwargs):
+            if kwargs.get("unit") == "Bohr":
+                raise TypeError("unit kwarg not supported")
+            return coords
+
+        mol.atom_coords.side_effect = _atom_coords_side_effect
+
+        hess = w.compute_numeric_hessian(mf, mol)
+        self.assertEqual(hess.shape, (n, 3, n, 3))
+
+    def test_fallback_hessian_is_symmetric(self):
+        w = _make_worker(self.mod)
+        n = 2
+        mol = _make_mock_mol(n_atoms=n)
+        mf = _make_mock_mf(n_atoms=n)
+
+        coords = np.zeros((n, 3))
+
+        def _raise_on_bohr(*args, **kwargs):
+            if kwargs.get("unit") == "Bohr":
+                raise TypeError("no unit kwarg")
+            return coords
+
+        mol.atom_coords.side_effect = _raise_on_bohr
+
+        hess = w.compute_numeric_hessian(mf, mol)
+        np.testing.assert_allclose(hess, hess.transpose(2, 3, 0, 1), atol=1e-12)
+
+
 if __name__ == "__main__":
     unittest.main()

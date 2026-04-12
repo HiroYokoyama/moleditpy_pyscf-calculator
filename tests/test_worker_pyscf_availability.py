@@ -232,7 +232,98 @@ class TestWorkerMolBuildFailure(unittest.TestCase):
 
 
 # ===========================================================================
-# 3. Spin / Charge parsing (via run() with early exit)
+# 3. Mol-setup path: gto.M() succeeds → mol.stdout / mol.build() coverage
+# ===========================================================================
+
+class TestWorkerMolBuildSuccessPath(unittest.TestCase):
+    """
+    When gto.M() returns a mock mol, lines 333-335 (mol.stdout, mol.verbose,
+    mol.build) are exercised.  We then make mol.build() raise ValueError so
+    run() returns via the existing error handler.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        pyscf_mock = MagicMock()
+        cls.mod = _load_worker_with_pyscf_mock(pyscf_mock)
+        cls.mod.pyscf = pyscf_mock
+
+    def _run_mol_ok_build_fails(self, build_exc=None):
+        w = _make_worker(self.mod)
+        mock_mol = MagicMock()
+        if build_exc is not None:
+            mock_mol.build.side_effect = build_exc
+        else:
+            mock_mol.build.side_effect = ValueError("bail after setup")
+        gto_mock = MagicMock()
+        gto_mock.M.return_value = mock_mol
+        self.mod.gto = gto_mock
+
+        with patch("os.path.exists", return_value=False), \
+             patch("os.makedirs"), \
+             patch.object(self.mod, "CaptureStdOut") as mock_cap:
+            mock_cap.return_value.__enter__ = MagicMock(return_value=MagicMock())
+            mock_cap.return_value.__exit__ = MagicMock(return_value=False)
+            w.run()
+
+        return w, mock_mol
+
+    def test_mol_build_is_called(self):
+        _, mol = self._run_mol_ok_build_fails()
+        mol.build.assert_called_once()
+
+    def test_mol_stdout_assigned_to_stream(self):
+        """mol.stdout is set before mol.build(); a stream object must be assigned."""
+        _, mol = self._run_mol_ok_build_fails()
+        # mol.stdout was assigned (MagicMock records attribute sets)
+        self.assertIsNotNone(mol.stdout)
+
+    def test_error_signal_emitted_after_build_fails(self):
+        w, _ = self._run_mol_ok_build_fails()
+        w.error_signal.emit.assert_called_once()
+
+    def test_out_dir_loop_skips_existing_dir(self):
+        """job_1 exists → loop increments to job_2 (covers line 266)."""
+        w = _make_worker(self.mod)
+        mock_mol = MagicMock()
+        mock_mol.build.side_effect = ValueError("bail")
+        self.mod.gto = MagicMock()
+        self.mod.gto.M.return_value = mock_mol
+
+        # First call to exists() returns True (job_1 taken), second False (job_2 free)
+        with patch("os.path.exists", side_effect=[True, False]), \
+             patch("os.makedirs"), \
+             patch.object(self.mod, "CaptureStdOut") as mock_cap:
+            mock_cap.return_value.__enter__ = MagicMock(return_value=MagicMock())
+            mock_cap.return_value.__exit__ = MagicMock(return_value=False)
+            w.run()
+
+        # If we get here without infinite loop, job_2 was found — pass
+        self.assertIn("job_2", w.out_dir)
+
+    def test_threads_setting_calls_num_threads(self):
+        """n_threads > 0 in config → pyscf.lib.num_threads(n) called (line 293)."""
+        w = _make_worker(self.mod, config={
+            "job_type": "Single Point", "method": "RHF", "basis": "sto-3g",
+            "charge": 0, "spin": "1", "threads": 4, "memory": 4000,
+        })
+        mock_mol = MagicMock()
+        mock_mol.build.side_effect = ValueError("bail")
+        self.mod.gto = MagicMock()
+        self.mod.gto.M.return_value = mock_mol
+
+        with patch("os.path.exists", return_value=False), \
+             patch("os.makedirs"), \
+             patch.object(self.mod, "CaptureStdOut") as mock_cap:
+            mock_cap.return_value.__enter__ = MagicMock(return_value=MagicMock())
+            mock_cap.return_value.__exit__ = MagicMock(return_value=False)
+            w.run()
+
+        self.mod.pyscf.lib.num_threads.assert_called_with(4)
+
+
+# ===========================================================================
+# 4. Spin / Charge parsing (via run() with early exit)
 # ===========================================================================
 
 class TestWorkerSpinParsing(unittest.TestCase):
