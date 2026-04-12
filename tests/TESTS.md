@@ -141,6 +141,126 @@ Covers `get_unique_path`, `rdkit_to_xyz`, and `update_molecule_from_xyz` for PDB
 
 ---
 
+### test_worker_numeric_hessian.py
+**Finite-difference Hessian computation**
+
+| Class | What is tested |
+|---|---|
+| `TestNumericHessianStop` | `_stop_requested=True` at entry raises `InterruptedError`; log message contains "stopped" |
+| `TestNumericHessianCompute` | Shape `(n,3,n,3)`, symmetry `H[i,j,k,l]==H[k,l,i,j]`, zero-gradient → zero Hessian, progress log per atom, start log message |
+| `TestNumericHessianFallback` | When `as_scanner()` raises, manual fallback branch returns a valid-shaped Hessian |
+
+---
+
+### test_worker_property_worker.py
+**PropertyWorker HOMO/LUMO detection and task loop**
+
+| Class | What is tested |
+|---|---|
+| `TestPropertyWorkerNoPySCF` | `pyscf=None` → `error_signal` emitted, `finished_signal` **not** emitted |
+| `TestPropertyWorkerEmptyTasks` | Empty task list → `finished_signal` emitted, `result_signal` dict contains `"files": []`, no `error_signal` |
+| `TestHomoLumoDetection` | RHF 1-D array, UHF tuple `(alpha, beta)`, ROKS 2-D array, plain list, and all-occupied (lumo_idx=-1 guard) all complete without error |
+| `TestPropertyWorkerStop` | `_stop_requested=True` before loop → loop exits early, `files=[]`, no error |
+
+---
+
+### test_plugin_integration.py
+**Main-app PluginContext contract**
+
+Tests the integration boundary between the plugin and the MoleditPy host application.
+Two execution modes (see [Integration Test Strategy](#integration-test-strategy) below).
+
+| Class | What is tested |
+|---|---|
+| `TestInitializeRegistrations` | `initialize(context)` registers menu action at `"Extensions/PySCF Calculator..."`, plus save/load/reset handlers |
+| `TestSaveLoadState` | Save handler returns live `PLUGIN_SETTINGS` reference; load handler clears-and-updates; round-trip preserves data; empty load clears all |
+| `TestDocumentReset` | Reset handler clears `associated_filename`, `calc_history`, `struct_source`; preserves unrelated keys; safe on empty settings |
+| `TestShowDialogViaContext` | First call creates `PySCFDialog` with correct args; second call (visible dialog) raises/activates without creating new instance |
+| `TestWithRealPluginContext` *(skipped unless main app present)* | `initialize()` does not raise with the real `PluginContext`; real class has all methods used by the plugin |
+
+---
+
+## Integration Test Strategy
+
+### Goal
+
+Verify that the plugin's `initialize(context)` correctly honours the
+**PluginContext contract** defined by the MoleditPy host application, so that
+breaking changes in either side are caught automatically.
+
+### Two-tier approach
+
+```
+Tier 1 — Stub mode (always runs, including GitHub CI)
+  StubPluginContext mirrors the PluginContext API surface.
+  No main app required.  Catches interface mismatches immediately.
+
+Tier 2 — Real-context mode (runs when main app source is available)
+  Uses the actual PluginContext class from python_molecular_editor.
+  Catches subtle incompatibilities not visible from the stub.
+```
+
+### Local development
+
+The real-context tests activate automatically when the main app is found at:
+
+```
+../python_molecular_editor/moleditpy/src      ← relative to this repo
+```
+
+If the plugin repo and the main app are siblings in the same parent folder:
+```
+<parent>/
+    moleditpy_pyscf-calculator/   ← this plugin
+    python_molecular_editor/      ← main app (sibling folder)
+```
+
+All 25 integration tests including the 3 real-context tests will run.
+
+### GitHub Actions CI
+
+The workflow has two jobs:
+
+| Job | Triggers | What runs |
+|---|---|---|
+| `test` | every push/PR | Full suite, stub-only integration tests |
+| `test-integration` | every push/PR | Clones main app from GitHub, runs integration tests with real `PluginContext` |
+
+The `test-integration` job clones:
+```
+https://github.com/HiroYokoyama/python_molecular_editor
+```
+and sets `CI_MAIN_APP_SRC` so `test_plugin_integration.py` finds the real
+`PluginContext`.
+
+### StubPluginContext design
+
+The stub captures all registrations:
+
+```python
+ctx.menu_actions   # dict: path → callback
+ctx.save_handlers  # list of callables
+ctx.load_handlers  # list of callables
+ctx.reset_handlers # list of callables
+```
+
+Every method called by `initialize()` is implemented on the stub.  All other
+`PluginContext` methods are present as no-ops so the stub can also be passed to
+code that calls less-common APIs.
+
+### Detecting regressions
+
+If the plugin changes `initialize()` to call a new `PluginContext` method:
+- `TestInitializeRegistrations` will catch missing registrations
+- `TestWithRealPluginContext.test_stub_interface_matches_real` will catch methods
+  missing from the real class
+
+If the main app renames or removes a `PluginContext` method:
+- `TestWithRealPluginContext.test_stub_interface_matches_real` will fail in the
+  integration CI job, giving an early warning before a user upgrade would break
+
+---
+
 ## Coverage Summary (as of last run)
 
 | Module | Coverage |
@@ -148,16 +268,16 @@ Covers `get_unique_path`, `rdkit_to_xyz`, and `update_molecule_from_xyz` for PDB
 | `tddft_table.py` | **100%** |
 | `__init__.py` | **95%** |
 | `utils.py` | **88%** |
-| `worker.py` | 11% |
+| `worker.py` | ~25% |
 | `gui.py` | 31% |
 | `scan_results.py` | 22% |
 | `calc_tab.py` | 22% |
 | `scan_dialog.py` | 21% |
-| `energy_diag.py` | 20% |
-| `vis.py` | 0% |
+| `energy_diag.py` | ~40% |
+| `vis.py` | ~35% |
 | `vis_tab.py` | 0% |
 | `freq_vis.py` | 0% |
-| **Total** | **~14%** |
+| **Total** | **~22%** |
 
 The low overall coverage is expected: `vis.py`, `vis_tab.py`, and `freq_vis.py` contain Qt widget code that requires a live display to instantiate meaningfully, and `worker.py`'s calculation body requires a functioning PySCF installation with real molecule data.
 
