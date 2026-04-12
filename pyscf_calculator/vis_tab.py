@@ -497,10 +497,10 @@ class VisTab(QWidget):
              def update_and_finalize():
                 # Strict Check: ONLY update source if it is an optimization result
                 is_opt = result_data.get("optimized_xyz", None) or getattr(self, '_pending_is_opt', False)
-                
+
                 # Clear pending flag
                 self._pending_is_opt = False
-                
+
                 if is_opt:
                     if self.chkfile_path:
                         chk_abs = os.path.abspath(self.chkfile_path)
@@ -513,30 +513,38 @@ class VisTab(QWidget):
                     self.parent_dialog.struct_source = src_str
                     self.lbl_struct_source.setText(f"Structure Source: {src_str}")
                     self.parent_dialog.save_settings()
-                    
+
                     # Ensure project is marked as modified so settings are saved
-                    try:
-                        mw = self.context.get_main_window()
-                        if mw:
-                            sm = getattr(mw, 'state_manager', None)
-                            if sm:
-                                try:
-                                    sm.has_unsaved_changes = True
-                                    if hasattr(sm, 'update_window_title'):
-                                        sm.update_window_title()
-                                except Exception as _e:
-                                    logging.warning("Failed to update StateManager in vis_tab optimization: %s", _e)
-                
-                self.update_geometry(self.optimized_xyz)
-                
-                try:
                     mw = self.context.get_main_window()
-                    if hasattr(mw, 'view_3d_manager') and hasattr(mw.view_3d_manager, 'plotter'): mw.view_3d_manager.plotter.reset_camera()
-                    is_manual_load = getattr(self, 'loading_update_struct', True)
-                    if is_manual_load and hasattr(mw, 'ui_manager') and hasattr(mw.ui_manager, 'minimize_2d_panel'):
-                        mw.ui_manager.minimize_2d_panel()
-                except Exception as _e:
-                    logging.warning("[vis_tab.py:519] silenced: %s", _e)
+                    sm = getattr(mw, 'state_manager', None)
+                    if sm:
+                        try:
+                            sm.has_unsaved_changes = True
+                            if hasattr(sm, 'update_window_title'):
+                                sm.update_window_title()
+                        except Exception as _e:
+                            logging.warning("Failed to update StateManager in vis_tab optimization: %s", _e)
+
+                self.update_geometry(self.optimized_xyz)
+
+                mw = self.context.get_main_window()
+                uim = getattr(mw, 'ui_manager', None)
+                v3m = getattr(mw, 'view_3d_manager', None)
+
+                if v3m:
+                    try:
+                        if hasattr(v3m, 'plotter') and v3m.plotter:
+                            v3m.plotter.reset_camera()
+                    except Exception as _e:
+                        logging.warning("Failed to reset camera in vis_tab: %s", _e)
+
+                is_manual_load = getattr(self, 'loading_update_struct', True)
+                if is_manual_load and uim:
+                    try:
+                        if hasattr(uim, 'minimize_2d_panel'):
+                            uim.minimize_2d_panel()
+                    except Exception as _e:
+                        logging.warning("Failed to minimize 2d panel in vis_tab: %s", _e)
 
                 try:
                     self.finalize_load(result_data, cubes)
