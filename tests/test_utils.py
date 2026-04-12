@@ -69,7 +69,8 @@ class TestUtils(unittest.TestCase):
     def test_update_molecule_from_xyz_pdb_format(self):
         context = MagicMock()
         mw = MagicMock()
-        mw.has_unsaved_changes = False
+        mw.state_manager = MagicMock()
+        mw.state_manager.has_unsaved_changes = False
         context.get_main_window.return_value = mw
         
         utils.Chem.MolFromPDBBlock = MagicMock(return_value="pdb_mol")

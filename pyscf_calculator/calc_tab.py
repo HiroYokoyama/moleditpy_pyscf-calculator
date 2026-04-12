@@ -604,8 +604,10 @@ class CalcTab(QWidget):
         if self.context:
              mw = self.context.get_main_window()
              if mw:
-                 mw.has_unsaved_changes = True
-                 mw.state_manager.update_window_title()
+                 if hasattr(mw, 'state_manager'):
+                     mw.state_manager.has_unsaved_changes = True
+                     if hasattr(mw.state_manager, 'update_window_title'):
+                         mw.state_manager.update_window_title()
                  # Collapse 2D editor so plugins (3D view etc.) have full space
                  splitter = getattr(getattr(mw, 'init_manager', None), 'splitter', None)
                  if splitter:

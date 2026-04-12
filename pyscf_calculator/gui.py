@@ -127,9 +127,9 @@ class PySCFDialog(QDialog):
         try:
             if self.context:
                 mw = self.context.get_main_window()
-                if hasattr(mw, 'has_unsaved_changes'):
-                    mw.has_unsaved_changes = True
-                    if hasattr(mw, 'update_window_title'):
+                if mw and hasattr(mw, 'state_manager'):
+                    mw.state_manager.has_unsaved_changes = True
+                    if hasattr(mw.state_manager, 'update_window_title'):
                         mw.state_manager.update_window_title()
         except Exception as _e:
             logging.warning("[gui.py:134] silenced: %s", _e)

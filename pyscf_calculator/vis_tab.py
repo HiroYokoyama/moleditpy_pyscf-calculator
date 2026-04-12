@@ -393,8 +393,10 @@ class VisTab(QWidget):
             if self.context:
                 mw = self.context.get_main_window()
                 if mw:
-                    mw.has_unsaved_changes = True
-                    mw.state_manager.update_window_title()
+                    if hasattr(mw, 'state_manager'):
+                        mw.state_manager.has_unsaved_changes = True
+                        if hasattr(mw.state_manager, 'update_window_title'):
+                            mw.state_manager.update_window_title()
             self._history_changed = False
 
     def on_load_finished(self, result_data):
@@ -405,8 +407,10 @@ class VisTab(QWidget):
              if self.context:
                  mw = self.context.get_main_window()
                  if mw:
-                     mw.has_unsaved_changes = True
-                     mw.state_manager.update_window_title()
+                     if hasattr(mw, 'state_manager'):
+                         mw.state_manager.has_unsaved_changes = True
+                         if hasattr(mw.state_manager, 'update_window_title'):
+                             mw.state_manager.update_window_title()
              self._history_changed = False
          
          try:
@@ -506,8 +510,10 @@ class VisTab(QWidget):
                     try:
                         mw = self.context.get_main_window()
                         if mw:
-                            mw.has_unsaved_changes = True
-                            mw.state_manager.update_window_title()
+                            if hasattr(mw, 'state_manager'):
+                                mw.state_manager.has_unsaved_changes = True
+                                if hasattr(mw.state_manager, 'update_window_title'):
+                                    mw.state_manager.update_window_title()
                     except Exception as _e:
                         logging.warning("[vis_tab.py:509] silenced: %s", _e)
                 
