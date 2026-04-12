@@ -90,8 +90,11 @@ def update_molecule_from_xyz(context, xyz_content, mark_modified=True):
         
         if should_suppress:
             try:
-                if mw and hasattr(mw, 'has_unsaved_changes'):
-                    was_dirty = mw.has_unsaved_changes
+                if mw:
+                    if hasattr(mw, 'state_manager') and hasattr(mw.state_manager, 'has_unsaved_changes'):
+                        was_dirty = mw.state_manager.has_unsaved_changes
+                    elif hasattr(mw, 'has_unsaved_changes'):
+                        was_dirty = mw.has_unsaved_changes
             except Exception as _e:
                 logging.warning("[utils.py:95] silenced: %s", _e)
 
@@ -100,8 +103,13 @@ def update_molecule_from_xyz(context, xyz_content, mark_modified=True):
         # Restore Dirty State
         if should_suppress:
             try:
-                if mw and hasattr(mw, 'has_unsaved_changes'):
-                    mw.has_unsaved_changes = was_dirty
-                    mw.state_manager.update_window_title()
+                if mw:
+                    if hasattr(mw, 'state_manager') and hasattr(mw.state_manager, 'has_unsaved_changes'):
+                        mw.state_manager.has_unsaved_changes = was_dirty
+                    elif hasattr(mw, 'has_unsaved_changes'):
+                        mw.has_unsaved_changes = was_dirty
+                    
+                    if hasattr(mw, 'state_manager') and hasattr(mw.state_manager, 'update_window_title'):
+                        mw.state_manager.update_window_title()
             except Exception as _e:
                 logging.warning("[utils.py:105] silenced: %s", _e)
