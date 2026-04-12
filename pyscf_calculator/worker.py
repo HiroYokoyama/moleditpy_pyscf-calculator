@@ -66,21 +66,45 @@ class CaptureStdOut:
         return self.log_file
 
     def __exit__(self, exc_type, exc_val, exc_tb):
-        # Flush
-        sys.stdout.flush()
-        sys.stderr.flush()
-        if getattr(self, 'log_file', None) is not None: self.log_file.flush()
+        # Flush — safe to swallow: stream may already be dead after thread kill
+        try: sys.stdout.flush()
+        except Exception: pass  # safe: stdout may be redirected or closed
+        try: sys.stderr.flush()
+        except Exception: pass  # safe: stderr may be redirected or closed
+        try:
+            if getattr(self, 'log_file', None) is not None:
+                self.log_file.flush()
+        except Exception: pass  # safe: log file may already be closed
 
-        # Restore
-        if self.saved_stdout_fd is not None:
-            os.dup2(self.saved_stdout_fd, self.original_stdout_fd)
-            os.close(self.saved_stdout_fd)
-            
-        if self.saved_stderr_fd is not None:
-            os.dup2(self.saved_stderr_fd, self.original_stderr_fd)
-            os.close(self.saved_stderr_fd)
-            
-        if getattr(self, 'log_file', None) is not None: self.log_file.close()
+        # Restore stdout FD — each step is independently guarded so that
+        # a partial failure (e.g. after QThread.terminate()) does not leave
+        # the other FD permanently redirected.
+        if self.saved_stdout_fd is not None and self.original_stdout_fd is not None:
+            try:
+                os.dup2(self.saved_stdout_fd, self.original_stdout_fd)
+            except Exception as _e:
+                logging.warning("[worker.py] CaptureStdOut: failed to restore stdout FD: %s", _e)
+            finally:
+                try: os.close(self.saved_stdout_fd)
+                except Exception as _e:
+                    logging.warning("[worker.py] CaptureStdOut: failed to close saved stdout FD: %s", _e)
+                self.saved_stdout_fd = None
+
+        if self.saved_stderr_fd is not None and self.original_stderr_fd is not None:
+            try:
+                os.dup2(self.saved_stderr_fd, self.original_stderr_fd)
+            except Exception as _e:
+                logging.warning("[worker.py] CaptureStdOut: failed to restore stderr FD: %s", _e)
+            finally:
+                try: os.close(self.saved_stderr_fd)
+                except Exception as _e:
+                    logging.warning("[worker.py] CaptureStdOut: failed to close saved stderr FD: %s", _e)
+                self.saved_stderr_fd = None
+
+        if getattr(self, 'log_file', None) is not None:
+            try: self.log_file.close()
+            except Exception: pass  # safe: file may already be closed by OS after terminate()
+            self.log_file = None
 
 class StreamToSignal(io.TextIOBase):
     def __init__(self, signal, target_stream=None):
@@ -139,6 +163,10 @@ class PySCFWorker(QThread):
         super().__init__()
         self.xyz_str = xyz_str
         self.config = config
+        # Cooperative stop flag — set to True from the GUI thread to request
+        # clean termination between SCF steps / scan iterations.
+        self._stop_requested = False
+        self._stream = None  # Will hold StreamToSignal so GUI can invalidate it
 
     def compute_numeric_hessian(self, mf, mol):
         """
@@ -178,34 +206,38 @@ class PySCFWorker(QThread):
              coords_bohr = mol_calc.atom_coords() * 1.8897259886
         
         step_count = 0
-        
+
         for i_atom in range(n_atoms):
+            # Cooperative stop check between atoms
+            if self._stop_requested:
+                self.log_signal.emit("Numeric Hessian stopped by user.\n")
+                raise InterruptedError("Numeric Hessian stopped by user.")
             for i_cart in range(3): # x, y, z
                 # Construct displaced geometries
                 r_orig = coords_bohr[i_atom, i_cart]
-                
+
                 # Plus
                 coords_bohr[i_atom, i_cart] = r_orig + delta
                 mol_calc.set_geom_(coords_bohr, unit='Bohr')
                 _, g_plus = g_scanner(mol_calc)
-                
+
                 # Minus
                 coords_bohr[i_atom, i_cart] = r_orig - delta
                 mol_calc.set_geom_(coords_bohr, unit='Bohr')
                 _, g_minus = g_scanner(mol_calc)
-                
+
                 # Restore
                 coords_bohr[i_atom, i_cart] = r_orig
-                
+
                 # Central Difference
                 row_idx = i_atom * 3 + i_cart
                 hess_row = (g_plus - g_minus) / (2 * delta)
-                
+
                 hessian[row_idx, :] = hess_row.flatten()
-                
+
                 step_count += 1
                 if step_count % 3 == 0:
-                     self.log_signal.emit(f"    Atom {i_atom+1} done...\n")
+                    self.log_signal.emit(f"    Atom {i_atom+1} done...\n")
         
         # Reshape to (natm, 3, natm, 3)
         hessian = hessian.reshape((n_atoms, 3, n_atoms, 3))
@@ -251,6 +283,7 @@ class PySCFWorker(QThread):
             original_stdout = sys.stdout
             original_stderr = sys.stderr
             stream = StreamToSignal(self.log_signal, target_stream=f_log)
+            self._stream = stream  # Exposed so GUI can call stream.close() before terminate()
             sys.stdout = stream
             sys.stderr = stream
             
@@ -508,14 +541,13 @@ class PySCFWorker(QThread):
             except Exception as _e:
                 logging.warning("[worker.py:507] silenced: %s", _e)
 
-            # Redirect stdout/stderr to capture ALL output (including geometric)
-            sys.stdout.flush()
-            original_stdout = sys.stdout
-            sys.stdout = stream
-            
             # Explicitly set pyscf logger stream too for global usage
             from pyscf import lib
             lib.logger.TIMER_LEVEL = 0  # Reduces some noise, or keeps it standard
+            # Note: sys.stdout/stderr are already redirected to `stream` above.
+            # The original values are saved in `original_stdout`/`original_stderr`.
+            # Do NOT re-assign original_stdout here — that would corrupt the
+            # reference needed by the outer finally block to restore real stdout.
             
             try:
                 # Prepare job type
@@ -1018,16 +1050,23 @@ class PySCFWorker(QThread):
 
             except Exception as e:
                 traceback.print_exc()
-                self.error_signal.emit(str(e))
+                # Do not emit error_signal for user-initiated stops — the signal
+                # is already disconnected, but emitting an InterruptedError as an
+                # error dialog would be confusing/wrong.
+                if not self._stop_requested:
+                    self.error_signal.emit(str(e))
+                else:
+                    logging.info("[worker.py] Calculation stopped by user: %s", e)
             finally:
-                # CRITICAL: Close/destroy the StreamToSignal BEFORE restoring streams
+                # CRITICAL: Close/destroy the StreamToSignal BEFORE restoring streams.
                 # This prevents delayed print() calls from trying to emit signals
-                # after Worker cleanup, which causes segmentation faults
+                # after Worker cleanup, which causes segmentation faults.
                 if 'stream' in locals() and hasattr(stream, 'close'):
                     try:
                         stream.close()  # Marks _destroyed = True
                     except Exception as _e:
-                        logging.warning("[worker.py:1026] silenced: %s", _e)
+                        logging.warning("[worker.py] silenced stream.close: %s", _e)
+                self._stream = None  # Release GUI-facing reference
                 
         except Exception as e:
             self.error_signal.emit(str(e) + "\n" + traceback.format_exc())
@@ -1104,12 +1143,16 @@ class PySCFWorker(QThread):
         
         scan_results = []
         trajectory = [] # List of XYZ strings
-        
+
         scan_values = np.linspace(start_val, end_val, steps)
-        
+
         csv_lines = ["Step,Value,Energy"]
-        
+
         for i, val in enumerate(scan_values):
+            # Cooperative stop check — avoids force-kill between steps
+            if self._stop_requested:
+                self.log_signal.emit(f"Rigid scan stopped by user after {i} step(s).\n")
+                break
             self.log_signal.emit(f"Step {i+1}/{steps}: {stype} = {val:.4f} ... ")
             
             # 1. Modify Geometry using RDKit
@@ -1283,6 +1326,10 @@ class PySCFWorker(QThread):
             mf.kernel()
 
         for i, val in enumerate(scan_values):
+            # Cooperative stop check
+            if self._stop_requested:
+                self.log_signal.emit(f"Relaxed scan stopped by user after {i} step(s).\n")
+                break
             self.log_signal.emit(f"\nStep {i+1}/{steps}: Constrained {stype} = {val:.4f}\n")
             
             # 1. Create Constraints File for geometric
