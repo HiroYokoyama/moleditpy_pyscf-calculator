@@ -36,18 +36,26 @@ def _install_stubs():
         def setWindowTitle(self, *a): pass
         def resize(self, *a): pass
         def setModal(self, *a): pass
+        def close(self): pass
 
     class _QWidget: pass
+
+    class _QHeaderView:
+        class ResizeMode:
+            Stretch = 1
 
     qt_widgets = types.ModuleType("PyQt6.QtWidgets")
     qt_widgets.QDialog = _QDialog
     qt_widgets.QWidget = _QWidget
+    qt_widgets.QHeaderView = _QHeaderView
 
     for name in [
-        "QVBoxLayout", "QHBoxLayout", "QTableWidget", "QTableWidgetItem", 
-        "QHeaderView", "QPushButton", "QMessageBox", "QFileDialog"
+        "QVBoxLayout", "QHBoxLayout", "QTableWidget", 
+        "QPushButton", "QMessageBox", "QFileDialog"
     ]:
         setattr(qt_widgets, name, MagicMock)
+        
+    qt_widgets.QTableWidgetItem = lambda *a, **k: MagicMock()
         
     pyqt6.QtWidgets = qt_widgets
     sys.modules["PyQt6.QtWidgets"] = qt_widgets
@@ -125,6 +133,45 @@ class TestTddftTable(unittest.TestCase):
         handle.write.assert_any_call('state,excitation_energy_ev,wavelength_nm,oscillator_strength,energy_total\r\n')
         # Check that it tried to write row 1
         handle.write.assert_any_call('1,4.5678,271.3,0.015,-76.4321\r\n')
+
+    def test_populate_empty(self):
+        table = TddftTable.__new__(TddftTable)
+        table.results = []
+        table.table = MagicMock()
+        
+        table.populate()
+        table.table.setRowCount.assert_not_called()
+
+    def test_save_csv_empty(self):
+        table = TddftTable.__new__(TddftTable)
+        table.results = []
+        # should return implicitly without doing anything
+        table.save_csv()
+
+    @patch('builtins.open')
+    def test_save_csv_exception(self, mock_open_func):
+        table = TddftTable.__new__(TddftTable)
+        table.results = self.mock_results
+        
+        tddft_mod.QFileDialog.getSaveFileName = MagicMock(return_value=("/fake/path.csv", ""))
+        tddft_mod.QMessageBox.critical = MagicMock()
+        
+        # Make opening file raise Exception
+        mock_open_func.side_effect = PermissionError("Cannot open file")
+        
+        table.save_csv()
+        tddft_mod.QMessageBox.critical.assert_called_once()
+
+    @patch.object(tddft_mod, 'QTableWidget')
+    @patch.object(tddft_mod, 'QVBoxLayout')
+    @patch.object(tddft_mod, 'QHBoxLayout')
+    @patch.object(tddft_mod, 'QPushButton')
+    def test_init_ui(self, mock_btn, mock_hbox, mock_vbox, mock_table):
+        table = TddftTable.__new__(TddftTable)
+        tddft_mod.TddftTable.__init__(table, results=self.mock_results)
+        
+        self.assertEqual(table.results, self.mock_results)
+        mock_table.return_value.setColumnCount.assert_called_with(5)
 
 if __name__ == '__main__':
     unittest.main()
