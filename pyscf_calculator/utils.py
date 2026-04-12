@@ -89,21 +89,23 @@ def update_molecule_from_xyz(context, xyz_content, mark_modified=True):
         should_suppress = not mark_modified
         
         if should_suppress:
-            try:
-                if mw and hasattr(mw, 'state_manager') and hasattr(mw.state_manager, 'has_unsaved_changes'):
-                    was_dirty = mw.state_manager.has_unsaved_changes
-            except Exception as _e:
-                logging.warning("[utils.py:95] silenced: %s", _e)
+            sm = getattr(mw, 'state_manager', None)
+            if sm:
+                try:
+                    was_dirty = getattr(sm, 'has_unsaved_changes', False)
+                except Exception as _e:
+                    logging.warning("Failed to check dirty state in StateManager: %s", _e)
 
         context.current_molecule = new_mol
         
         # Restore Dirty State
         if should_suppress:
-            try:
-                if mw and hasattr(mw, 'state_manager'):
-                    if hasattr(mw.state_manager, 'has_unsaved_changes'):
-                        mw.state_manager.has_unsaved_changes = was_dirty
-                    if hasattr(mw.state_manager, 'update_window_title'):
-                        mw.state_manager.update_window_title()
-            except Exception as _e:
-                logging.warning("[utils.py:105] silenced: %s", _e)
+            sm = getattr(mw, 'state_manager', None)
+            if sm:
+                try:
+                    if hasattr(sm, 'has_unsaved_changes'):
+                        sm.has_unsaved_changes = was_dirty
+                    if hasattr(sm, 'update_window_title'):
+                        sm.update_window_title()
+                except Exception as _e:
+                    logging.warning("Failed to restore dirty state in StateManager: %s", _e)

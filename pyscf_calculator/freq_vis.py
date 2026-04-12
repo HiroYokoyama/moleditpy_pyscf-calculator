@@ -249,23 +249,23 @@ class FreqVisualizer(QWidget):
 
     def update_vectors(self):
         # CLEANUP: Remove vectors and OTHER actors (Orbital/Mapped)
-        if hasattr(self.mw, 'plotter') and self.mw.plotter:
+        if hasattr(self.mw, 'view_3d_manager') and hasattr(self.mw.view_3d_manager, 'plotter') and self.mw.view_3d_manager.plotter:
             try:
                 if self.vector_actor:
-                    self.mw.plotter.remove_actor(self.vector_actor)
+                    self.mw.view_3d_manager.plotter.remove_actor(self.vector_actor)
                     self.vector_actor = None
                 
                 # Remove potential orbital actors to avoid interference
-                self.mw.plotter.remove_actor("pyscf_iso_p")
-                self.mw.plotter.remove_actor("pyscf_iso_n")
-                self.mw.plotter.remove_actor("pyscf_mapped")
+                self.mw.view_3d_manager.plotter.remove_actor("pyscf_iso_p")
+                self.mw.view_3d_manager.plotter.remove_actor("pyscf_iso_n")
+                self.mw.view_3d_manager.plotter.remove_actor("pyscf_mapped")
             except Exception as _e:
                 logging.warning("[freq_vis.py:252] silenced: %s", _e)
             
         if not self.chk_vectors.isChecked(): 
             try:
-                if hasattr(self.mw, 'plotter') and self.mw.plotter: 
-                    self.mw.plotter.render()
+                if hasattr(self.mw, 'view_3d_manager') and hasattr(self.mw.view_3d_manager, 'plotter') and self.mw.view_3d_manager.plotter: 
+                    self.mw.view_3d_manager.plotter.render()
             except Exception as _e:
                 logging.warning("[freq_vis.py:258] silenced: %s", _e)
             return
@@ -273,8 +273,8 @@ class FreqVisualizer(QWidget):
         item = self.list_freq.currentItem()
         if not item: # Select None case
             try:
-                if hasattr(self.mw, 'plotter') and self.mw.plotter: 
-                    self.mw.plotter.render()
+                if hasattr(self.mw, 'view_3d_manager') and hasattr(self.mw.view_3d_manager, 'plotter') and self.mw.view_3d_manager.plotter: 
+                    self.mw.view_3d_manager.plotter.render()
             except Exception as _e:
                 logging.warning("[freq_vis.py:266] silenced: %s", _e)
             return
@@ -291,9 +291,9 @@ class FreqVisualizer(QWidget):
         
         # Add Arrows
         try:
-           if hasattr(self.mw, 'plotter') and self.mw.plotter:
-               self.vector_actor = self.mw.plotter.add_arrows(coords, vectors, mag=scale, color='lightgreen', show_scalar_bar=False)
-               self.mw.plotter.render()
+           if hasattr(self.mw, 'view_3d_manager') and hasattr(self.mw.view_3d_manager, 'plotter') and self.mw.view_3d_manager.plotter:
+               self.vector_actor = self.mw.view_3d_manager.plotter.add_arrows(coords, vectors, mag=scale, color='lightgreen', show_scalar_bar=False)
+               self.mw.view_3d_manager.plotter.render()
         except Exception as _e:
             logging.warning("[freq_vis.py:284] silenced: %s", _e)
 
@@ -415,9 +415,9 @@ class FreqVisualizer(QWidget):
                 if self.chk_vectors.isChecked():
                      pass 
 
-                if hasattr(self.mw, 'plotter'):
-                    self.mw.plotter.render()
-                    img_array = self.mw.plotter.screenshot(transparent_background=use_transparent, return_img=True)
+                if hasattr(self.mw, 'view_3d_manager') and hasattr(self.mw.view_3d_manager, 'plotter'):
+                    self.mw.view_3d_manager.plotter.render()
+                    img_array = self.mw.view_3d_manager.plotter.screenshot(transparent_background=use_transparent, return_img=True)
                     if img_array is not None:
                          img = Image.fromarray(img_array)
                          images.append(img)
@@ -465,11 +465,11 @@ class FreqVisualizer(QWidget):
                 self.timer.stop()
             self.is_playing = False
             
-            if hasattr(self.mw, 'plotter') and self.mw.plotter and self.vector_actor:
-                 self.mw.plotter.remove_actor(self.vector_actor)
+            if hasattr(self.mw, 'view_3d_manager') and hasattr(self.mw.view_3d_manager, 'plotter') and self.mw.view_3d_manager.plotter and self.vector_actor:
+                 self.mw.view_3d_manager.plotter.remove_actor(self.vector_actor)
                  self.vector_actor = None
                  # Do NOT render during cleanup. It causes Segfaults (0x100).
-                 # self.mw.plotter.render() 
+                 # self.mw.view_3d_manager.plotter.render() 
         except Exception as _e:
             logging.warning("[freq_vis.py:473] silenced: %s", _e)
 

@@ -393,10 +393,14 @@ class VisTab(QWidget):
             if self.context:
                 mw = self.context.get_main_window()
                 if mw:
-                    if hasattr(mw, 'state_manager'):
-                        mw.state_manager.has_unsaved_changes = True
-                        if hasattr(mw.state_manager, 'update_window_title'):
-                            mw.state_manager.update_window_title()
+                    sm = getattr(mw, 'state_manager', None)
+                    if sm:
+                        try:
+                            sm.has_unsaved_changes = True
+                            if hasattr(sm, 'update_window_title'):
+                                sm.update_window_title()
+                        except Exception as _e:
+                            logging.warning("Failed to update StateManager in vis_tab: %s", _e)
             self._history_changed = False
 
     def on_load_finished(self, result_data):
@@ -407,10 +411,14 @@ class VisTab(QWidget):
              if self.context:
                  mw = self.context.get_main_window()
                  if mw:
-                     if hasattr(mw, 'state_manager'):
-                         mw.state_manager.has_unsaved_changes = True
-                         if hasattr(mw.state_manager, 'update_window_title'):
-                             mw.state_manager.update_window_title()
+                     sm = getattr(mw, 'state_manager', None)
+                     if sm:
+                         try:
+                             sm.has_unsaved_changes = True
+                             if hasattr(sm, 'update_window_title'):
+                                 sm.update_window_title()
+                         except Exception as _e:
+                             logging.warning("Failed to update StateManager in vis_tab load: %s", _e)
              self._history_changed = False
          
          try:
@@ -510,18 +518,20 @@ class VisTab(QWidget):
                     try:
                         mw = self.context.get_main_window()
                         if mw:
-                            if hasattr(mw, 'state_manager'):
-                                mw.state_manager.has_unsaved_changes = True
-                                if hasattr(mw.state_manager, 'update_window_title'):
-                                    mw.state_manager.update_window_title()
-                    except Exception as _e:
-                        logging.warning("[vis_tab.py:509] silenced: %s", _e)
+                            sm = getattr(mw, 'state_manager', None)
+                            if sm:
+                                try:
+                                    sm.has_unsaved_changes = True
+                                    if hasattr(sm, 'update_window_title'):
+                                        sm.update_window_title()
+                                except Exception as _e:
+                                    logging.warning("Failed to update StateManager in vis_tab optimization: %s", _e)
                 
                 self.update_geometry(self.optimized_xyz)
                 
                 try:
                     mw = self.context.get_main_window()
-                    if hasattr(mw, 'plotter'): mw.plotter.reset_camera()
+                    if hasattr(mw, 'view_3d_manager') and hasattr(mw.view_3d_manager, 'plotter'): mw.view_3d_manager.plotter.reset_camera()
                     is_manual_load = getattr(self, 'loading_update_struct', True)
                     if is_manual_load and hasattr(mw, 'ui_manager') and hasattr(mw.ui_manager, 'minimize_2d_panel'):
                         mw.ui_manager.minimize_2d_panel()
@@ -1072,15 +1082,15 @@ class VisTab(QWidget):
     def clear_3d_actors(self):
         try:
              mw = self.context.get_main_window()
-             if not mw or not hasattr(mw, 'plotter') or mw.plotter is None: return
+             if not mw or not hasattr(mw, 'view_3d_manager') or not hasattr(mw.view_3d_manager, 'plotter') or mw.view_3d_manager.plotter is None: return
              
-             try: mw.plotter.remove_actor("pyscf_iso_p")
+             try: mw.view_3d_manager.plotter.remove_actor("pyscf_iso_p")
              except Exception as _e:
                  logging.warning("[vis_tab.py:1074] silenced: %s", _e)
-             try: mw.plotter.remove_actor("pyscf_iso_n")
+             try: mw.view_3d_manager.plotter.remove_actor("pyscf_iso_n")
              except Exception as _e:
                  logging.warning("[vis_tab.py:1076] silenced: %s", _e)
-             try: mw.plotter.remove_actor("pyscf_mapped")
+             try: mw.view_3d_manager.plotter.remove_actor("pyscf_mapped")
              except Exception as _e:
                  logging.warning("[vis_tab.py:1078] silenced: %s", _e)
              
@@ -1094,7 +1104,7 @@ class VisTab(QWidget):
                      logging.warning("[vis_tab.py:1085] silenced: %s", _e)
              
              if not self.parent_dialog.closing:
-                 try: mw.plotter.render()
+                 try: mw.view_3d_manager.plotter.render()
                  except Exception as _e:
                      logging.warning("[vis_tab.py:1089] silenced: %s", _e)
         except Exception as _e:

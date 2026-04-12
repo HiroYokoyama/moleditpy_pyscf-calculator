@@ -183,18 +183,18 @@ def build_grid_from_meta(meta):
 class CubeVisualizer:
     def __init__(self, mw):
         self.mw = mw
-        # self.plotter = mw.plotter # Do not cache!
+        # self.plotter = mw.view_3d_manager.plotter # Do not cache!
         self.current_grid = None
         self.actors = {} # Store actors by key
         self.data_max = 1.0
 
     @property
     def plotter(self):
-        if hasattr(self.mw, 'plotter') and self.mw.plotter is not None:
+        if hasattr(self.mw, 'view_3d_manager') and hasattr(self.mw.view_3d_manager, 'plotter') and self.mw.view_3d_manager.plotter is not None:
              # Strict check: Ensure RenderWindow exists
              try:
-                 if self.mw.plotter.ren_win:
-                     return self.mw.plotter
+                 if self.mw.view_3d_manager.plotter.ren_win:
+                     return self.mw.view_3d_manager.plotter
              except Exception as _e:
                  logging.warning("[vis.py:197] silenced: %s", _e)
         return None
@@ -271,7 +271,7 @@ class CubeVisualizer:
 class MappedVisualizer:
     def __init__(self, mw):
         self.mw = mw
-        # self.plotter = mw.plotter # Do not cache
+        # self.plotter = mw.view_3d_manager.plotter # Do not cache
         self.grid_surf = None
         self.grid_prop = None
         self.actor = None
@@ -280,10 +280,10 @@ class MappedVisualizer:
         
     @property
     def plotter(self):
-        if hasattr(self.mw, 'plotter') and self.mw.plotter is not None:
+        if hasattr(self.mw, 'view_3d_manager') and hasattr(self.mw.view_3d_manager, 'plotter') and self.mw.view_3d_manager.plotter is not None:
              try:
-                 if self.mw.plotter.ren_win:
-                     return self.mw.plotter
+                 if self.mw.view_3d_manager.plotter.ren_win:
+                     return self.mw.view_3d_manager.plotter
              except Exception as _e:
                  logging.warning("[vis.py:284] silenced: %s", _e)
         return None
