@@ -532,23 +532,59 @@ class CalcTab(QWidget):
         self.worker.start()
 
     def stop_calculation(self):
-        if getattr(self, 'worker', None) is not None and self.worker and self.worker.isRunning():
-            self.log("\nStopping calculation...")
-            
-            try:
-                self.worker.log_signal.disconnect()
-                self.worker.finished_signal.disconnect()
-                self.worker.error_signal.disconnect()
-                self.worker.result_signal.disconnect()
-            except Exception as _e:
-                logging.warning("[calc_tab.py:544] silenced: %s", _e)
+        if getattr(self, 'worker', None) is None or not self.worker.isRunning():
+            return
 
-            if not self.worker.wait(500):
-                self.worker.terminate()
-                self.worker.wait()
-            
-            self.log("Calculation stopped.")
-            self.cleanup_ui_state()
+        self.log("\nStopping calculation...")
+
+        # 1. Set cooperative flag so the worker can exit cleanly between steps.
+        self.worker._stop_requested = True
+
+        # 2. Invalidate the StreamToSignal so any in-flight log emissions
+        #    do not crash after we disconnect signals below.
+        stream = getattr(self.worker, '_stream', None)
+        if stream is not None:
+            try:
+                stream.close()  # Sets _destroyed = True; safe to call from GUI thread
+            except Exception as _e:
+                logging.warning("[calc_tab.py] silenced stream.close: %s", _e)
+
+        # 3. Disconnect signals AFTER invalidating the stream.
+        try:
+            self.worker.log_signal.disconnect()
+            self.worker.finished_signal.disconnect()
+            self.worker.error_signal.disconnect()
+            self.worker.result_signal.disconnect()
+        except Exception as _e:
+            logging.warning("[calc_tab.py] silenced signal disconnect: %s", _e)
+
+        # 4. Connect deferred cleanup — self.worker is only set to None AFTER
+        #    the thread has fully exited, preventing use-after-free.
+        self.worker.finished.connect(self._on_worker_stopped)
+        self.worker.terminated.connect(self._on_worker_stopped)
+
+        # 5. Give the cooperative flag 2 s to take effect before force-killing.
+        if not self.worker.wait(2000):
+            self.log("Force-terminating worker thread...")
+            self.worker.terminate()
+            # wait() after terminate() blocks until the OS has cleaned up.
+            self.worker.wait(1000)
+
+        self.log("Calculation stopped.")
+        # Do NOT call cleanup_ui_state() here — _on_worker_stopped handles it.
+
+    def _on_worker_stopped(self):
+        """Called from finished/terminated signal once the thread has fully exited.
+
+        Both QThread.finished and QThread.terminated are connected during stop_calculation(),
+        so this method may be called twice on some platforms. The self.worker is None guard
+        prevents cleanup_ui_state() from running a second time, which could corrupt UI state
+        if the user has already started a new calculation.
+        """
+        if self.worker is None:
+            return  # Already cleaned up (duplicate signal delivery)
+        self.worker = None
+        self.cleanup_ui_state()
 
     def log(self, message):
         self.log_text.append(message)
@@ -568,8 +604,10 @@ class CalcTab(QWidget):
         if self.context:
              mw = self.context.get_main_window()
              if mw:
-                 mw.has_unsaved_changes = True
-                 mw.state_manager.update_window_title()
+                 if hasattr(mw, 'state_manager'):
+                     mw.state_manager.has_unsaved_changes = True
+                     if hasattr(mw.state_manager, 'update_window_title'):
+                         mw.state_manager.update_window_title()
                  # Collapse 2D editor so plugins (3D view etc.) have full space
                  splitter = getattr(getattr(mw, 'init_manager', None), 'splitter', None)
                  if splitter:

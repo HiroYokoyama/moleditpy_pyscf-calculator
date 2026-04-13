@@ -302,11 +302,13 @@ class ScanResultDialog(QDialog):
             mw = self.context.get_main_window()
             
             # Use same logic as xyz_giffer: prefer main window's estimate_bonds_from_distances
-            if hasattr(mw, 'estimate_bonds_from_distances'):
+            iom = getattr(mw, 'io_manager', None)
+            if iom:
                 try:
-                    mw.io_manager.estimate_bonds_from_distances(mol)
-                except Exception as e:
-                    print(f"estimate_bonds_from_distances failed: {e}")
+                    if hasattr(iom, 'estimate_bonds_from_distances'):
+                        iom.estimate_bonds_from_distances(mol)
+                except Exception as _e:
+                    logging.warning("estimate_bonds_from_distances failed: %s", _e)
             
             # Also try rdDetermineBonds as a secondary supplement if 0 bonds were found
             if mol.GetNumBonds() == 0:
@@ -326,10 +328,10 @@ class ScanResultDialog(QDialog):
             # Initial draw
             if hasattr(mw, "view_3d_manager") and hasattr(mw.view_3d_manager, "draw_molecule_3d"):
                 mw.view_3d_manager.draw_molecule_3d(self.base_mol)
-                if hasattr(mw, 'plotter'):
-                    mw.plotter.reset_camera()
-                    mw.plotter.update()
-                    mw.plotter.render()
+                if hasattr(mw, 'view_3d_manager') and hasattr(mw.view_3d_manager, 'plotter'):
+                    mw.view_3d_manager.plotter.reset_camera()
+                    mw.view_3d_manager.plotter.update()
+                    mw.view_3d_manager.plotter.render()
         except Exception as e:
             print(f"Error creating base molecule: {e}")
             traceback.print_exc()
@@ -586,7 +588,7 @@ class ScanResultDialog(QDialog):
             images = []
             
             mw = self.context.get_main_window() if self.context else None
-            if not mw or not hasattr(mw, 'plotter'):
+            if not mw or not hasattr(mw, 'view_3d_manager') and hasattr(mw.view_3d_manager, 'plotter'):
                 raise Exception("3D plotter not available")
             
             for i in range(len(self.trajectory)):
@@ -597,11 +599,11 @@ class ScanResultDialog(QDialog):
                 QApplication.processEvents() # Process events to ensure viewer updates
                 
                 # Force update/render as in xyz_giffer
-                mw.plotter.update()
-                mw.plotter.render()
+                mw.view_3d_manager.plotter.update()
+                mw.view_3d_manager.plotter.render()
                 
                 # Capture screenshot
-                img_array = mw.plotter.screenshot(transparent_background=use_transparent, return_img=True)
+                img_array = mw.view_3d_manager.plotter.screenshot(transparent_background=use_transparent, return_img=True)
                 
                 if img_array is not None:
                     img = Image.fromarray(img_array)
