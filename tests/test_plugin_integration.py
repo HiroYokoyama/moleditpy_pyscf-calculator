@@ -50,30 +50,57 @@ from unittest.mock import MagicMock, patch
 # ---------------------------------------------------------------------------
 
 def _install_stubs():
-    qt_core = types.ModuleType("PyQt6.QtCore")
+    qt_core = sys.modules.get("PyQt6.QtCore")
+    if qt_core is None or not hasattr(qt_core, "__file__"):
+        qt_core = types.ModuleType("PyQt6.QtCore")
+        class _QThread:
+            def __init__(self): pass
+        qt_core.QThread = _QThread
+        qt_core.pyqtSignal = lambda *a, **kw: MagicMock()
+        sys.modules["PyQt6.QtCore"] = qt_core
 
-    class _QThread:
-        def __init__(self): pass
+    pyqt6 = sys.modules.get("PyQt6")
+    if pyqt6 is None or not hasattr(pyqt6, "__file__"):
+        pyqt6 = types.ModuleType("PyQt6")
+        pyqt6.QtCore = qt_core
+        sys.modules["PyQt6"] = pyqt6
 
-    qt_core.QThread = _QThread
-    qt_core.pyqtSignal = lambda *a, **kw: MagicMock()
-    pyqt6 = sys.modules.get("PyQt6") or types.ModuleType("PyQt6")
-    pyqt6.QtCore = qt_core
-    qt_widgets = types.ModuleType("PyQt6.QtWidgets")
-    for name in ["QDialog", "QVBoxLayout", "QHBoxLayout", "QPushButton",
-                 "QLabel", "QComboBox", "QFileDialog", "QMessageBox",
-                 "QMenu", "QApplication", "QToolTip", "QWidget", "QTabWidget",
-                 "QCheckBox", "QLineEdit", "QSpinBox", "QDoubleSpinBox",
-                 "QGroupBox", "QRadioButton", "QTextEdit", "QScrollArea",
-                 "QSplitter", "QFrame", "QSizePolicy", "QStackedWidget"]:
-        setattr(qt_widgets, name, MagicMock)
-    qt_gui = types.ModuleType("PyQt6.QtGui")
-    for name in ["QPainter", "QPen", "QColor", "QFont", "QAction", "QIcon"]:
-        setattr(qt_gui, name, MagicMock)
-    sys.modules.setdefault("PyQt6", pyqt6)
-    sys.modules.setdefault("PyQt6.QtCore", qt_core)
-    sys.modules.setdefault("PyQt6.QtWidgets", qt_widgets)
-    sys.modules.setdefault("PyQt6.QtGui", qt_gui)
+    qt_widgets = sys.modules.get("PyQt6.QtWidgets")
+    if qt_widgets is None or not hasattr(qt_widgets, "__file__"):
+        qt_widgets = types.ModuleType("PyQt6.QtWidgets")
+        for name in ["QDialog", "QVBoxLayout", "QHBoxLayout", "QPushButton",
+                     "QLabel", "QComboBox", "QFileDialog", "QMessageBox",
+                     "QMenu", "QApplication", "QToolTip", "QWidget", "QTabWidget",
+                     "QCheckBox", "QLineEdit", "QSpinBox", "QDoubleSpinBox",
+                     "QGroupBox", "QRadioButton", "QTextEdit", "QScrollArea",
+                     "QSplitter", "QFrame", "QSizePolicy", "QStackedWidget"]:
+            setattr(qt_widgets, name, MagicMock)
+        pyqt6.QtWidgets = qt_widgets
+        sys.modules["PyQt6.QtWidgets"] = qt_widgets
+
+    qt_gui = sys.modules.get("PyQt6.QtGui")
+    if qt_gui is None or not hasattr(qt_gui, "__file__"):
+        if qt_gui is None:
+            qt_gui = types.ModuleType("PyQt6.QtGui")
+            sys.modules["PyQt6.QtGui"] = qt_gui
+        # Define a mock QColor subclass to avoid spec restriction when instantiated with color string
+        class MockQColor(MagicMock):
+            def __init__(self, *args, **kwargs):
+                super().__init__()
+            def redF(self): return 1.0
+            def greenF(self): return 1.0
+            def blueF(self): return 1.0
+        setattr(qt_gui, "QColor", MockQColor)
+        # Mock QFont so it supports Weight.Bold (constants.py uses it)
+        mock_font = MagicMock()
+        mock_font.Weight.Bold = 75
+        setattr(qt_gui, "QFont", mock_font)
+        for name in ["QPainter", "QPen", "QAction", "QIcon"]:
+            if not hasattr(qt_gui, name):
+                setattr(qt_gui, name, MagicMock)
+        pyqt6.QtGui = qt_gui
+        sys.modules["PyQt6.QtGui"] = qt_gui
+
     sys.modules.setdefault("rdkit", MagicMock())
     sys.modules.setdefault("rdkit.Chem", MagicMock())
     sys.modules.setdefault("rdkit.Chem.rdMolTransforms", MagicMock())
