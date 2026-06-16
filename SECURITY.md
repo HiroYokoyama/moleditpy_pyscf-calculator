@@ -8,7 +8,7 @@ Only the latest release receives security updates.
 
 **Please do not open a public issue for security vulnerabilities.**
 
-To report a vulnerability, please contact the maintainers.
+To report a vulnerability, please contact the maintainers at titech.yoko.hiro[at]gmail.com.
 
 Include the following in your report:
 
