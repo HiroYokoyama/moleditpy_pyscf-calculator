@@ -15,10 +15,9 @@ When opening an Issue, please include:
 ## 2. Development Setup
 
 1.  Clone the repository.
-2.  Install the package in editable mode (recommended for development) or standard mode:
-    ```bash
-    pip install -e .
-    ```
+2.  Copy or symlink the plugin package folder into your **user plugin directory** of the main **MoleditPy** application so it is discovered automatically at startup:
+    - **Windows**: `C:\Users\<YourName>\.moleditpy\plugins\`
+    - **Linux / macOS**: `~/.moleditpy/plugins/`
 3.  Install development dependencies as required by the project.
 
 ## 3. Coding Standards
