@@ -1,6 +1,6 @@
 # MoleditPy PySCF Calculator Plugin
 
-[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.20725950.svg)](https://doi.org/10.5281/zenodo.20725950)
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.18312165.svg)](https://doi.org/10.5281/zenodo.18312165)
 [![Python CI](https://github.com/HiroYokoyama/moleditpy_pyscf-calculator/actions/workflows/pytest.yml/badge.svg)](https://github.com/HiroYokoyama/moleditpy_pyscf-calculator/actions/workflows/pytest.yml)
 
 A powerful, user-friendly GUI interface for performing quantum chemistry calculations using PySCF. This plugin provides an intuitive workflow for configuring calculations, managing jobs, and visualizing molecular electronic structure.
