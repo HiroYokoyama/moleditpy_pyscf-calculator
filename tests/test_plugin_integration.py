@@ -37,6 +37,7 @@ The GitHub Actions workflow optionally clones the main app before running tests:
 Then set CI_MAIN_APP_SRC=../python_molecular_editor/moleditpy/src in the test
 step's env block to activate real-context mode.
 """
+
 import os
 import sys
 import types
@@ -49,12 +50,16 @@ from unittest.mock import MagicMock, patch
 # Qt / RDKit stubs (must be installed before loading __init__.py)
 # ---------------------------------------------------------------------------
 
+
 def _install_stubs():
     qt_core = sys.modules.get("PyQt6.QtCore")
     if qt_core is None or not hasattr(qt_core, "__file__"):
         qt_core = types.ModuleType("PyQt6.QtCore")
+
         class _QThread:
-            def __init__(self): pass
+            def __init__(self):
+                pass
+
         qt_core.QThread = _QThread
         qt_core.pyqtSignal = lambda *a, **kw: MagicMock()
         sys.modules["PyQt6.QtCore"] = qt_core
@@ -68,12 +73,33 @@ def _install_stubs():
     qt_widgets = sys.modules.get("PyQt6.QtWidgets")
     if qt_widgets is None or not hasattr(qt_widgets, "__file__"):
         qt_widgets = types.ModuleType("PyQt6.QtWidgets")
-        for name in ["QDialog", "QVBoxLayout", "QHBoxLayout", "QPushButton",
-                     "QLabel", "QComboBox", "QFileDialog", "QMessageBox",
-                     "QMenu", "QApplication", "QToolTip", "QWidget", "QTabWidget",
-                     "QCheckBox", "QLineEdit", "QSpinBox", "QDoubleSpinBox",
-                     "QGroupBox", "QRadioButton", "QTextEdit", "QScrollArea",
-                     "QSplitter", "QFrame", "QSizePolicy", "QStackedWidget"]:
+        for name in [
+            "QDialog",
+            "QVBoxLayout",
+            "QHBoxLayout",
+            "QPushButton",
+            "QLabel",
+            "QComboBox",
+            "QFileDialog",
+            "QMessageBox",
+            "QMenu",
+            "QApplication",
+            "QToolTip",
+            "QWidget",
+            "QTabWidget",
+            "QCheckBox",
+            "QLineEdit",
+            "QSpinBox",
+            "QDoubleSpinBox",
+            "QGroupBox",
+            "QRadioButton",
+            "QTextEdit",
+            "QScrollArea",
+            "QSplitter",
+            "QFrame",
+            "QSizePolicy",
+            "QStackedWidget",
+        ]:
             setattr(qt_widgets, name, MagicMock)
         pyqt6.QtWidgets = qt_widgets
         sys.modules["PyQt6.QtWidgets"] = qt_widgets
@@ -83,13 +109,21 @@ def _install_stubs():
         if qt_gui is None:
             qt_gui = types.ModuleType("PyQt6.QtGui")
             sys.modules["PyQt6.QtGui"] = qt_gui
+
         # Define a mock QColor subclass to avoid spec restriction when instantiated with color string
         class MockQColor(MagicMock):
             def __init__(self, *args, **kwargs):
                 super().__init__()
-            def redF(self): return 1.0
-            def greenF(self): return 1.0
-            def blueF(self): return 1.0
+
+            def redF(self):
+                return 1.0
+
+            def greenF(self):
+                return 1.0
+
+            def blueF(self):
+                return 1.0
+
         setattr(qt_gui, "QColor", MockQColor)
         # Mock QFont so it supports Weight.Bold (constants.py uses it)
         mock_font = MagicMock()
@@ -142,6 +176,7 @@ _init_mod = _load_init_mod()
 # StubPluginContext — mirrors the real PluginContext API
 # ---------------------------------------------------------------------------
 
+
 class StubPluginContext:
     """
     Minimal stub that mirrors moleditpy's PluginContext interface.
@@ -149,19 +184,21 @@ class StubPluginContext:
     """
 
     def __init__(self):
-        self.menu_actions: dict = {}      # path → callback
+        self.menu_actions: dict = {}  # path → callback
         self.save_handlers: list = []
         self.load_handlers: list = []
         self.reset_handlers: list = []
         self._main_window = MagicMock(name="MainWindow")
+        self._windows: dict = {}  # window_id → Qt window
 
     # --- API used by initialize() ---
 
     def add_menu_action(self, path, callback, text=None, icon=None, shortcut=None):
         self.menu_actions[path] = callback
 
-    def register_menu_action(self, path, text_or_callback, callback=None,
-                             icon=None, shortcut=None):
+    def register_menu_action(
+        self, path, text_or_callback, callback=None, icon=None, shortcut=None
+    ):
         if callable(text_or_callback):
             self.add_menu_action(path, text_or_callback)
         else:
@@ -181,31 +218,68 @@ class StubPluginContext:
 
     # Stubs for other API methods (not used by initialize, but kept for
     # completeness so tests with the real PluginContext also have coverage)
-    def show_status_message(self, message, timeout=3000): pass
-    def push_undo_checkpoint(self): pass
-    def get_selected_atom_indices(self): return []
-    def register_window(self, wid, win): pass
-    def get_window(self, wid): return None
-    def get_setting(self, key, default=None): return default
-    def set_setting(self, key, value): pass
+    def show_status_message(self, message, timeout=3000):
+        pass
+
+    def push_undo_checkpoint(self):
+        pass
+
+    def get_selected_atom_indices(self):
+        return []
+
+    def register_window(self, wid, win):
+        self._windows[wid] = win
+
+    def get_window(self, wid):
+        return self._windows.get(wid)
+
+    def get_setting(self, key, default=None):
+        return default
+
+    def set_setting(self, key, value):
+        pass
+
     def add_plugin_menu(self, path, callback, text=None, icon=None, shortcut=None):
         self.add_menu_action(f"Plugin/{path.lstrip('/')}", callback)
-    def add_toolbar_action(self, callback, text, icon=None, tooltip=None): pass
-    def register_drop_handler(self, callback, priority=0): pass
-    def register_file_opener(self, ext, callback, priority=0): pass
-    def add_export_action(self, label, callback): pass
-    def add_analysis_tool(self, label, callback): pass
-    def register_optimization_method(self, name, callback): pass
-    def register_3d_style(self, style_name, callback): pass
-    def draw_molecule_3d(self, mol): pass
-    def refresh_3d_view(self): pass
-    def reset_3d_camera(self): pass
-    def get_3d_controller(self): return MagicMock()
+
+    def add_toolbar_action(self, callback, text, icon=None, tooltip=None):
+        pass
+
+    def register_drop_handler(self, callback, priority=0):
+        pass
+
+    def register_file_opener(self, ext, callback, priority=0):
+        pass
+
+    def add_export_action(self, label, callback):
+        pass
+
+    def add_analysis_tool(self, label, callback):
+        pass
+
+    def register_optimization_method(self, name, callback):
+        pass
+
+    def register_3d_style(self, style_name, callback):
+        pass
+
+    def draw_molecule_3d(self, mol):
+        pass
+
+    def refresh_3d_view(self):
+        pass
+
+    def reset_3d_camera(self):
+        pass
+
+    def get_3d_controller(self):
+        return MagicMock()
 
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _fresh_context():
     """Return a new StubPluginContext and reset PLUGIN_SETTINGS."""
@@ -226,6 +300,7 @@ def _initialize_fresh():
 # ===========================================================================
 # 1. Registration contract
 # ===========================================================================
+
 
 class TestInitializeRegistrations(unittest.TestCase):
     """initialize(context) must register all expected handlers/actions."""
@@ -255,8 +330,8 @@ class TestInitializeRegistrations(unittest.TestCase):
 # 2. Save / Load state round-trip
 # ===========================================================================
 
-class TestSaveLoadState(unittest.TestCase):
 
+class TestSaveLoadState(unittest.TestCase):
     def setUp(self):
         self.ctx, _ = _initialize_fresh()
 
@@ -302,8 +377,8 @@ class TestSaveLoadState(unittest.TestCase):
 # 3. Document reset handler
 # ===========================================================================
 
-class TestDocumentReset(unittest.TestCase):
 
+class TestDocumentReset(unittest.TestCase):
     def setUp(self):
         self.ctx, _ = _initialize_fresh()
         self.reset = self.ctx.reset_handlers[0]
@@ -341,6 +416,7 @@ class TestDocumentReset(unittest.TestCase):
 # ===========================================================================
 # 4. show_dialog — first call creates dialog
 # ===========================================================================
+
 
 class TestShowDialogViaContext(unittest.TestCase):
     """
@@ -397,29 +473,34 @@ class TestShowDialogViaContext(unittest.TestCase):
 _MAIN_APP_CANDIDATES = [
     # Local dev: ../python_molecular_editor relative to this repo
     os.path.normpath(
-        os.path.join(os.path.dirname(__file__), "..", "..",
-                     "python_molecular_editor", "moleditpy", "src")
+        os.path.join(
+            os.path.dirname(__file__),
+            "..",
+            "..",
+            "python_molecular_editor",
+            "moleditpy",
+            "src",
+        )
     ),
     # CI: set via environment variable
     os.environ.get("CI_MAIN_APP_SRC", ""),
 ]
 
-_MAIN_APP_SRC = next(
-    (p for p in _MAIN_APP_CANDIDATES if p and os.path.isdir(p)),
-    None
-)
+_MAIN_APP_SRC = next((p for p in _MAIN_APP_CANDIDATES if p and os.path.isdir(p)), None)
 HAS_MAIN_APP = _MAIN_APP_SRC is not None
 
 
 try:
     import pytest
+
     _skipif = pytest.mark.skipif(
         not HAS_MAIN_APP,
         reason="main app not found; set CI_MAIN_APP_SRC or place at "
-               "../python_molecular_editor/moleditpy/src"
+        "../python_molecular_editor/moleditpy/src",
     )
 except ImportError:
     import functools
+
     def _skipif(cls):
         return unittest.skip("pytest not available for skipif decoration")(cls)
 
@@ -441,6 +522,7 @@ class TestWithRealPluginContext(unittest.TestCase):
         if _MAIN_APP_SRC not in sys.path:
             sys.path.insert(0, _MAIN_APP_SRC)
         from moleditpy.plugins.plugin_interface import PluginContext
+
         cls.PluginContext = PluginContext
 
         # Build a real PluginContext with a mock manager
@@ -471,7 +553,7 @@ class TestWithRealPluginContext(unittest.TestCase):
         for method in methods_used:
             self.assertTrue(
                 hasattr(self.PluginContext, method),
-                f"Real PluginContext is missing method: {method}"
+                f"Real PluginContext is missing method: {method}",
             )
 
 

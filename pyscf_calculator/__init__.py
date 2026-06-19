@@ -1,5 +1,5 @@
 PLUGIN_NAME = "PySCF Calculator"
-PLUGIN_VERSION = "2.3.0"
+PLUGIN_VERSION = "3.0.0"
 PLUGIN_AUTHOR = "HiroYokoyama"
 PLUGIN_DESCRIPTION = (
     "Perform PySCF quantum chemistry calculations directly in MoleditPy. "
@@ -8,17 +8,19 @@ PLUGIN_DESCRIPTION = (
     "and Electrostatic Potential (ESP) mapped on Density surfaces."
 )
 PLUGIN_DEPENDENCIES = ["pyscf", "geometric", "numpy"]
+PLUGIN_SUPPORTED_MOLEDITPY_VERSION = "4.*"
 
 from .gui import PySCFDialog
 
 # Global settings state (persisted in project file)
 PLUGIN_SETTINGS = {}
 
+
 def initialize(context):
     """
     Initialize the PySCF plugin.
     """
-    
+
     # --- Persistence Logic ---
     def save_project_state():
         return PLUGIN_SETTINGS
@@ -26,55 +28,45 @@ def initialize(context):
     def load_project_state(data):
         PLUGIN_SETTINGS.clear()
         PLUGIN_SETTINGS.update(data)
-        
+
     context.register_save_handler(save_project_state)
     context.register_load_handler(load_project_state)
-    
+
     # --- UI ---
-    dialog_instance = None
-    
     def handle_reset():
         # 1. Clear Global Settings (Model)
-        # Remove association with previous file
-        if "associated_filename" in PLUGIN_SETTINGS:
-            del PLUGIN_SETTINGS["associated_filename"]
-        if "calc_history" in PLUGIN_SETTINGS:
-            del PLUGIN_SETTINGS["calc_history"]
-        if "struct_source" in PLUGIN_SETTINGS:
-            del PLUGIN_SETTINGS["struct_source"]
-            
+        for key in ("associated_filename", "calc_history", "struct_source"):
+            PLUGIN_SETTINGS.pop(key, None)
+
         # 2. Reset Dialog UI (View)
-        if dialog_instance is not None:
-             if hasattr(dialog_instance, 'on_document_reset'):
-                 dialog_instance.on_document_reset()
-                 
+        dlg = context.get_window("dialog")
+        if dlg is not None and hasattr(dlg, "on_document_reset"):
+            dlg.on_document_reset()
+
     context.register_document_reset_handler(handle_reset)
-    
-    
+
     def show_dialog():
-        nonlocal dialog_instance
-        # Get the main window to parent the dialog
-        mw = context.get_main_window()
-        
-        if dialog_instance is not None:
+        dlg = context.get_window("dialog")
+        if dlg is not None:
             try:
-                if dialog_instance.isVisible():
-                    dialog_instance.raise_()
-                    dialog_instance.activateWindow()
+                if dlg.isVisible():
+                    dlg.raise_()
+                    dlg.activateWindow()
                     return
                 else:
-                    # Cleanup old instance if hidden/closed
-                    dialog_instance.close()
-                    dialog_instance.deleteLater()
-                    dialog_instance = None
+                    dlg.close()
+                    dlg.deleteLater()
             except RuntimeError:
-                # C++ object deleted
-                dialog_instance = None
+                pass
+            # Unregister the stale window so it doesn't block creation of a new one
+            context.register_window("dialog", None)
 
-        # Create and show the dialog, passing the shared settings dict
-        dialog_instance = PySCFDialog(mw, context, settings=PLUGIN_SETTINGS, version=PLUGIN_VERSION)
-        dialog_instance.show()
+        mw = context.get_main_window()
+        new_dlg = PySCFDialog(
+            mw, context, settings=PLUGIN_SETTINGS, version=PLUGIN_VERSION
+        )
+        context.register_window("dialog", new_dlg)
+        new_dlg.show()
 
     # Register the menu action
     context.add_menu_action("Extensions/PySCF Calculator...", show_dialog)
-

@@ -5,6 +5,7 @@ Tests for the show_dialog() closure in pyscf_calculator/__init__.py.
 Covers lines 54-76: new dialog creation, raise/activate existing, replace
 hidden dialog, and RuntimeError recovery when the C++ object was deleted.
 """
+
 import os
 import sys
 import types
@@ -21,7 +22,8 @@ def _install_qt_stubs():
     qt_core = types.ModuleType("PyQt6.QtCore")
 
     class _QThread:
-        def __init__(self): pass
+        def __init__(self):
+            pass
 
     qt_core.QThread = _QThread
     qt_core.pyqtSignal = lambda *a, **kw: MagicMock()
@@ -29,8 +31,10 @@ def _install_qt_stubs():
     class _Qt:
         class AlignmentFlag:
             AlignRight = None
+
         class Orientation:
             Horizontal = None
+
         class CursorShape:
             PointingHandCursor = None
 
@@ -38,7 +42,8 @@ def _install_qt_stubs():
 
     class _QTimer:
         @staticmethod
-        def singleShot(ms, fn): pass
+        def singleShot(ms, fn):
+            pass
 
     qt_core.QTimer = _QTimer
 
@@ -49,11 +54,27 @@ def _install_qt_stubs():
 
     qt_widgets = types.ModuleType("PyQt6.QtWidgets")
     for name in [
-        "QWidget", "QDialog", "QVBoxLayout", "QHBoxLayout", "QLabel",
-        "QComboBox", "QPushButton", "QSpinBox", "QCheckBox", "QGroupBox",
-        "QFormLayout", "QMessageBox", "QLineEdit", "QFileDialog",
-        "QProgressBar", "QTextEdit", "QSizePolicy", "QScrollArea",
-        "QFrame", "QTabWidget", "QToolTip",
+        "QWidget",
+        "QDialog",
+        "QVBoxLayout",
+        "QHBoxLayout",
+        "QLabel",
+        "QComboBox",
+        "QPushButton",
+        "QSpinBox",
+        "QCheckBox",
+        "QGroupBox",
+        "QFormLayout",
+        "QMessageBox",
+        "QLineEdit",
+        "QFileDialog",
+        "QProgressBar",
+        "QTextEdit",
+        "QSizePolicy",
+        "QScrollArea",
+        "QFrame",
+        "QTabWidget",
+        "QToolTip",
     ]:
         setattr(qt_widgets, name, MagicMock)
     pyqt6.QtWidgets = qt_widgets
@@ -106,6 +127,13 @@ init_mod = _load_module_direct(
 def _fresh_show_dialog():
     init_mod.PLUGIN_SETTINGS.clear()
     context = MagicMock()
+    # Wire register_window / get_window so they share state, mirroring
+    # how the real PluginContext works.  Without this, get_window() returns
+    # a truthy MagicMock by default, making show_dialog() always think an
+    # existing dialog is present and never creating a new one.
+    _windows = {}
+    context.get_window.side_effect = lambda wid: _windows.get(wid)
+    context.register_window.side_effect = lambda wid, win: _windows.update({wid: win})
     init_mod.initialize(context)
     show_dialog = context.add_menu_action.call_args[0][1]
     return show_dialog, context
@@ -114,6 +142,7 @@ def _fresh_show_dialog():
 # ===========================================================================
 # New dialog creation
 # ===========================================================================
+
 
 class TestShowDialogNewInstance(unittest.TestCase):
     """show_dialog() must create and show a new dialog when none exists."""
@@ -148,6 +177,7 @@ class TestShowDialogNewInstance(unittest.TestCase):
 # Existing visible dialog
 # ===========================================================================
 
+
 class TestShowDialogExistingVisible(unittest.TestCase):
     """show_dialog() must raise+activate an already-visible dialog."""
 
@@ -179,6 +209,7 @@ class TestShowDialogExistingVisible(unittest.TestCase):
 # ===========================================================================
 # Replace hidden dialog
 # ===========================================================================
+
 
 class TestShowDialogReplaceHidden(unittest.TestCase):
     """show_dialog() must close + replace a hidden dialog."""
@@ -214,6 +245,7 @@ class TestShowDialogReplaceHidden(unittest.TestCase):
 # ===========================================================================
 # RuntimeError recovery (C++ object deleted)
 # ===========================================================================
+
 
 class TestShowDialogRuntimeError(unittest.TestCase):
     """show_dialog() must handle RuntimeError from isVisible() gracefully."""
