@@ -11,6 +11,7 @@ Coverage targets (vis.py lines 134-181):
   - point_data["values"] set from data_flat reshaped (C→F order)
   - Non-unit voxel vectors (anisotropic spacing)
 """
+
 import os
 import sys
 import types
@@ -23,6 +24,7 @@ from unittest.mock import MagicMock, patch
 # ---------------------------------------------------------------------------
 # Stubs for pyvista and Qt (vis.py imports both at module level)
 # ---------------------------------------------------------------------------
+
 
 def _install_stubs():
     sys.modules.setdefault("pyvista", MagicMock())
@@ -66,13 +68,23 @@ BOHR_TO_ANG = 0.529177210903
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _make_meta(nx=2, ny=2, nz=2, is_angstrom=False, origin=None,
-               x_vec=None, y_vec=None, z_vec=None, data=None):
+
+def _make_meta(
+    nx=2,
+    ny=2,
+    nz=2,
+    is_angstrom=False,
+    origin=None,
+    x_vec=None,
+    y_vec=None,
+    z_vec=None,
+    data=None,
+):
     """Build a minimal meta dict for build_grid_from_meta."""
     if origin is None:
         origin = np.zeros(3)
     if x_vec is None:
-        x_vec = np.array([0.5, 0.0, 0.0])   # 0.5 Bohr step
+        x_vec = np.array([0.5, 0.0, 0.0])  # 0.5 Bohr step
     if y_vec is None:
         y_vec = np.array([0.0, 0.5, 0.0])
     if z_vec is None:
@@ -94,8 +106,8 @@ def _make_meta(nx=2, ny=2, nz=2, is_angstrom=False, origin=None,
 # Unit conversion
 # ---------------------------------------------------------------------------
 
-class TestBuildGridUnitConversion(unittest.TestCase):
 
+class TestBuildGridUnitConversion(unittest.TestCase):
     def _capture_grid_call(self, meta):
         """Run build_grid_from_meta and return the mock StructuredGrid."""
         mock_grid = MagicMock()
@@ -113,9 +125,7 @@ class TestBuildGridUnitConversion(unittest.TestCase):
         points_assigned = mock_grid.points
         expected_origin = origin_bohr * BOHR_TO_ANG
         # First point (all-zero indices) must match the converted origin
-        np.testing.assert_allclose(
-            points_assigned[0], expected_origin, atol=1e-10
-        )
+        np.testing.assert_allclose(points_assigned[0], expected_origin, atol=1e-10)
 
     def test_angstrom_header_no_conversion(self):
         """When is_angstrom_header=True, vectors must remain unchanged."""
@@ -124,7 +134,7 @@ class TestBuildGridUnitConversion(unittest.TestCase):
         mock_grid = self._capture_grid_call(meta)
         # First two points differ only in ix index → difference = x_vec
         pts = mock_grid.points
-        delta = pts[1] - pts[0]   # ix goes from 0 to 1 in F-order for x first
+        delta = pts[1] - pts[0]  # ix goes from 0 to 1 in F-order for x first
         np.testing.assert_allclose(delta, x_vec_ang, atol=1e-10)
 
     def test_bohr_x_vec_scaled(self):
@@ -149,8 +159,8 @@ class TestBuildGridUnitConversion(unittest.TestCase):
 # Grid dimensions
 # ---------------------------------------------------------------------------
 
-class TestBuildGridDimensions(unittest.TestCase):
 
+class TestBuildGridDimensions(unittest.TestCase):
     def test_dimensions_set_on_grid(self):
         """grid.dimensions must be set to [nx, ny, nz]."""
         nx, ny, nz = 3, 4, 5
@@ -165,8 +175,7 @@ class TestBuildGridDimensions(unittest.TestCase):
         nx, ny, nz = 2, 3, 4
         mock_grid = MagicMock()
         _vis_mod.pv.StructuredGrid.return_value = mock_grid
-        meta = _make_meta(nx=nx, ny=ny, nz=nz,
-                          data=np.zeros(nx * ny * nz))
+        meta = _make_meta(nx=nx, ny=ny, nz=nz, data=np.zeros(nx * ny * nz))
         build_grid_from_meta(meta)
         pts = mock_grid.points
         self.assertEqual(pts.shape[0], nx * ny * nz)
@@ -177,8 +186,8 @@ class TestBuildGridDimensions(unittest.TestCase):
 # point_data assignment
 # ---------------------------------------------------------------------------
 
-class TestBuildGridPointData(unittest.TestCase):
 
+class TestBuildGridPointData(unittest.TestCase):
     def test_point_data_values_assigned(self):
         """grid.point_data['values'] must be assigned."""
         nx, ny, nz = 2, 2, 2
@@ -188,10 +197,7 @@ class TestBuildGridPointData(unittest.TestCase):
         meta = _make_meta(nx=nx, ny=ny, nz=nz, data=data)
         build_grid_from_meta(meta)
         # Check that the assignment happened (mock records item assignment)
-        self.assertIn(
-            "values",
-            mock_grid.point_data.__setitem__.call_args[0]
-        )
+        self.assertIn("values", mock_grid.point_data.__setitem__.call_args[0])
 
     def test_point_data_length_matches_grid_size(self):
         """Flattened point_data must have length nx*ny*nz."""
@@ -221,17 +227,23 @@ class TestBuildGridPointData(unittest.TestCase):
 # Non-unit voxel vectors
 # ---------------------------------------------------------------------------
 
-class TestBuildGridAnisotropic(unittest.TestCase):
 
+class TestBuildGridAnisotropic(unittest.TestCase):
     def test_anisotropic_voxel_vectors(self):
         """Non-cubic voxels: each step in x maps to x_vec displacement."""
-        x_vec = np.array([1.5, 0.0, 0.0])   # step size 1.5 Å
+        x_vec = np.array([1.5, 0.0, 0.0])  # step size 1.5 Å
         y_vec = np.array([0.0, 2.0, 0.0])
         z_vec = np.array([0.0, 0.0, 0.5])
-        meta = _make_meta(nx=3, ny=2, nz=2,
-                          x_vec=x_vec, y_vec=y_vec, z_vec=z_vec,
-                          is_angstrom=True,
-                          data=np.zeros(3 * 2 * 2))
+        meta = _make_meta(
+            nx=3,
+            ny=2,
+            nz=2,
+            x_vec=x_vec,
+            y_vec=y_vec,
+            z_vec=z_vec,
+            is_angstrom=True,
+            data=np.zeros(3 * 2 * 2),
+        )
         mock_grid = MagicMock()
         _vis_mod.pv.StructuredGrid.return_value = mock_grid
         build_grid_from_meta(meta)

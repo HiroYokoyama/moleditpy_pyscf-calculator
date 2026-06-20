@@ -13,6 +13,7 @@ Coverage targets (worker.py):
   - Empty tasks list → finished_signal emitted with {"files": []}
   - stop_requested during task loop → breaks early
 """
+
 import os
 import sys
 import types
@@ -27,11 +28,13 @@ from unittest.mock import MagicMock, patch
 # Qt / pyscf stubs
 # ---------------------------------------------------------------------------
 
+
 def _install_stubs(force=False):
     qt_core = types.ModuleType("PyQt6.QtCore")
 
     class _QThread:
-        def __init__(self): pass
+        def __init__(self):
+            pass
 
     qt_core.QThread = _QThread
     qt_core.pyqtSignal = lambda *a, **kw: MagicMock()
@@ -39,8 +42,10 @@ def _install_stubs(force=False):
     pyqt6.QtCore = qt_core
 
     def _set(k, v):
-        if force: sys.modules[k] = v
-        else: sys.modules.setdefault(k, v)
+        if force:
+            sys.modules[k] = v
+        else:
+            sys.modules.setdefault(k, v)
 
     _set("PyQt6", pyqt6)
     _set("PyQt6.QtCore", qt_core)
@@ -85,7 +90,7 @@ def _mock_pyscf_checkpoint(mod, mo_occ, mo_coeff=None):
     PropertyWorker.run() returns useful mocks with *mo_occ* / *mo_coeff*.
     """
     if mo_coeff is None:
-        mo_coeff = np.eye(4)   # simple 4×4 identity as dummy
+        mo_coeff = np.eye(4)  # simple 4×4 identity as dummy
 
     mock_mol = MagicMock()
     mock_mol.output = None
@@ -119,8 +124,8 @@ def _run_with_tasks(mod, tasks, mo_occ, out_dir=None):
 # 1. pyscf=None guard
 # ===========================================================================
 
-class TestPropertyWorkerNoPySCF(unittest.TestCase):
 
+class TestPropertyWorkerNoPySCF(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.mod = _load_worker_mod(None)
@@ -142,8 +147,8 @@ class TestPropertyWorkerNoPySCF(unittest.TestCase):
 # 2. Empty tasks → finished with {"files": []}
 # ===========================================================================
 
-class TestPropertyWorkerEmptyTasks(unittest.TestCase):
 
+class TestPropertyWorkerEmptyTasks(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.mod = _load_worker_mod(MagicMock())
@@ -174,6 +179,7 @@ class TestPropertyWorkerEmptyTasks(unittest.TestCase):
 # ===========================================================================
 # 3. HOMO/LUMO detection for different mo_occ formats
 # ===========================================================================
+
 
 class TestHomoLumoDetection(unittest.TestCase):
     """
@@ -210,8 +216,7 @@ class TestHomoLumoDetection(unittest.TestCase):
 
     def test_roks_2d_ndarray(self):
         """ROKS: 2D numpy array (2, N)."""
-        mo_occ = np.array([[2.0, 1.0, 0.0],
-                           [2.0, 0.0, 0.0]])
+        mo_occ = np.array([[2.0, 1.0, 0.0], [2.0, 0.0, 0.0]])
         self._assert_completes(mo_occ)
 
     def test_list_fallback(self):
@@ -228,8 +233,8 @@ class TestHomoLumoDetection(unittest.TestCase):
 # 4. stop_requested during task loop
 # ===========================================================================
 
-class TestPropertyWorkerStop(unittest.TestCase):
 
+class TestPropertyWorkerStop(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.mod = _load_worker_mod(MagicMock())

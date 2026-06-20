@@ -10,6 +10,7 @@ by test_energy_diag.py:
   - View range: current_min / current_max are centered on the HOMO-LUMO gap
   - Tiny gap: falls back to minimum span (lines 129-134)
 """
+
 import os
 import sys
 import types
@@ -22,12 +23,14 @@ from unittest.mock import MagicMock
 # Stubs (reuse same approach as test_energy_diag.py, but isolated module name)
 # ---------------------------------------------------------------------------
 
+
 def _install_stubs():
     qt_core = types.ModuleType("PyQt6.QtCore")
 
     class _Qt:
         class CursorShape:
             PointingHandCursor = 1
+
         class AlignmentFlag:
             AlignCenter = 2
 
@@ -45,15 +48,30 @@ def _install_stubs():
     sys.modules.setdefault("PyQt6.QtGui", qt_gui)
 
     class _QDialog:
-        def __init__(self, parent=None): pass
-        def setWindowTitle(self, *a): pass
-        def resize(self, *a): pass
-        def setMouseTracking(self, *a): pass
+        def __init__(self, parent=None):
+            pass
 
-    qt_widgets = sys.modules.get("PyQt6.QtWidgets") or types.ModuleType("PyQt6.QtWidgets")
+        def setWindowTitle(self, *a):
+            pass
+
+        def resize(self, *a):
+            pass
+
+        def setMouseTracking(self, *a):
+            pass
+
+    qt_widgets = sys.modules.get("PyQt6.QtWidgets") or types.ModuleType(
+        "PyQt6.QtWidgets"
+    )
     qt_widgets.QDialog = _QDialog
-    for name in ["QComboBox", "QFileDialog", "QMessageBox", "QMenu",
-                 "QApplication", "QToolTip"]:
+    for name in [
+        "QComboBox",
+        "QFileDialog",
+        "QMessageBox",
+        "QMenu",
+        "QApplication",
+        "QToolTip",
+    ]:
         setattr(qt_widgets, name, MagicMock)
     qt_widgets.QVBoxLayout = lambda *a, **k: MagicMock()
     qt_widgets.QHBoxLayout = lambda *a, **k: MagicMock()
@@ -67,9 +85,7 @@ _install_stubs()
 
 
 def _load_module_direct(relpath, module_name):
-    src = os.path.normpath(
-        os.path.join(os.path.dirname(__file__), "..", relpath)
-    )
+    src = os.path.normpath(os.path.join(os.path.dirname(__file__), "..", relpath))
     spec = importlib.util.spec_from_file_location(module_name, src)
     mod = importlib.util.module_from_spec(spec)
     sys.modules[module_name] = mod
@@ -94,6 +110,7 @@ def _make_dialog(mo_data):
 # safe_occ — list-of-lists flattening
 # ===========================================================================
 
+
 class TestSafeOccFlatten(unittest.TestCase):
     """Occupations given as list-of-lists must be flattened to scalars."""
 
@@ -101,7 +118,7 @@ class TestSafeOccFlatten(unittest.TestCase):
         mo_data = {
             "type": "RHF",
             "energies": [-5.0, 2.0],
-            "occupations": [[2.0], [0.0]],   # list-of-1-elem lists
+            "occupations": [[2.0], [0.0]],  # list-of-1-elem lists
         }
         d = _make_dialog(mo_data)
         self.assertEqual(d.occ_a, [2.0, 0.0])
@@ -130,6 +147,7 @@ class TestSafeOccFlatten(unittest.TestCase):
 # UHF fallback — energies not a 2-item list of lists
 # ===========================================================================
 
+
 class TestUHFFallback(unittest.TestCase):
     """When UHF energies are not [[alpha], [beta]], fall back gracefully."""
 
@@ -137,7 +155,7 @@ class TestUHFFallback(unittest.TestCase):
         # energies is a flat list (not list of lists)
         mo_data = {
             "type": "UHF",
-            "energies": [-10.0, -5.0, 2.0],   # flat, not [[alpha], [beta]]
+            "energies": [-10.0, -5.0, 2.0],  # flat, not [[alpha], [beta]]
             "occupations": [1.0, 1.0, 0.0],
         }
         d = _make_dialog(mo_data)
@@ -161,6 +179,7 @@ class TestUHFFallback(unittest.TestCase):
 # ===========================================================================
 # Empty energies — uses default min/max
 # ===========================================================================
+
 
 class TestEmptyEnergies(unittest.TestCase):
     """When all_e is empty, defaults must be set (lines 104-106)."""
@@ -192,6 +211,7 @@ class TestEmptyEnergies(unittest.TestCase):
 # View range — centered on gap
 # ===========================================================================
 
+
 class TestViewRange(unittest.TestCase):
     """current_min / current_max must be centered on the HOMO-LUMO gap × 3."""
 
@@ -202,9 +222,9 @@ class TestViewRange(unittest.TestCase):
             "occupations": [2.0, 0.0],
         }
         d = _make_dialog(mo_data)
-        gap = abs(2.0 - (-5.0))        # 7.0
+        gap = abs(2.0 - (-5.0))  # 7.0
         gap_center = (-5.0 + 2.0) / 2  # -1.5
-        target_span = gap * 3.0         # 21.0
+        target_span = gap * 3.0  # 21.0
         expected_min = gap_center - target_span / 2.0
         expected_max = gap_center + target_span / 2.0
 
@@ -215,7 +235,7 @@ class TestViewRange(unittest.TestCase):
         """Gap < 0.01 falls back to 0.05; span < 0.2 clamps to 0.2."""
         mo_data = {
             "type": "RHF",
-            "energies": [-5.0, -5.0001],   # near-degenerate HOMO/LUMO
+            "energies": [-5.0, -5.0001],  # near-degenerate HOMO/LUMO
             "occupations": [2.0, 0.0],
         }
         d = _make_dialog(mo_data)

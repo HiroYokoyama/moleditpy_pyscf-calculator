@@ -5,6 +5,7 @@ Unit tests for vis.parse_cube_data() — the pure Gaussian-cube file parser.
 No Qt or PySCF needed.  pyvista and PyQt6 are mocked at module level so the
 vis module can be imported headlessly.
 """
+
 import os
 import sys
 import math
@@ -19,6 +20,7 @@ from unittest.mock import MagicMock
 # ---------------------------------------------------------------------------
 # Stubs: pyvista, PyQt6.QtGui, PyQt6.QtCore  (all used at module level in vis.py)
 # ---------------------------------------------------------------------------
+
 
 def _install_stubs():
     sys.modules.setdefault("pyvista", MagicMock())
@@ -47,7 +49,9 @@ def _load_vis_mod():
     src = os.path.normpath(
         os.path.join(os.path.dirname(__file__), "..", "pyscf_calculator", "vis.py")
     )
-    spec = importlib.util.spec_from_file_location("pyscf_calculator_vis_under_test", src)
+    spec = importlib.util.spec_from_file_location(
+        "pyscf_calculator_vis_under_test", src
+    )
     mod = importlib.util.module_from_spec(spec)
     sys.modules["pyscf_calculator_vis_under_test"] = mod
     spec.loader.exec_module(mod)
@@ -61,6 +65,7 @@ parse_cube_data = _vis_mod.parse_cube_data
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _write_cube(content: str) -> str:
     """Write *content* to a temp file and return its path."""
@@ -96,8 +101,8 @@ _VALID_CUBE = _CUBE_TEMPLATE.format(data=_CUBE_DATA_8)
 # Error paths
 # ===========================================================================
 
-class TestParseCubeErrors(unittest.TestCase):
 
+class TestParseCubeErrors(unittest.TestCase):
     def test_missing_file_raises_file_not_found(self):
         with self.assertRaises(FileNotFoundError):
             parse_cube_data("/nonexistent/path.cube")
@@ -137,8 +142,8 @@ class TestParseCubeErrors(unittest.TestCase):
 # Valid cube
 # ===========================================================================
 
-class TestParseCubeValid(unittest.TestCase):
 
+class TestParseCubeValid(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.path = _write_cube(_VALID_CUBE)
@@ -156,19 +161,21 @@ class TestParseCubeValid(unittest.TestCase):
 
     def test_atom_atomic_numbers(self):
         nums = [a[0] for a in self.result["atoms"]]
-        self.assertIn(1, nums)   # H
-        self.assertIn(8, nums)   # O
+        self.assertIn(1, nums)  # H
+        self.assertIn(8, nums)  # O
 
     def test_data_flat_length(self):
         self.assertEqual(len(self.result["data_flat"]), 8)
 
     def test_data_values_correct(self):
         import numpy as np
+
         expected = np.array([0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8])
         np.testing.assert_allclose(self.result["data_flat"], expected, atol=1e-6)
 
     def test_origin_is_zero(self):
         import numpy as np
+
         np.testing.assert_array_equal(self.result["origin"], [0.0, 0.0, 0.0])
 
     def test_is_angstrom_header_false_for_positive_dims(self):
@@ -179,8 +186,8 @@ class TestParseCubeValid(unittest.TestCase):
 # Data truncation and padding
 # ===========================================================================
 
-class TestParseCubeSizeMismatch(unittest.TestCase):
 
+class TestParseCubeSizeMismatch(unittest.TestCase):
     def test_extra_data_truncated_to_expected_size(self):
         # 2×2×2 = 8 values, provide 10
         extra = _CUBE_TEMPLATE.format(
@@ -202,6 +209,7 @@ class TestParseCubeSizeMismatch(unittest.TestCase):
             self.assertEqual(len(result["data_flat"]), 8)
             # Last 4 must be zero-padded
             import numpy as np
+
             np.testing.assert_array_equal(result["data_flat"][4:], [0.0] * 4)
         finally:
             os.unlink(path)
@@ -223,6 +231,7 @@ class TestParseCubeSizeMismatch(unittest.TestCase):
             result = parse_cube_data(path)
             self.assertEqual(len(result["data_flat"]), 8)
             import numpy as np
+
             np.testing.assert_array_equal(result["data_flat"], np.zeros(8))
         finally:
             os.unlink(path)
@@ -231,6 +240,7 @@ class TestParseCubeSizeMismatch(unittest.TestCase):
 # ===========================================================================
 # Negative n_atoms (MO cube — extra header line present)
 # ===========================================================================
+
 
 class TestParseCubeMOFormat(unittest.TestCase):
     """Cube files with n_atoms < 0 have an extra MO-info line after atoms."""
@@ -253,8 +263,10 @@ class TestParseCubeMOFormat(unittest.TestCase):
         try:
             result = parse_cube_data(path)
             self.assertEqual(result["dims"], (2, 2, 2))
-            self.assertTrue(result["is_angstrom_header"] is False or
-                            result["is_angstrom_header"] is True)  # just no crash
+            self.assertTrue(
+                result["is_angstrom_header"] is False
+                or result["is_angstrom_header"] is True
+            )  # just no crash
         finally:
             os.unlink(path)
 
@@ -283,8 +295,8 @@ class TestParseCubeMOFormat(unittest.TestCase):
 # Malformed atom lines are skipped gracefully
 # ===========================================================================
 
-class TestParseCubeMalformedAtoms(unittest.TestCase):
 
+class TestParseCubeMalformedAtoms(unittest.TestCase):
     def test_short_atom_line_is_skipped(self):
         """An atom line with fewer than 5 tokens must be skipped, not crash."""
         cube = textwrap.dedent("""\

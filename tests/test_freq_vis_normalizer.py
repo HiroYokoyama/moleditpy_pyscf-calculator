@@ -11,6 +11,7 @@ Coverage targets (freq_vis.py):
   - SpectrumWidget.__init__ full path via real constructor (543-557)
   - SpectrumWidget.set_params() (559-565)
 """
+
 import os
 import sys
 import types
@@ -24,31 +25,59 @@ from unittest.mock import MagicMock, patch
 # Qt stubs — force-install to avoid interference from other test files
 # ---------------------------------------------------------------------------
 
+
 def _install_stubs():
     class _QWidget:
-        def __init__(self, *a, **kw): pass
-        def setBackgroundRole(self, *a): pass
-        def setAutoFillBackground(self, *a): pass
-        def update(self): pass
-        def width(self): return 400
-        def height(self): return 300
+        def __init__(self, *a, **kw):
+            pass
+
+        def setBackgroundRole(self, *a):
+            pass
+
+        def setAutoFillBackground(self, *a):
+            pass
+
+        def update(self):
+            pass
+
+        def width(self):
+            return 400
+
+        def height(self):
+            return 300
 
     qt_widgets = types.ModuleType("PyQt6.QtWidgets")
-    for name in ["QVBoxLayout", "QHBoxLayout", "QPushButton", "QLabel",
-                 "QTreeWidget", "QTreeWidgetItem", "QHeaderView",
-                 "QDoubleSpinBox", "QCheckBox", "QGroupBox", "QSpinBox",
-                 "QDialog", "QFileDialog", "QMessageBox", "QApplication",
-                 "QFormLayout", "QDialogButtonBox"]:
+    for name in [
+        "QVBoxLayout",
+        "QHBoxLayout",
+        "QPushButton",
+        "QLabel",
+        "QTreeWidget",
+        "QTreeWidgetItem",
+        "QHeaderView",
+        "QDoubleSpinBox",
+        "QCheckBox",
+        "QGroupBox",
+        "QSpinBox",
+        "QDialog",
+        "QFileDialog",
+        "QMessageBox",
+        "QApplication",
+        "QFormLayout",
+        "QDialogButtonBox",
+    ]:
         setattr(qt_widgets, name, MagicMock)
     qt_widgets.QWidget = _QWidget
 
     qt_gui = types.ModuleType("PyQt6.QtGui")
     for name in ["QPainter", "QPen", "QColor"]:
         setattr(qt_gui, name, MagicMock)
+
     # QPalette needs ColorRole.Base attribute access
     class _QPalette:
         class ColorRole:
             Base = 0
+
     qt_gui.QPalette = _QPalette
 
     qt_core = types.ModuleType("PyQt6.QtCore")
@@ -95,6 +124,7 @@ SpectrumWidget = _mod.SpectrumWidget
 # Helper: build FreqVisualizer bypassing UI (init_ui / populate_list mocked)
 # ---------------------------------------------------------------------------
 
+
 def _make_freq_viz(freqs, modes=None, intensities=None):
     """
     Construct FreqVisualizer with mocked Qt/RDKit dependencies.
@@ -109,8 +139,10 @@ def _make_freq_viz(freqs, modes=None, intensities=None):
     mock_mol.GetConformer.return_value.GetPositions.return_value = np.zeros((2, 3))
     mock_mw = MagicMock()
 
-    with patch.object(FreqVisualizer, "init_ui", lambda self: None), \
-         patch.object(FreqVisualizer, "populate_list", lambda self: None):
+    with (
+        patch.object(FreqVisualizer, "init_ui", lambda self: None),
+        patch.object(FreqVisualizer, "populate_list", lambda self: None),
+    ):
         fv = FreqVisualizer(mock_mw, mock_mol, freqs, modes, intensities)
 
     return fv
@@ -119,6 +151,7 @@ def _make_freq_viz(freqs, modes=None, intensities=None):
 # ===========================================================================
 # 1. FreqVisualizer frequency normalization
 # ===========================================================================
+
 
 class TestFreqVisualizerNormalization(unittest.TestCase):
     """FreqVisualizer.__init__ normalizes freqs to a list of plain floats."""
@@ -161,7 +194,7 @@ class TestFreqVisualizerNormalization(unittest.TestCase):
         self.assertAlmostEqual(fv.freqs[0], -200.0)
 
     def test_all_freqs_are_floats(self):
-        fv = _make_freq_viz([500, 1000, 1500])   # plain ints
+        fv = _make_freq_viz([500, 1000, 1500])  # plain ints
         for f in fv.freqs:
             self.assertIsInstance(f, float)
 
@@ -187,6 +220,7 @@ class TestFreqVisualizerNormalization(unittest.TestCase):
 # ===========================================================================
 # 2. SpectrumWidget real constructor
 # ===========================================================================
+
 
 class TestSpectrumWidgetInit(unittest.TestCase):
     """SpectrumWidget.__init__ sets defaults and calls recalc_curve."""
@@ -222,8 +256,8 @@ class TestSpectrumWidgetInit(unittest.TestCase):
 # 3. SpectrumWidget.set_params — real method call
 # ===========================================================================
 
-class TestSpectrumWidgetSetParams(unittest.TestCase):
 
+class TestSpectrumWidgetSetParams(unittest.TestCase):
     def test_set_params_updates_width_val(self):
         w = SpectrumWidget([1000.0], [1.0])
         w.set_params(50.0, 3000.0, False, True)
@@ -252,7 +286,7 @@ class TestSpectrumWidgetSetParams(unittest.TestCase):
 
     def test_set_params_switches_broadening_type(self):
         w = SpectrumWidget([1000.0], [1.0])
-        w.set_params(20.0, 4000.0, False, True)   # Gaussian
+        w.set_params(20.0, 4000.0, False, True)  # Gaussian
         y_gauss = max(w.curve_y)
         w.set_params(20.0, 4000.0, False, False)  # Lorentzian
         y_lor = max(w.curve_y)

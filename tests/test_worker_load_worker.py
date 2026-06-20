@@ -11,6 +11,7 @@ Strategy:
     file-reading code paths in LoadWorker.run().
   - No real pyscf computation is performed.
 """
+
 import csv
 import json
 import os
@@ -26,17 +27,29 @@ from unittest.mock import MagicMock, patch
 # Qt and pyscf stubs (must be installed before worker.py is loaded)
 # ---------------------------------------------------------------------------
 
+
 def _install_stubs(force=False):
     qt_core = types.ModuleType("PyQt6.QtCore")
 
     class _QThread:
-        def __init__(self): pass
-        def start(self): pass
-        def isRunning(self): return False
-        def wait(self, ms=0): return True
-        def terminate(self): pass
+        def __init__(self):
+            pass
+
+        def start(self):
+            pass
+
+        def isRunning(self):
+            return False
+
+        def wait(self, ms=0):
+            return True
+
+        def terminate(self):
+            pass
+
         @staticmethod
-        def msleep(ms): pass
+        def msleep(ms):
+            pass
 
     qt_core.QThread = _QThread
     qt_core.pyqtSignal = lambda *a, **kw: MagicMock()
@@ -92,8 +105,8 @@ def _make_load_worker(mod, chkfile):
 # 1. pyscf=None guard
 # ===========================================================================
 
-class TestLoadWorkerNoPySCF(unittest.TestCase):
 
+class TestLoadWorkerNoPySCF(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.mod = _load_worker_mod(None)
@@ -112,6 +125,7 @@ class TestLoadWorkerNoPySCF(unittest.TestCase):
 # ===========================================================================
 # 2. Auxiliary-only paths (no checkpoint file)
 # ===========================================================================
+
 
 class TestLoadWorkerAuxiliaryOnly(unittest.TestCase):
     """
@@ -158,10 +172,12 @@ class TestLoadWorkerAuxiliaryOnly(unittest.TestCase):
 
     def test_scan_trajectory_path_included(self):
         csv_content = "coord,energy\n1.0,-1.0\n"
-        results = self._run_with_files({
-            "scan_results.csv": csv_content,
-            "scan_trajectory.xyz": "2\nH2\nH 0 0 0\nH 0 0 0.74\n",
-        })
+        results = self._run_with_files(
+            {
+                "scan_results.csv": csv_content,
+                "scan_trajectory.xyz": "2\nH2\nH 0 0 0\nH 0 0 0.74\n",
+            }
+        )
         self.assertIn("scan_trajectory_path", results)
         self.assertTrue(results["scan_trajectory_path"].endswith("scan_trajectory.xyz"))
 
@@ -180,11 +196,13 @@ class TestLoadWorkerAuxiliaryOnly(unittest.TestCase):
         csv_content = "coord,energy\n1.0,-1.0\n"
         tddft = {"tddft_data": []}
         freq = {"freq_data": {}}
-        results = self._run_with_files({
-            "scan_results.csv": csv_content,
-            "tddft_results.json": json.dumps(tddft),
-            "freq_analysis.json": json.dumps(freq),
-        })
+        results = self._run_with_files(
+            {
+                "scan_results.csv": csv_content,
+                "tddft_results.json": json.dumps(tddft),
+                "freq_analysis.json": json.dumps(freq),
+            }
+        )
         self.assertIn("scan_results", results)
         self.assertIn("tddft_data", results)
         self.assertIn("freq_data", results)
@@ -205,6 +223,7 @@ class TestLoadWorkerAuxiliaryOnly(unittest.TestCase):
 # ===========================================================================
 # 3. Checkpoint present (no auxiliary files) → falls through to pyscf loading
 # ===========================================================================
+
 
 class TestLoadWorkerCheckpointPath(unittest.TestCase):
     """

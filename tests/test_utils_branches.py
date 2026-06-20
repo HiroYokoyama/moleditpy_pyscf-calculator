@@ -11,6 +11,7 @@ covered by test_utils.py:
   - update_molecule_from_xyz when new_mol is None (no update)
   - get_unique_path loops past multiple existing files
 """
+
 import os
 import sys
 import unittest
@@ -42,6 +43,7 @@ utils = _load_module_direct(
 # get_unique_path — multiple existing files
 # ---------------------------------------------------------------------------
 
+
 class TestGetUniquePathMultiple(unittest.TestCase):
     """get_unique_path must skip _1, _2 … until it finds a free slot."""
 
@@ -65,6 +67,7 @@ class TestGetUniquePathMultiple(unittest.TestCase):
 # ---------------------------------------------------------------------------
 # update_molecule_from_xyz — bond determination error paths
 # ---------------------------------------------------------------------------
+
 
 class TestUpdateMolBondDetermination(unittest.TestCase):
     """Bond determination errors must be swallowed without raising."""
@@ -102,8 +105,8 @@ class TestUpdateMolBondDetermination(unittest.TestCase):
 # update_molecule_from_xyz — mark_modified=False preserves dirty state
 # ---------------------------------------------------------------------------
 
-class TestUpdateMolMarkModified(unittest.TestCase):
 
+class TestUpdateMolMarkModified(unittest.TestCase):
     def _make_context_with_state_manager(self, was_dirty):
         ctx = MagicMock()
         mw = MagicMock()
@@ -161,8 +164,8 @@ class TestUpdateMolMarkModified(unittest.TestCase):
 # update_molecule_from_xyz — new_mol is None (bad parse)
 # ---------------------------------------------------------------------------
 
-class TestUpdateMolNoneResult(unittest.TestCase):
 
+class TestUpdateMolNoneResult(unittest.TestCase):
     def test_current_molecule_not_updated_when_mol_is_none(self):
         ctx = MagicMock()
         ctx.get_main_window.return_value = None
@@ -171,14 +174,14 @@ class TestUpdateMolNoneResult(unittest.TestCase):
         utils.update_molecule_from_xyz(ctx, "2\ncomment\nH 0 0 0\nO 1 0 0")
 
         # current_molecule must NOT be set
-        self.assertFalse(hasattr(ctx, "current_molecule") and
-                         ctx.current_molecule is not None and
-                         ctx.mock_calls)
+        self.assertFalse(
+            hasattr(ctx, "current_molecule")
+            and ctx.current_molecule is not None
+            and ctx.mock_calls
+        )
         # More directly: the attribute assignment should NOT have occurred
         # We check by asserting the call list has no current_molecule assignment
-        assigned = any(
-            "current_molecule" in str(c) for c in ctx.mock_calls
-        )
+        assigned = any("current_molecule" in str(c) for c in ctx.mock_calls)
         self.assertFalse(assigned)
 
 

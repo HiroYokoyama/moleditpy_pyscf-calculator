@@ -10,6 +10,7 @@ Coverage targets:
   - Fallback path when mf.nuc_grad_method().as_scanner() raises (lines 183-191)
   - Progress log emitted every 3 steps (line 240)
 """
+
 import os
 import sys
 import types
@@ -23,11 +24,13 @@ from unittest.mock import MagicMock, patch, call
 # Qt / pyscf stubs
 # ---------------------------------------------------------------------------
 
+
 def _install_stubs(force=False):
     qt_core = types.ModuleType("PyQt6.QtCore")
 
     class _QThread:
-        def __init__(self): pass
+        def __init__(self):
+            pass
 
     qt_core.QThread = _QThread
     qt_core.pyqtSignal = lambda *a, **kw: MagicMock()
@@ -35,8 +38,10 @@ def _install_stubs(force=False):
     pyqt6.QtCore = qt_core
 
     def _set(k, v):
-        if force: sys.modules[k] = v
-        else: sys.modules.setdefault(k, v)
+        if force:
+            sys.modules[k] = v
+        else:
+            sys.modules.setdefault(k, v)
 
     _set("PyQt6", pyqt6)
     _set("PyQt6.QtCore", qt_core)
@@ -69,8 +74,15 @@ def _make_worker(mod, xyz="H 0 0 0\nH 0 0 0.74"):
     pyscf_mock = MagicMock()
     mod.pyscf = pyscf_mock
     w = mod.PySCFWorker.__new__(mod.PySCFWorker)
-    cfg = {"job_type": "Single Point", "method": "RHF", "basis": "sto-3g",
-           "charge": 0, "spin": "1", "threads": 0, "memory": 4000}
+    cfg = {
+        "job_type": "Single Point",
+        "method": "RHF",
+        "basis": "sto-3g",
+        "charge": 0,
+        "spin": "1",
+        "threads": 0,
+        "memory": 4000,
+    }
     mod.PySCFWorker.__init__(w, xyz, cfg)
     w.log_signal = MagicMock()
     w.error_signal = MagicMock()
@@ -107,8 +119,8 @@ def _make_mock_mf(n_atoms=2):
 # Cooperative stop
 # ===========================================================================
 
-class TestNumericHessianStop(unittest.TestCase):
 
+class TestNumericHessianStop(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.mod = _load_worker_mod(MagicMock())
@@ -142,8 +154,8 @@ class TestNumericHessianStop(unittest.TestCase):
 # Normal computation path
 # ===========================================================================
 
-class TestNumericHessianCompute(unittest.TestCase):
 
+class TestNumericHessianCompute(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.mod = _load_worker_mod(MagicMock())
@@ -209,6 +221,7 @@ class TestNumericHessianCompute(unittest.TestCase):
 # Fallback path when as_scanner raises
 # ===========================================================================
 
+
 class TestNumericHessianFallback(unittest.TestCase):
     """When mf.nuc_grad_method().as_scanner() raises, a manual fallback is used."""
 
@@ -223,7 +236,9 @@ class TestNumericHessianFallback(unittest.TestCase):
 
         # Make as_scanner raise so the fallback branch is exercised
         mf = MagicMock()
-        mf.nuc_grad_method.return_value.as_scanner.side_effect = RuntimeError("no scanner")
+        mf.nuc_grad_method.return_value.as_scanner.side_effect = RuntimeError(
+            "no scanner"
+        )
 
         # Fallback uses mf.copy().reset(m).kernel() and grad_method(mf_scan).kernel()
         g_zero = np.zeros((n, 3))
@@ -237,6 +252,7 @@ class TestNumericHessianFallback(unittest.TestCase):
 # ===========================================================================
 # atom_coords(unit='Bohr') fallback (lines 204-206)
 # ===========================================================================
+
 
 class TestNumericHessianAtomCoordsFallback(unittest.TestCase):
     """

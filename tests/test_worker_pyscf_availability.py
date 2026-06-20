@@ -10,6 +10,7 @@ Tests that truly need the real pyscf library are decorated with
     @pytest.mark.skipif(not HAS_PYSCF, reason="pyscf not installed")
 so the full suite passes whether or not pyscf is present.
 """
+
 import os
 import sys
 import types
@@ -24,8 +25,10 @@ import pytest
 # ---------------------------------------------------------------------------
 try:
     import importlib as _il
+
     _il.util.find_spec("pyscf")
     import pyscf as _pyscf_real  # noqa: F401
+
     HAS_PYSCF = True
 except (ImportError, ValueError):
     HAS_PYSCF = False
@@ -34,6 +37,7 @@ except (ImportError, ValueError):
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _install_qt_stubs(force=False):
     """
@@ -46,13 +50,24 @@ def _install_qt_stubs(force=False):
     qt_core = types.ModuleType("PyQt6.QtCore")
 
     class _QThread:
-        def __init__(self): pass
-        def start(self): pass
-        def isRunning(self): return False
-        def wait(self, ms=0): return True
-        def terminate(self): pass
+        def __init__(self):
+            pass
+
+        def start(self):
+            pass
+
+        def isRunning(self):
+            return False
+
+        def wait(self, ms=0):
+            return True
+
+        def terminate(self):
+            pass
+
         @staticmethod
-        def msleep(ms): pass
+        def msleep(ms):
+            pass
 
     qt_core.QThread = _QThread
     qt_core.pyqtSignal = lambda *a, **kw: MagicMock()
@@ -123,8 +138,15 @@ def _load_worker_with_pyscf_mock(pyscf_value):
 def _make_worker(mod, xyz="H 0 0 0\nH 0 0 0.74", config=None):
     """Instantiate PySCFWorker with signals replaced by MagicMock."""
     if config is None:
-        config = {"job_type": "Single Point", "method": "RHF", "basis": "sto-3g",
-                  "charge": 0, "spin": "1", "threads": 0, "memory": 4000}
+        config = {
+            "job_type": "Single Point",
+            "method": "RHF",
+            "basis": "sto-3g",
+            "charge": 0,
+            "spin": "1",
+            "threads": 0,
+            "memory": 4000,
+        }
     w = mod.PySCFWorker.__new__(mod.PySCFWorker)
     mod.PySCFWorker.__init__(w, xyz, config)
     # Replace Qt signals with mocks
@@ -148,6 +170,7 @@ def _make_property_worker(mod, chkfile="/fake/chk.chk", tasks=None, out_dir="/fa
 # ===========================================================================
 # 1. Without PySCF (pyscf is None at import time)
 # ===========================================================================
+
 
 class TestWorkerWithoutPySCF(unittest.TestCase):
     """Worker.run() must emit error_signal when pyscf is None and return."""
@@ -188,6 +211,7 @@ class TestWorkerWithoutPySCF(unittest.TestCase):
 # 2. With PySCF mocked — mol build failures
 # ===========================================================================
 
+
 class TestWorkerMolBuildFailure(unittest.TestCase):
     """Worker.run() must handle ValueError/RuntimeError from gto.M gracefully."""
 
@@ -205,9 +229,11 @@ class TestWorkerMolBuildFailure(unittest.TestCase):
         gto_mock.M.side_effect = exc
         self.mod.gto = gto_mock
 
-        with patch("os.path.exists", return_value=False), \
-             patch("os.makedirs"), \
-             patch.object(self.mod, "CaptureStdOut") as mock_cap:
+        with (
+            patch("os.path.exists", return_value=False),
+            patch("os.makedirs"),
+            patch.object(self.mod, "CaptureStdOut") as mock_cap,
+        ):
             mock_cap.return_value.__enter__ = MagicMock(return_value=MagicMock())
             mock_cap.return_value.__exit__ = MagicMock(return_value=False)
             w.run()
@@ -235,6 +261,7 @@ class TestWorkerMolBuildFailure(unittest.TestCase):
 # 3. Mol-setup path: gto.M() succeeds → mol.stdout / mol.build() coverage
 # ===========================================================================
 
+
 class TestWorkerMolBuildSuccessPath(unittest.TestCase):
     """
     When gto.M() returns a mock mol, lines 333-335 (mol.stdout, mol.verbose,
@@ -259,9 +286,11 @@ class TestWorkerMolBuildSuccessPath(unittest.TestCase):
         gto_mock.M.return_value = mock_mol
         self.mod.gto = gto_mock
 
-        with patch("os.path.exists", return_value=False), \
-             patch("os.makedirs"), \
-             patch.object(self.mod, "CaptureStdOut") as mock_cap:
+        with (
+            patch("os.path.exists", return_value=False),
+            patch("os.makedirs"),
+            patch.object(self.mod, "CaptureStdOut") as mock_cap,
+        ):
             mock_cap.return_value.__enter__ = MagicMock(return_value=MagicMock())
             mock_cap.return_value.__exit__ = MagicMock(return_value=False)
             w.run()
@@ -291,9 +320,11 @@ class TestWorkerMolBuildSuccessPath(unittest.TestCase):
         self.mod.gto.M.return_value = mock_mol
 
         # First call to exists() returns True (job_1 taken), second False (job_2 free)
-        with patch("os.path.exists", side_effect=[True, False]), \
-             patch("os.makedirs"), \
-             patch.object(self.mod, "CaptureStdOut") as mock_cap:
+        with (
+            patch("os.path.exists", side_effect=[True, False]),
+            patch("os.makedirs"),
+            patch.object(self.mod, "CaptureStdOut") as mock_cap,
+        ):
             mock_cap.return_value.__enter__ = MagicMock(return_value=MagicMock())
             mock_cap.return_value.__exit__ = MagicMock(return_value=False)
             w.run()
@@ -303,18 +334,28 @@ class TestWorkerMolBuildSuccessPath(unittest.TestCase):
 
     def test_threads_setting_calls_num_threads(self):
         """n_threads > 0 in config → pyscf.lib.num_threads(n) called (line 293)."""
-        w = _make_worker(self.mod, config={
-            "job_type": "Single Point", "method": "RHF", "basis": "sto-3g",
-            "charge": 0, "spin": "1", "threads": 4, "memory": 4000,
-        })
+        w = _make_worker(
+            self.mod,
+            config={
+                "job_type": "Single Point",
+                "method": "RHF",
+                "basis": "sto-3g",
+                "charge": 0,
+                "spin": "1",
+                "threads": 4,
+                "memory": 4000,
+            },
+        )
         mock_mol = MagicMock()
         mock_mol.build.side_effect = ValueError("bail")
         self.mod.gto = MagicMock()
         self.mod.gto.M.return_value = mock_mol
 
-        with patch("os.path.exists", return_value=False), \
-             patch("os.makedirs"), \
-             patch.object(self.mod, "CaptureStdOut") as mock_cap:
+        with (
+            patch("os.path.exists", return_value=False),
+            patch("os.makedirs"),
+            patch.object(self.mod, "CaptureStdOut") as mock_cap,
+        ):
             mock_cap.return_value.__enter__ = MagicMock(return_value=MagicMock())
             mock_cap.return_value.__exit__ = MagicMock(return_value=False)
             w.run()
@@ -325,6 +366,7 @@ class TestWorkerMolBuildSuccessPath(unittest.TestCase):
 # ===========================================================================
 # 4. Spin / Charge parsing (via run() with early exit)
 # ===========================================================================
+
 
 class TestWorkerSpinParsing(unittest.TestCase):
     """Spin string parsing must convert multiplicity M to 2S = M-1."""
@@ -349,13 +391,22 @@ class TestWorkerSpinParsing(unittest.TestCase):
         gto_mock.M.side_effect = fake_gto_M
         self.mod.gto = gto_mock
 
-        cfg = {"job_type": "Single Point", "method": "RHF", "basis": "sto-3g",
-               "charge": 0, "spin": spin_str, "threads": 0, "memory": 4000}
+        cfg = {
+            "job_type": "Single Point",
+            "method": "RHF",
+            "basis": "sto-3g",
+            "charge": 0,
+            "spin": spin_str,
+            "threads": 0,
+            "memory": 4000,
+        }
         w = _make_worker(self.mod, config=cfg)
 
-        with patch("os.path.exists", return_value=False), \
-             patch("os.makedirs"), \
-             patch.object(self.mod, "CaptureStdOut") as mock_cap:
+        with (
+            patch("os.path.exists", return_value=False),
+            patch("os.makedirs"),
+            patch.object(self.mod, "CaptureStdOut") as mock_cap,
+        ):
             mock_cap.return_value.__enter__ = MagicMock(return_value=MagicMock())
             mock_cap.return_value.__exit__ = MagicMock(return_value=False)
             w.run()
@@ -383,6 +434,7 @@ class TestWorkerSpinParsing(unittest.TestCase):
 # 4. Optional: real pyscf integration smoke test
 # ===========================================================================
 
+
 @pytest.mark.skipif(not HAS_PYSCF, reason="pyscf not installed")
 class TestWorkerWithRealPySCF(unittest.TestCase):
     """
@@ -392,17 +444,20 @@ class TestWorkerWithRealPySCF(unittest.TestCase):
 
     def test_pyscf_importable(self):
         import pyscf  # noqa: F401
+
         self.assertIsNotNone(pyscf)
 
     def test_gto_molecule_build(self):
         """Real gto.M should build H2 without error."""
         from pyscf import gto
+
         mol = gto.M(atom="H 0 0 0; H 0 0 0.74", basis="sto-3g", verbose=0)
         self.assertEqual(mol.natm, 2)
 
     def test_rhf_energy_h2(self):
         """Real RHF energy for H2 should converge near -1.117 Hartree."""
         from pyscf import gto, scf
+
         mol = gto.M(atom="H 0 0 0; H 0 0 0.74", basis="sto-3g", verbose=0)
         mf = scf.RHF(mol)
         e = mf.kernel()

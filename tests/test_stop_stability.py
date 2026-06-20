@@ -30,6 +30,7 @@ from unittest.mock import MagicMock, patch, call
 # bypass pyscf_calculator/__init__.py (which pulls in gui.py → full Qt stack).
 # ---------------------------------------------------------------------------
 
+
 def _load_module_direct(relpath, module_name):
     """Load a .py file as a module without going through the package __init__."""
     src = os.path.join(os.path.dirname(__file__), "..", relpath)
@@ -48,13 +49,25 @@ def _install_stubs():
 
     # QThread stub: a plain class so PySCFWorker can inherit from it
     class _QThread:
-        def __init__(self): pass
-        def start(self): pass
-        def isRunning(self): return False
-        def wait(self, ms=0): return True
-        def terminate(self): pass
+        def __init__(self):
+            pass
+
+        def start(self):
+            pass
+
+        def isRunning(self):
+            return False
+
+        def wait(self, ms=0):
+            return True
+
+        def terminate(self):
+            pass
+
         @staticmethod
-        def msleep(ms): pass
+        def msleep(ms):
+            pass
+
     qt_core.QThread = _QThread
     qt_core.pyqtSignal = lambda *a, **kw: MagicMock()
 
@@ -62,16 +75,21 @@ def _install_stubs():
     class _Qt:
         class CursorShape:
             PointingHandCursor = None
+
         class AlignmentFlag:
             AlignRight = None
+
         class Orientation:
             Horizontal = None
+
     qt_core.Qt = _Qt
 
     # QTimer stub
     class _QTimer:
         @staticmethod
-        def singleShot(ms, fn): pass
+        def singleShot(ms, fn):
+            pass
+
     qt_core.QTimer = _QTimer
 
     pyqt6 = types.ModuleType("PyQt6")
@@ -82,10 +100,27 @@ def _install_stubs():
     # PyQt6.QtWidgets stubs (needed by calc_tab)
     qt_widgets = types.ModuleType("PyQt6.QtWidgets")
     for name in [
-        "QWidget", "QVBoxLayout", "QHBoxLayout", "QLabel", "QComboBox",
-        "QPushButton", "QSpinBox", "QCheckBox", "QGroupBox", "QFormLayout",
-        "QMessageBox", "QLineEdit", "QFileDialog", "QProgressBar", "QTextEdit",
-        "QDialog", "QSizePolicy", "QScrollArea", "QFrame", "QTabWidget", "QToolTip"
+        "QWidget",
+        "QVBoxLayout",
+        "QHBoxLayout",
+        "QLabel",
+        "QComboBox",
+        "QPushButton",
+        "QSpinBox",
+        "QCheckBox",
+        "QGroupBox",
+        "QFormLayout",
+        "QMessageBox",
+        "QLineEdit",
+        "QFileDialog",
+        "QProgressBar",
+        "QTextEdit",
+        "QDialog",
+        "QSizePolicy",
+        "QScrollArea",
+        "QFrame",
+        "QTabWidget",
+        "QToolTip",
     ]:
         setattr(qt_widgets, name, MagicMock)
     pyqt6.QtWidgets = qt_widgets
@@ -104,7 +139,6 @@ def _install_stubs():
 
     # pyscf stub (mark unavailable so worker handles None correctly)
     sys.modules["pyscf"] = None  # type: ignore
-
 
 
 _install_stubs()
@@ -137,6 +171,7 @@ PySCFDialog = _gui_mod.PySCFDialog
 # CaptureStdOut
 # ===========================================================================
 
+
 class TestCaptureStdOutExit(unittest.TestCase):
     """CaptureStdOut.__exit__ must restore each FD independently and safely."""
 
@@ -154,7 +189,7 @@ class TestCaptureStdOutExit(unittest.TestCase):
     def test_exit_without_enter_does_not_crash(self):
         """__exit__ must be safe even when no FDs were saved."""
         cap = self._bare_capturer()
-        cap.__exit__(None, None, None)   # must not raise
+        cap.__exit__(None, None, None)  # must not raise
 
     def test_saved_fds_are_none_after_exit(self):
         """saved FD fields must be None after __exit__ finishes."""
@@ -180,15 +215,22 @@ class TestCaptureStdOutExit(unittest.TestCase):
                 raise OSError("simulated stdout FD failure")
             stderr_calls.append((src, dst))
 
-        with patch("os.dup2", side_effect=fake_dup2), \
-             patch("os.close"), \
-             self.assertLogs(level="WARNING") as log_ctx:
+        with (
+            patch("os.dup2", side_effect=fake_dup2),
+            patch("os.close"),
+            self.assertLogs(level="WARNING") as log_ctx,
+        ):
             cap.__exit__(None, None, None)
 
-        self.assertIn((100, 2), stderr_calls,
-                      "stderr FD must be restored even after stdout dup2 fails")
-        self.assertTrue(any("stdout" in m for m in log_ctx.output),
-                        "Failure must appear in logging output")
+        self.assertIn(
+            (100, 2),
+            stderr_calls,
+            "stderr FD must be restored even after stdout dup2 fails",
+        )
+        self.assertTrue(
+            any("stdout" in m for m in log_ctx.output),
+            "Failure must appear in logging output",
+        )
 
     def test_stderr_fd_failure_still_restores_stdout(self):
         """If stderr dup2 fails, stdout is already restored (independent order)."""
@@ -205,13 +247,18 @@ class TestCaptureStdOutExit(unittest.TestCase):
                 raise OSError("simulated stderr FD failure")
             stdout_calls.append((src, dst))
 
-        with patch("os.dup2", side_effect=fake_dup2), \
-             patch("os.close"), \
-             self.assertLogs(level="WARNING") as log_ctx:
+        with (
+            patch("os.dup2", side_effect=fake_dup2),
+            patch("os.close"),
+            self.assertLogs(level="WARNING") as log_ctx,
+        ):
             cap.__exit__(None, None, None)
 
-        self.assertIn((99, 1), stdout_calls,
-                      "stdout FD must be restored even after stderr dup2 fails")
+        self.assertIn(
+            (99, 1),
+            stdout_calls,
+            "stdout FD must be restored even after stderr dup2 fails",
+        )
 
     def test_log_file_closed_and_nulled(self):
         """log_file must be closed and set to None after __exit__."""
@@ -227,8 +274,8 @@ class TestCaptureStdOutExit(unittest.TestCase):
 # StreamToSignal
 # ===========================================================================
 
-class TestStreamToSignal(unittest.TestCase):
 
+class TestStreamToSignal(unittest.TestCase):
     def _make(self, signal=None, target=None):
         sig = signal if signal is not None else MagicMock()
         tgt = target if target is not None else io.StringIO()
@@ -255,8 +302,11 @@ class TestStreamToSignal(unittest.TestCase):
         s, _, tgt = self._make()
         s._destroyed = True
         s.write("file only")
-        self.assertEqual(tgt.getvalue(), "file only",
-                         "target_stream write must happen even when _destroyed=True")
+        self.assertEqual(
+            tgt.getvalue(),
+            "file only",
+            "target_stream write must happen even when _destroyed=True",
+        )
 
     def test_close_sets_destroyed_true(self):
         s, _, tgt = self._make()
@@ -267,8 +317,9 @@ class TestStreamToSignal(unittest.TestCase):
     def test_close_does_not_close_target_stream(self):
         s, _, tgt = self._make()
         s.close()
-        self.assertFalse(tgt.closed,
-                         "close() must not close the underlying target_stream")
+        self.assertFalse(
+            tgt.closed, "close() must not close the underlying target_stream"
+        )
 
     def test_signal_emit_runtime_error_sets_destroyed(self):
         """RuntimeError from dead Qt signal must mark stream as destroyed."""
@@ -284,7 +335,7 @@ class TestStreamToSignal(unittest.TestCase):
         tgt.write.side_effect = IOError("closed file")
         s = StreamToSignal(MagicMock(), target_stream=tgt)
         try:
-            s.write("safe?")   # must not raise
+            s.write("safe?")  # must not raise
         except IOError as e:
             self.fail(f"StreamToSignal.write() must swallow IOError, got: {e}")
 
@@ -292,6 +343,7 @@ class TestStreamToSignal(unittest.TestCase):
 # ===========================================================================
 # PySCFWorker — cooperative stop fields
 # ===========================================================================
+
 
 class TestPySCFWorkerFields(unittest.TestCase):
     """Verify new fields exist on freshly constructed workers."""
@@ -311,12 +363,15 @@ class TestPySCFWorkerFields(unittest.TestCase):
     def test_stream_is_none(self):
         self.assertIsNone(self._make_worker()._stream)
 
+
 class TestOtherWorkersFields(unittest.TestCase):
     """Verify LoadWorker and PropertyWorker cooperative fields."""
 
     def test_property_worker_fields(self):
         w = PropertyWorker.__new__(PropertyWorker)
-        w.chkfile = None; w.tasks = []; w.out_dir = None
+        w.chkfile = None
+        w.tasks = []
+        w.out_dir = None
         w._stop_requested = False
         w._stream = None
         self.assertFalse(w._stop_requested)
@@ -333,8 +388,8 @@ class TestOtherWorkersFields(unittest.TestCase):
 # CalcTab._on_worker_stopped — idempotency
 # ===========================================================================
 
-class TestOnWorkerStoppedIdempotent(unittest.TestCase):
 
+class TestOnWorkerStoppedIdempotent(unittest.TestCase):
     def _make_tab(self):
         tab = MagicMock(spec=CalcTab)
         tab.worker = MagicMock()
@@ -354,15 +409,16 @@ class TestOnWorkerStoppedIdempotent(unittest.TestCase):
 
     def test_second_call_is_noop(self):
         tab = self._make_tab()
-        CalcTab._on_worker_stopped(tab)    # first call
-        CalcTab._on_worker_stopped(tab)    # second call — must be no-op
-        self.assertEqual(tab._cleanup_count, 1,
-                         "_on_worker_stopped must not run cleanup twice")
+        CalcTab._on_worker_stopped(tab)  # first call
+        CalcTab._on_worker_stopped(tab)  # second call — must be no-op
+        self.assertEqual(
+            tab._cleanup_count, 1, "_on_worker_stopped must not run cleanup twice"
+        )
 
     def test_call_with_no_worker_is_safe(self):
         tab = self._make_tab()
         tab.worker = None
-        CalcTab._on_worker_stopped(tab)    # must not raise
+        CalcTab._on_worker_stopped(tab)  # must not raise
         self.assertEqual(tab._cleanup_count, 0)
 
 
@@ -370,8 +426,8 @@ class TestOnWorkerStoppedIdempotent(unittest.TestCase):
 # CalcTab.stop_calculation — operation sequence
 # ===========================================================================
 
-class TestStopCalculationSequence(unittest.TestCase):
 
+class TestStopCalculationSequence(unittest.TestCase):
     def _make_tab(self, wait_result=True):
         mock_stream = MagicMock()
         mock_stream._destroyed = False
@@ -391,7 +447,7 @@ class TestStopCalculationSequence(unittest.TestCase):
     def test_stop_with_no_worker_returns_immediately(self):
         tab, _, _ = self._make_tab()
         tab.worker = None
-        CalcTab.stop_calculation(tab)    # must not raise or hang
+        CalcTab.stop_calculation(tab)  # must not raise or hang
 
     def test_stop_with_idle_worker_returns_immediately(self):
         tab, worker, _ = self._make_tab()
@@ -418,8 +474,11 @@ class TestStopCalculationSequence(unittest.TestCase):
         worker.log_signal.disconnect.side_effect = lambda: call_order.append("disc")
         CalcTab.stop_calculation(tab)
         if "close" in call_order and "disc" in call_order:
-            self.assertLess(call_order.index("close"), call_order.index("disc"),
-                            "stream must be invalidated before signal is disconnected")
+            self.assertLess(
+                call_order.index("close"),
+                call_order.index("disc"),
+                "stream must be invalidated before signal is disconnected",
+            )
 
     def test_terminate_not_called_on_cooperative_stop(self):
         tab, worker, _ = self._make_tab(wait_result=True)
@@ -441,6 +500,7 @@ class TestStopCalculationSequence(unittest.TestCase):
 # ===========================================================================
 # PySCFDialog._safe_stop_worker
 # ===========================================================================
+
 
 class TestSafeStopWorker(unittest.TestCase):
     def _make_dialog(self):

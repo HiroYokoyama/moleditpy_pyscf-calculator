@@ -8,7 +8,7 @@ PLUGIN_DESCRIPTION = (
     "and Electrostatic Potential (ESP) mapped on Density surfaces."
 )
 PLUGIN_DEPENDENCIES = ["pyscf", "geometric", "numpy"]
-PLUGIN_SUPPORTED_MOLEDITPY_VERSION = "4.*"
+PLUGIN_SUPPORTED_MOLEDITPY_VERSION = ">=4.0.0, <5.0.0"
 
 from .gui import PySCFDialog
 

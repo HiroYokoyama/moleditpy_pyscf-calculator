@@ -17,6 +17,7 @@ Strategy:
   triggered by closing the saved FD before __exit__ runs, causing os.dup2
   to raise on restore and exercising the warning branches.
 """
+
 import os
 import sys
 import types
@@ -31,11 +32,13 @@ from unittest.mock import MagicMock, patch
 # Qt / pyscf stubs
 # ---------------------------------------------------------------------------
 
+
 def _install_stubs(force=False):
     qt_core = types.ModuleType("PyQt6.QtCore")
 
     class _QThread:
-        def __init__(self): pass
+        def __init__(self):
+            pass
 
     qt_core.QThread = _QThread
     qt_core.pyqtSignal = lambda *a, **kw: MagicMock()
@@ -43,8 +46,10 @@ def _install_stubs(force=False):
     pyqt6.QtCore = qt_core
 
     def _set(k, v):
-        if force: sys.modules[k] = v
-        else: sys.modules.setdefault(k, v)
+        if force:
+            sys.modules[k] = v
+        else:
+            sys.modules.setdefault(k, v)
 
     _set("PyQt6", pyqt6)
     _set("PyQt6.QtCore", qt_core)
@@ -81,8 +86,8 @@ StreamToSignal = _mod.StreamToSignal
 # CaptureStdOut.__init__
 # ===========================================================================
 
-class TestCaptureStdOutInit(unittest.TestCase):
 
+class TestCaptureStdOutInit(unittest.TestCase):
     def test_filename_stored(self):
         cap = CaptureStdOut("/tmp/test.log")
         self.assertEqual(cap.filename, "/tmp/test.log")
@@ -99,8 +104,8 @@ class TestCaptureStdOutInit(unittest.TestCase):
 # CaptureStdOut.__enter__
 # ===========================================================================
 
-class TestCaptureStdOutEnter(unittest.TestCase):
 
+class TestCaptureStdOutEnter(unittest.TestCase):
     def test_enter_returns_log_file(self):
         with tempfile.NamedTemporaryFile(suffix=".log", delete=False) as f:
             log_path = f.name
@@ -163,6 +168,7 @@ class TestCaptureStdOutEnter(unittest.TestCase):
 # CaptureStdOut.__exit__ — error branches
 # ===========================================================================
 
+
 class TestCaptureStdOutExitErrors(unittest.TestCase):
     """
     Trigger the warning/swallow branches in __exit__ by making OS calls fail.
@@ -189,8 +195,10 @@ class TestCaptureStdOutExitErrors(unittest.TestCase):
             warning_text = " ".join(cm.output)
             self.assertIn("stdout", warning_text.lower())
         finally:
-            try: os.unlink(log_path)
-            except OSError: pass
+            try:
+                os.unlink(log_path)
+            except OSError:
+                pass
 
     def test_exit_does_not_raise_on_flush_error(self):
         """Flushing a closed stream in __exit__ must be swallowed."""
@@ -206,8 +214,10 @@ class TestCaptureStdOutExitErrors(unittest.TestCase):
             except Exception as e:
                 self.fail(f"__exit__ raised unexpectedly: {e}")
         finally:
-            try: os.unlink(log_path)
-            except OSError: pass
+            try:
+                os.unlink(log_path)
+            except OSError:
+                pass
 
     def test_exit_clears_log_file_reference(self):
         """After __exit__, log_file attribute must be None."""
@@ -219,13 +229,16 @@ class TestCaptureStdOutExitErrors(unittest.TestCase):
             cap.__exit__(None, None, None)
             self.assertIsNone(cap.log_file)
         finally:
-            try: os.unlink(log_path)
-            except OSError: pass
+            try:
+                os.unlink(log_path)
+            except OSError:
+                pass
 
 
 # ===========================================================================
 # CaptureStdOut.__enter__ fileno() fallback (lines 46-47, 51-52)
 # ===========================================================================
+
 
 class TestCaptureStdOutEnterFileFallback(unittest.TestCase):
     """When sys.__stdout__.fileno() raises, FD falls back to 1 (stdout)."""
@@ -235,38 +248,56 @@ class TestCaptureStdOutEnterFileFallback(unittest.TestCase):
             log_path = f.name
         try:
             cap = CaptureStdOut(log_path)
-            with patch.object(sys, "__stdout__",
-                              create=True,
-                              new_callable=lambda: (lambda: type(
-                                  "FakeStdout", (), {"fileno": staticmethod(
-                                      lambda: (_ for _ in ()).throw(OSError("no fd"))
-                                  )}
-                              )())):
+            with patch.object(
+                sys,
+                "__stdout__",
+                create=True,
+                new_callable=lambda: (
+                    lambda: type(
+                        "FakeStdout",
+                        (),
+                        {
+                            "fileno": staticmethod(
+                                lambda: (_ for _ in ()).throw(OSError("no fd"))
+                            )
+                        },
+                    )()
+                ),
+            ):
                 pass
             # Simpler approach: temporarily give __stdout__ a fileno that raises
             orig = sys.__stdout__
+
             class _NoFD:
-                def fileno(self): raise OSError("no fd")
-                def flush(self): pass
+                def fileno(self):
+                    raise OSError("no fd")
+
+                def flush(self):
+                    pass
+
             sys.__stdout__ = _NoFD()
             try:
                 cap.__enter__()
                 self.assertEqual(cap.original_stdout_fd, 1)
             finally:
                 sys.__stdout__ = orig
-                try: cap.__exit__(None, None, None)
-                except Exception: pass
+                try:
+                    cap.__exit__(None, None, None)
+                except Exception:
+                    pass
         finally:
-            try: os.unlink(log_path)
-            except OSError: pass
+            try:
+                os.unlink(log_path)
+            except OSError:
+                pass
 
 
 # ===========================================================================
 # CaptureStdOut.__exit__ flush-error swallowing (lines 71, 73)
 # ===========================================================================
 
-class TestCaptureStdOutExitFlushErrors(unittest.TestCase):
 
+class TestCaptureStdOutExitFlushErrors(unittest.TestCase):
     def test_exit_swallows_stdout_flush_error(self):
         """sys.stdout.flush() raising in __exit__ must be swallowed."""
         with tempfile.NamedTemporaryFile(suffix=".log", delete=False) as f:
@@ -274,8 +305,7 @@ class TestCaptureStdOutExitFlushErrors(unittest.TestCase):
         try:
             cap = CaptureStdOut(log_path)
             cap.__enter__()
-            with patch("sys.stdout") as mock_stdout, \
-                 patch("sys.stderr") as mock_stderr:
+            with patch("sys.stdout") as mock_stdout, patch("sys.stderr") as mock_stderr:
                 mock_stdout.flush.side_effect = OSError("flush failed")
                 mock_stderr.flush.side_effect = OSError("flush failed")
                 try:
@@ -283,16 +313,18 @@ class TestCaptureStdOutExitFlushErrors(unittest.TestCase):
                 except Exception as e:
                     self.fail(f"__exit__ raised on flush error: {e}")
         finally:
-            try: os.unlink(log_path)
-            except OSError: pass
+            try:
+                os.unlink(log_path)
+            except OSError:
+                pass
 
 
 # ===========================================================================
 # StreamToSignal.flush
 # ===========================================================================
 
-class TestStreamToSignalFlush(unittest.TestCase):
 
+class TestStreamToSignalFlush(unittest.TestCase):
     def test_flush_delegates_to_target(self):
         target = MagicMock()
         s = StreamToSignal(MagicMock(), target_stream=target)
@@ -320,8 +352,8 @@ class TestStreamToSignalFlush(unittest.TestCase):
 # StreamToSignal.isatty
 # ===========================================================================
 
-class TestStreamToSignalIsatty(unittest.TestCase):
 
+class TestStreamToSignalIsatty(unittest.TestCase):
     def test_isatty_returns_false_when_no_target(self):
         s = StreamToSignal(MagicMock())
         self.assertFalse(s.isatty())

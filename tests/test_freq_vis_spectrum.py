@@ -19,6 +19,7 @@ Coverage targets (freq_vis.py):
   - Lorentzian branch: gamma = sigma/2, Cauchy formula (lines 585-590)
   - set_params() forwarding (lines 559-565)
 """
+
 import os
 import sys
 import types
@@ -32,25 +33,51 @@ from unittest.mock import MagicMock
 # Qt stubs — must be installed before freq_vis.py is loaded
 # ---------------------------------------------------------------------------
 
+
 def _install_stubs():
     # QWidget base class stub — __init__ is a no-op so SpectrumWidget can be
     # constructed without a running QApplication.
     class _QWidget:
-        def __init__(self, *a, **kw): pass
-        def setBackgroundRole(self, *a): pass
-        def setAutoFillBackground(self, *a): pass
-        def update(self): pass
-        def width(self): return 400
-        def height(self): return 300
+        def __init__(self, *a, **kw):
+            pass
+
+        def setBackgroundRole(self, *a):
+            pass
+
+        def setAutoFillBackground(self, *a):
+            pass
+
+        def update(self):
+            pass
+
+        def width(self):
+            return 400
+
+        def height(self):
+            return 300
 
     # Force-install: other test files may have set PyQt6.QtWidgets without
     # QWidget, so we must overwrite to guarantee our stub is in place.
     qt_widgets = types.ModuleType("PyQt6.QtWidgets")
-    for name in ["QVBoxLayout", "QHBoxLayout", "QPushButton", "QLabel",
-                 "QTreeWidget", "QTreeWidgetItem", "QHeaderView",
-                 "QDoubleSpinBox", "QCheckBox", "QGroupBox", "QSpinBox",
-                 "QDialog", "QFileDialog", "QMessageBox", "QApplication",
-                 "QFormLayout", "QDialogButtonBox"]:
+    for name in [
+        "QVBoxLayout",
+        "QHBoxLayout",
+        "QPushButton",
+        "QLabel",
+        "QTreeWidget",
+        "QTreeWidgetItem",
+        "QHeaderView",
+        "QDoubleSpinBox",
+        "QCheckBox",
+        "QGroupBox",
+        "QSpinBox",
+        "QDialog",
+        "QFileDialog",
+        "QMessageBox",
+        "QApplication",
+        "QFormLayout",
+        "QDialogButtonBox",
+    ]:
         setattr(qt_widgets, name, MagicMock)
     qt_widgets.QWidget = _QWidget
 
@@ -100,8 +127,10 @@ SpectrumWidget = _mod.SpectrumWidget
 # Helper: build a SpectrumWidget without running QApplication
 # ---------------------------------------------------------------------------
 
-def _make_widget(freqs, intensities, width_val=20.0, max_wn=4000.0,
-                 invert_y=False, use_gaussian=True):
+
+def _make_widget(
+    freqs, intensities, width_val=20.0, max_wn=4000.0, invert_y=False, use_gaussian=True
+):
     """
     Construct SpectrumWidget bypassing QWidget.__init__.
     Manually set required attributes, then call recalc_curve().
@@ -123,8 +152,8 @@ def _make_widget(freqs, intensities, width_val=20.0, max_wn=4000.0,
 # Guard: empty frequency list
 # ===========================================================================
 
-class TestRecalcCurveEmpty(unittest.TestCase):
 
+class TestRecalcCurveEmpty(unittest.TestCase):
     def test_empty_freqs_does_not_modify_curve(self):
         w = _make_widget([], [])
         self.assertEqual(w.curve_x, [])
@@ -148,8 +177,8 @@ class TestRecalcCurveEmpty(unittest.TestCase):
 # Gaussian branch
 # ===========================================================================
 
-class TestRecalcCurveGaussian(unittest.TestCase):
 
+class TestRecalcCurveGaussian(unittest.TestCase):
     def test_curve_x_length_is_1000(self):
         w = _make_widget([1000.0], [1.0])
         self.assertEqual(len(w.curve_x), 1000)
@@ -182,8 +211,7 @@ class TestRecalcCurveGaussian(unittest.TestCase):
 
     def test_two_peaks_both_visible(self):
         """Two well-separated peaks must each produce a local maximum."""
-        w = _make_widget([500.0, 3000.0], [1.0, 1.0],
-                         width_val=30.0, use_gaussian=True)
+        w = _make_widget([500.0, 3000.0], [1.0, 1.0], width_val=30.0, use_gaussian=True)
         cy = np.array(w.curve_y)
         cx = np.array(w.curve_x)
         # Find values near each peak
@@ -212,8 +240,8 @@ class TestRecalcCurveGaussian(unittest.TestCase):
 # Lorentzian branch
 # ===========================================================================
 
-class TestRecalcCurveLorentzian(unittest.TestCase):
 
+class TestRecalcCurveLorentzian(unittest.TestCase):
     def test_lorentzian_peak_at_frequency(self):
         freq = 2000.0
         w = _make_widget([freq], [1.0], width_val=40.0, use_gaussian=False)
@@ -256,8 +284,8 @@ class TestRecalcCurveLorentzian(unittest.TestCase):
 # set_params
 # ===========================================================================
 
-class TestSetParams(unittest.TestCase):
 
+class TestSetParams(unittest.TestCase):
     def test_set_params_updates_width(self):
         """Wider sigma → wider half-max region in the curve."""
         narrow = _make_widget([1000.0], [1.0], width_val=20.0)

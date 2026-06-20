@@ -1,0 +1,58 @@
+﻿name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag (e.g. v4.0.0)'
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Determine tag
+        id: meta
+        run: |
+          if [ "${{ github.event_name }}" = "push" ]; then
+            echo "tag=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=${{ github.event.inputs.tag }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build release package
+        run: |
+          TAG=${{ steps.meta.outputs.tag }}
+          zip -r "pyscf_calculator_${TAG}.zip" pyscf_calculator/ --exclude "*/__pycache__/*" "*/.git/*"
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${{ steps.meta.outputs.tag }}" \
+            --title "PySCF Calculator ${{ steps.meta.outputs.tag }}" \
+            --generate-notes \
+            "pyscf_calculator_${{ steps.meta.outputs.tag }}.zip"
+
+      - name: Trigger moleditpy-plugins registry update
+        if: success()
+        continue-on-error: true
+        env:
+          REGISTRY_PAT: ${{ secrets.REGISTRY_PAT }}
+        run: |
+          if [ -n "$REGISTRY_PAT" ]; then
+            curl -s -X POST \
+              -H "Authorization: Bearer $REGISTRY_PAT" \
+              -H "Accept: application/vnd.github+json" \
+              "https://api.github.com/repos/HiroYokoyama/moleditpy-plugins/dispatches" \
+              -d '{"event_type":"plugin_release","client_payload":{"repo":"${{ github.repository }}","tag":"${{ steps.meta.outputs.tag }}"}}'
+          fi

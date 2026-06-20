@@ -13,6 +13,7 @@ This test covers the large uncovered block in run() (lines ~343-1049):
   - outer exception handler (lines 1051-1059)
   - stream/FD restore in finally block (lines 1060-1086)
 """
+
 import os
 import sys
 import types
@@ -27,11 +28,13 @@ from unittest.mock import MagicMock, patch
 # Qt / pyscf stubs
 # ---------------------------------------------------------------------------
 
+
 def _install_stubs(force=False):
     qt_core = types.ModuleType("PyQt6.QtCore")
 
     class _QThread:
-        def __init__(self): pass
+        def __init__(self):
+            pass
 
     qt_core.QThread = _QThread
     qt_core.pyqtSignal = lambda *a, **kw: MagicMock()
@@ -39,8 +42,10 @@ def _install_stubs(force=False):
     pyqt6.QtCore = qt_core
 
     def _set(k, v):
-        if force: sys.modules[k] = v
-        else: sys.modules.setdefault(k, v)
+        if force:
+            sys.modules[k] = v
+        else:
+            sys.modules.setdefault(k, v)
 
     _set("PyQt6", pyqt6)
     _set("PyQt6.QtCore", qt_core)
@@ -99,8 +104,10 @@ def _make_worker(config=None):
             "job_type": "Single Point",
             "method": "RHF",
             "basis": "sto-3g",
-            "charge": 0, "spin": "1",
-            "threads": 0, "memory": 4000,
+            "charge": 0,
+            "spin": "1",
+            "threads": 0,
+            "memory": 4000,
         }
     w = _mod.PySCFWorker.__new__(_mod.PySCFWorker)
     _mod.PySCFWorker.__init__(w, "H 0 0 0\nH 0 0 0.74", config)
@@ -111,8 +118,9 @@ def _make_worker(config=None):
     return w
 
 
-def _run_single_point(config=None, mo_energy=None, mo_occ=None,
-                       method="RHF", extra_config=None):
+def _run_single_point(
+    config=None, mo_energy=None, mo_occ=None, method="RHF", extra_config=None
+):
     """
     Run PySCFWorker with a given config through a temp directory.
     Returns (worker, results_dict).
@@ -125,9 +133,12 @@ def _run_single_point(config=None, mo_energy=None, mo_occ=None,
             "job_type": "Single Point",
             "method": method,
             "basis": "sto-3g",
-            "charge": 0, "spin": "1",
-            "threads": 0, "memory": 4000,
-            "max_cycle": 100, "conv_tol": "1e-9",
+            "charge": 0,
+            "spin": "1",
+            "threads": 0,
+            "memory": 4000,
+            "max_cycle": 100,
+            "conv_tol": "1e-9",
         }
     if extra_config:
         config.update(extra_config)
@@ -169,8 +180,8 @@ def _run_single_point(config=None, mo_energy=None, mo_occ=None,
 # 1. Basic Single Point completion
 # ===========================================================================
 
-class TestSinglePointCompletion(unittest.TestCase):
 
+class TestSinglePointCompletion(unittest.TestCase):
     def test_finished_emitted(self):
         w, _ = _run_single_point()
         w.finished_signal.emit.assert_called_once()
@@ -222,8 +233,8 @@ class TestSinglePointCompletion(unittest.TestCase):
 # 2. MO energy/occupancy extraction
 # ===========================================================================
 
-class TestSinglePointMOExtraction(unittest.TestCase):
 
+class TestSinglePointMOExtraction(unittest.TestCase):
     def test_rhf_mo_energy_list_in_result(self):
         mo_e = np.array([-1.0, -0.5, 0.2])
         mo_o = np.array([2.0, 2.0, 0.0])
@@ -245,9 +256,7 @@ class TestSinglePointMOExtraction(unittest.TestCase):
         beta_o = np.array([1.0, 0.0])
         mo_energy = (alpha_e, beta_e)
         mo_occ = (alpha_o, beta_o)
-        _, results = _run_single_point(
-            mo_energy=mo_energy, mo_occ=mo_occ, method="UHF"
-        )
+        _, results = _run_single_point(mo_energy=mo_energy, mo_occ=mo_occ, method="UHF")
         self.assertEqual(results.get("scf_type"), "UHF")
         self.assertIsInstance(results["mo_energy"], list)
         self.assertEqual(len(results["mo_energy"]), 2)
@@ -281,6 +290,7 @@ class TestSinglePointMOExtraction(unittest.TestCase):
 # 3. Method selection (spin auto-adjust)
 # ===========================================================================
 
+
 class TestMethodSelection(unittest.TestCase):
     """Verify method is auto-adjusted for open-shell and log message emitted."""
 
@@ -296,8 +306,7 @@ class TestMethodSelection(unittest.TestCase):
         _mod.scf.UHF.assert_called()
 
     def test_rks_method_uses_dft(self):
-        w, _ = _run_single_point(method="RKS",
-                                  extra_config={"functional": "b3lyp"})
+        w, _ = _run_single_point(method="RKS", extra_config={"functional": "b3lyp"})
         _mod.dft.RKS.assert_called()
 
 
@@ -305,19 +314,15 @@ class TestMethodSelection(unittest.TestCase):
 # 4. Solvent lookup (hardcoded path)
 # ===========================================================================
 
-class TestSolventSetup(unittest.TestCase):
 
+class TestSolventSetup(unittest.TestCase):
     def test_known_solvent_uses_hardcoded_eps(self):
         """Water solvent → eps=78.2 hardcoded, log message emitted."""
-        w, results = _run_single_point(
-            extra_config={"solvent": "Water"}
-        )
+        w, results = _run_single_point(extra_config={"solvent": "Water"})
         # No error should occur; finished emitted
         w.finished_signal.emit.assert_called_once()
         # Log must mention solvent
-        all_logs = " ".join(
-            str(c) for c in w.log_signal.emit.call_args_list
-        )
+        all_logs = " ".join(str(c) for c in w.log_signal.emit.call_args_list)
         self.assertIn("Water", all_logs)
 
     def test_vacuum_solvent_not_applied(self):
@@ -332,8 +337,8 @@ class TestSolventSetup(unittest.TestCase):
 # 5. Outer exception handler
 # ===========================================================================
 
-class TestOuterExceptionHandler(unittest.TestCase):
 
+class TestOuterExceptionHandler(unittest.TestCase):
     def test_unexpected_exception_emits_error_signal(self):
         """
         If an unhandled exception occurs after mol setup (but before the inner
