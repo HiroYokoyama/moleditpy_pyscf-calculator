@@ -547,8 +547,7 @@ class VisTab(QWidget):
 
                 if v3m:
                     try:
-                        if hasattr(v3m, "plotter") and v3m.plotter:
-                            v3m.plotter.reset_camera()
+                        self.context.reset_3d_camera()
                     except Exception as _e:
                         logging.warning("Failed to reset camera in vis_tab: %s", _e)
 
@@ -623,6 +622,7 @@ class VisTab(QWidget):
                         self.freq_data["freqs"],
                         self.freq_data["modes"],
                         intensities=self.freq_data.get("intensities", None),
+                        context=self.context,
                     )
 
                     mw = self.context.get_main_window()

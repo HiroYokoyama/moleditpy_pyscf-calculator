@@ -22,9 +22,10 @@ except ImportError:
     HAS_PIL = False
 
 class FreqVisualizer(QWidget):
-    def __init__(self, main_window, mol, freqs, modes, intensities=None):
+    def __init__(self, main_window, mol, freqs, modes, intensities=None, context=None):
         super().__init__()
         self.mw = main_window
+        self.context = context
         self.mol = mol  # RDKit Mol
         self.freqs = []
         for f in freqs:
@@ -241,8 +242,10 @@ class FreqVisualizer(QWidget):
         conf.SetPositions(self.base_coords)
 
         # Redraw once
-        if hasattr(self.mw, "view_3d_manager") and hasattr(self.mw.view_3d_manager, "draw_molecule_3d"):
-             self.mw.view_3d_manager.draw_molecule_3d(self.mol)
+        if self.context:
+            self.context.draw_molecule_3d(self.mol)
+        elif hasattr(self.mw, "view_3d_manager") and hasattr(self.mw.view_3d_manager, "draw_molecule_3d"):
+            self.mw.view_3d_manager.draw_molecule_3d(self.mol)
         
         if not self.is_playing: 
              self.update_vectors()
@@ -324,7 +327,9 @@ class FreqVisualizer(QWidget):
             new_pos = self.base_coords + mode * factor
             conf.SetPositions(new_pos)
 
-            if hasattr(self.mw, "view_3d_manager"):
+            if self.context:
+                self.context.draw_molecule_3d(self.mol)
+            elif hasattr(self.mw, "view_3d_manager"):
                 self.mw.view_3d_manager.draw_molecule_3d(self.mol)
 
             # NOTE: redundant vector removal removed. draw_molecule_3d already calls plotter.clear().
@@ -407,10 +412,13 @@ class FreqVisualizer(QWidget):
                 new_pos = self.base_coords + mode * factor
                 conf.SetPositions(new_pos)
                 
-                if hasattr(self.mw, "view_3d_manager") and hasattr(self.mw.view_3d_manager, "draw_molecule_3d"):
-                     self.mw.view_3d_manager.draw_molecule_3d(self.mol)
-                     QApplication.processEvents()
-                     time.sleep(0.05) # Allow render to catch up
+                if self.context:
+                    self.context.draw_molecule_3d(self.mol)
+                    QApplication.processEvents()
+                elif hasattr(self.mw, "view_3d_manager") and hasattr(self.mw.view_3d_manager, "draw_molecule_3d"):
+                    self.mw.view_3d_manager.draw_molecule_3d(self.mol)
+                    QApplication.processEvents()
+                time.sleep(0.05) # Allow render to catch up
                 
                 if self.chk_vectors.isChecked():
                      pass 

@@ -326,12 +326,11 @@ class ScanResultDialog(QDialog):
                 self.context.current_molecule = self.base_mol
             
             # Initial draw
-            if hasattr(mw, "view_3d_manager") and hasattr(mw.view_3d_manager, "draw_molecule_3d"):
-                mw.view_3d_manager.draw_molecule_3d(self.base_mol)
-                if hasattr(mw, 'view_3d_manager') and hasattr(mw.view_3d_manager, 'plotter'):
-                    mw.view_3d_manager.plotter.reset_camera()
-                    mw.view_3d_manager.plotter.update()
-                    mw.view_3d_manager.plotter.render()
+            self.context.draw_molecule_3d(self.base_mol)
+            self.context.reset_3d_camera()
+            if hasattr(mw, 'view_3d_manager') and hasattr(mw.view_3d_manager, 'plotter'):
+                mw.view_3d_manager.plotter.update()
+                mw.view_3d_manager.plotter.render()
         except Exception as e:
             print(f"Error creating base molecule: {e}")
             traceback.print_exc()
@@ -418,11 +417,7 @@ class ScanResultDialog(QDialog):
                 # Trigger redraw in main window
                 # The context.current_molecule setter might not trigger redraw if it's the same object
                 # So we might need to call draw_molecule_3d directly if available
-                mw = self.context.get_main_window()
-                if hasattr(mw, "view_3d_manager") and hasattr(mw.view_3d_manager, "draw_molecule_3d"):
-                    mw.view_3d_manager.draw_molecule_3d(self.base_mol)
-                else:
-                    self.context.current_molecule = self.base_mol
+                self.context.draw_molecule_3d(self.base_mol)
             except Exception:
                 # Fallback to full reload if efficient update fails
                 from .utils import update_molecule_from_xyz
