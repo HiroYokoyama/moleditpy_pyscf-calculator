@@ -35,14 +35,14 @@ jobs:
 
       - name: Build release package
         run: |
-          TAG="v${{ github.event.inputs.version }}"
+          TAG="${{ github.event.inputs.version }}"
           zip -r "pyscf_calculator_${TAG}.zip" pyscf_calculator/ --exclude "*/__pycache__/*" "*/.git/*"
 
       - name: Create GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          TAG="v${{ github.event.inputs.version }}"
+          TAG="${{ github.event.inputs.version }}"
           gh release create "$TAG" \
             --title "PySCF Calculator $TAG" \
             --generate-notes \
@@ -54,7 +54,7 @@ jobs:
         env:
           REGISTRY_PAT: ${{ secrets.REGISTRY_PAT }}
         run: |
-          TAG="v${{ github.event.inputs.version }}"
+          TAG="${{ github.event.inputs.version }}"
           if [ -n "$REGISTRY_PAT" ]; then
             curl -s -X POST \
               -H "Authorization: Bearer $REGISTRY_PAT" \
