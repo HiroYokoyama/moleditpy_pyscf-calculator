@@ -246,6 +246,12 @@ class PySCFWorker(QThread):
         except Exception as _e:
             logging.warning("[worker.py] _apply_mf_settings silenced: %s", _e)
 
+    @staticmethod
+    def _to_list(arr):
+        if arr is None:
+            return []
+        return arr.tolist() if hasattr(arr, "tolist") else list(arr)
+
     def _build_mf(self, mol, method_name, functional):
         """Create a mean-field object for the given mol, method, and functional."""
         grid_level = self.config.get("grid_level", 3)
@@ -941,8 +947,6 @@ class PySCFWorker(QThread):
                         )
                         td_obj.kernel()
 
-                        # Reporting
-                        # Reporting
                         self.log_signal.emit("\n===== TDDFT Results =====\n")
                         self.log_signal.emit(
                             f"{'State':<6} {'Energy (eV)':<12} {'Wavelen (nm)':<12} {'Osc. Str.':<10}\n"
@@ -1055,16 +1059,6 @@ class PySCFWorker(QThread):
 
                 results.update({"chkfile": chk_path, "out_dir": self.out_dir})
 
-                # Pass energy/occupancy to GUI for Diagram
-                # Handle UHF (tuple) vs RHF (array)
-                # Note: mo_energy might be list if loaded from chkfile without full object?
-                # Check ndim or length.
-
-                # Pass energy/occupancy to GUI for Diagram
-                # Handle UHF (tuple) vs RHF (array)
-                # Note: mo_energy might be list if loaded from chkfile without full object?
-                # Check ndim or length.
-
                 is_uhf = False
 
                 # Defensive check for None
@@ -1085,32 +1079,26 @@ class PySCFWorker(QThread):
                     elif hasattr(mf.mo_energy, "ndim") and mf.mo_energy.ndim == 2:
                         is_uhf = True
 
-                    # Use safe list conversion helper
-                    def to_l(arr):
-                        if arr is None:
-                            return []
-                        return arr.tolist() if hasattr(arr, "tolist") else list(arr)
-
                     try:
                         if is_uhf:
                             if isinstance(mf.mo_energy, tuple):
                                 e_a, e_b = mf.mo_energy
                                 o_a, o_b = mf.mo_occ
                             else:
-                                # Access by index safely
                                 e_a = mf.mo_energy[0]
                                 e_b = mf.mo_energy[1] if len(mf.mo_energy) > 1 else []
                                 o_a = mf.mo_occ[0]
                                 o_b = mf.mo_occ[1] if len(mf.mo_occ) > 1 else []
 
-                            results["mo_energy"] = [to_l(e_a), to_l(e_b)]
-                            results["mo_occ"] = [to_l(o_a), to_l(o_b)]
+                            results["mo_energy"] = [
+                                self._to_list(e_a),
+                                self._to_list(e_b),
+                            ]
+                            results["mo_occ"] = [self._to_list(o_a), self._to_list(o_b)]
                             results["scf_type"] = "UHF"
                         else:
-                            val = mf.mo_energy
-                            occ = mf.mo_occ
-                            results["mo_energy"] = to_l(val)
-                            results["mo_occ"] = to_l(occ)
+                            results["mo_energy"] = self._to_list(mf.mo_energy)
+                            results["mo_occ"] = self._to_list(mf.mo_occ)
                             results["scf_type"] = "RHF"
                     except Exception as e_process:
                         self.log_signal.emit(f"Error processing MO data: {e_process}\n")
@@ -1177,8 +1165,6 @@ class PySCFWorker(QThread):
         steps = int(params["steps"])
 
         # Setup RDKit Mol for Geometry Manipulation (Thread-safe local copy)
-        import copy
-
         rd_mol = Chem.MolFromXYZBlock(self.xyz_str)
         if not rd_mol:
             self.error_signal.emit(
@@ -1687,9 +1673,6 @@ class PySCFWorker(QThread):
             f" > Computing Dipole Derivatives (Numerical 6N={6 * natm} steps)..."
         )
 
-        # Logging progress since this can be slow
-        natm * 6
-
         for i in range(natm):
             for j in range(3):  # x, y, z
                 # Update coords +delta
@@ -1781,6 +1764,24 @@ class PropertyWorker(QThread):
         self._stop_requested = False
         self._stream = None
 
+    @staticmethod
+    def _is_uhf_coeff(mo_coeff) -> bool:
+        return isinstance(mo_coeff, (tuple, list)) or (
+            isinstance(mo_coeff, np.ndarray) and mo_coeff.ndim == 3
+        )
+
+    @staticmethod
+    def _unpack_uhf_coeff(mo_coeff, mo_occ):
+        return mo_coeff[0], mo_coeff[1], mo_occ[0], mo_occ[1]
+
+    @staticmethod
+    def _find_homo_lumo_1d(occs, threshold=0.1):
+        homo_idx = -1
+        for i, occ_val in enumerate(occs):
+            if occ_val > threshold:
+                homo_idx = i
+        return homo_idx, homo_idx + 1
+
     def run(self):
         if pyscf is None:
             self.error_signal.emit("PySCF not found.")
@@ -1825,46 +1826,15 @@ class PropertyWorker(QThread):
             occ_threshold = 0.1
 
             try:
-                # Handle different mo_occ formats: tuple (UHF), 2D array (ROKS), 1D array (RHF)
-                if isinstance(mo_occ, tuple):
-                    # UHF: (alpha_occ, beta_occ) - use Alpha for HOMO/LUMO
-                    occs = mo_occ[0]
-                    for i, occ_val in enumerate(occs):
-                        if occ_val > occ_threshold:
-                            homo_idx = i
-                        else:
-                            lumo_idx = i
-                            break
-                elif hasattr(mo_occ, "ndim") and mo_occ.ndim == 2:
-                    # 2D array (ROKS): use first row (Alpha)
-                    occs = mo_occ[0]
-                    for i, occ_val in enumerate(occs):
-                        if occ_val > occ_threshold:
-                            homo_idx = i
-                        else:
-                            lumo_idx = i
-                            break
-                elif hasattr(mo_occ, "shape"):
-                    # 1D array (RHF/RKS)
-                    for i, occ_val in enumerate(mo_occ):
-                        if occ_val > occ_threshold:
-                            homo_idx = i
-                        else:
-                            lumo_idx = i
-                            break
-                elif isinstance(mo_occ, (list, np.ndarray)):
-                    # Fallback for lists or other iterables
-                    for i, occ_val in enumerate(mo_occ):
-                        if occ_val > occ_threshold:
-                            homo_idx = i
-                        else:
-                            lumo_idx = i
-                            break
+                occs = (
+                    mo_occ[0]
+                    if isinstance(mo_occ, tuple)
+                    or (hasattr(mo_occ, "ndim") and mo_occ.ndim == 2)
+                    else mo_occ
+                )
+                homo_idx, lumo_idx = self._find_homo_lumo_1d(occs, occ_threshold)
             except Exception as e:
                 self.log_signal.emit(f"Warning: Failed to auto-detect HOMO/LUMO: {e}\n")
-
-            if lumo_idx == -1:
-                lumo_idx = homo_idx + 1  # if full
 
             results = {"files": []}
 
@@ -1886,20 +1856,11 @@ class PropertyWorker(QThread):
                     # For ESP we need density matrix
                     # Handle both RHF (array) and UHF (tuple)
 
-                    if isinstance(mo_coeff, (tuple, list)) or (
-                        isinstance(mo_coeff, np.ndarray) and mo_coeff.ndim == 3
-                    ):
+                    if self._is_uhf_coeff(mo_coeff):
                         # UHF case
                         from pyscf.scf import uhf
 
-                        # Safe unpack
-                        if isinstance(mo_coeff, tuple):
-                            c_a, c_b = mo_coeff
-                            o_a, o_b = mo_occ
-                        else:
-                            c_a, c_b = mo_coeff[0], mo_coeff[1]
-                            o_a, o_b = mo_occ[0], mo_occ[1]
-
+                        c_a, c_b, o_a, o_b = self._unpack_uhf_coeff(mo_coeff, mo_occ)
                         dm_ab = uhf.make_rdm1((c_a, c_b), (o_a, o_b))
                         dm = dm_ab[0] + dm_ab[1]  # Total density for MEP
                     else:
@@ -1921,18 +1882,10 @@ class PropertyWorker(QThread):
 
                 elif task == "SpinDensity":
                     # Check unrestricted
-                    if isinstance(mo_coeff, (tuple, list)) or (
-                        isinstance(mo_coeff, np.ndarray) and mo_coeff.ndim == 3
-                    ):
+                    if self._is_uhf_coeff(mo_coeff):
                         from pyscf.scf import uhf
 
-                        if isinstance(mo_coeff, tuple):
-                            c_a, c_b = mo_coeff
-                            o_a, o_b = mo_occ
-                        else:
-                            c_a, c_b = mo_coeff[0], mo_coeff[1]
-                            o_a, o_b = mo_occ[0], mo_occ[1]
-
+                        c_a, c_b, o_a, o_b = self._unpack_uhf_coeff(mo_coeff, mo_occ)
                         dm_ab = uhf.make_rdm1((c_a, c_b), (o_a, o_b))
                         # Spin Density = Alpha - Beta
                         spin_dens = dm_ab[0] - dm_ab[1]
@@ -1992,9 +1945,7 @@ class PropertyWorker(QThread):
                     # Assume task might be "HOMO_A" or "HOMO_B" logic?
                     # Or we just assume Alpha for now unless specified?
 
-                    is_uhf = isinstance(mo_coeff, (tuple, list)) or (
-                        isinstance(mo_coeff, np.ndarray) and mo_coeff.ndim == 3
-                    )
+                    is_uhf = self._is_uhf_coeff(mo_coeff)
 
                     # Standard logic: if UHF, we need to know A or B.
                     # If not specified, maybe generate both? Or just Alpha?
@@ -2019,35 +1970,16 @@ class PropertyWorker(QThread):
                         spin_suffix = "_A"
 
                     if is_uhf:
-                        if isinstance(mo_coeff, tuple):
-                            c_a, c_b = mo_coeff
-                            o_a, o_b = mo_occ
-                        else:
-                            c_a, c_b = mo_coeff[0], mo_coeff[1]
-                            o_a, o_b = mo_occ[0], mo_occ[1]
-
-                        # Set target arrays
+                        c_a, c_b, o_a, o_b = self._unpack_uhf_coeff(mo_coeff, mo_occ)
                         if use_beta:
                             target_coeff = c_b
                             target_occ = o_b
-                            # We also need to map HOMO/LUMO indices FOR BETA
-                            # Recalculate H/L for Beta
-                            h_idx = -1
-                            for i, o in enumerate(target_occ):
-                                if o > occ_threshold:
-                                    h_idx = i
-                            homo_idx = h_idx
-                            lumo_idx = h_idx + 1
                         else:
                             target_coeff = c_a
                             target_occ = o_a
-                            # Recalculate H/L for Alpha
-                            h_idx = -1
-                            for i, o in enumerate(target_occ):
-                                if o > occ_threshold:
-                                    h_idx = i
-                            homo_idx = h_idx
-                            lumo_idx = h_idx + 1
+                        homo_idx, lumo_idx = self._find_homo_lumo_1d(
+                            target_occ, occ_threshold
+                        )
                     else:
                         target_coeff = mo_coeff
                         # homo_idx already calc for RHF
@@ -2257,7 +2189,9 @@ class LoadWorker(QThread):
                         if os.path.exists(scan_traj):
                             results["scan_trajectory_path"] = scan_traj
                     except Exception as e:
-                        print(f"Failed to load scan: {e}")
+                        logging.warning(
+                            "[worker.py] LoadWorker: failed to load scan: %s", e
+                        )
 
                 # Load TDDFT data
                 if has_tddft:
@@ -2269,7 +2203,9 @@ class LoadWorker(QThread):
                             if "tddft_data" in tddft_data:
                                 results["tddft_data"] = tddft_data["tddft_data"]
                     except Exception as e:
-                        print(f"Failed to load TDDFT: {e}")
+                        logging.warning(
+                            "[worker.py] LoadWorker: failed to load TDDFT: %s", e
+                        )
 
                 # Load frequency data
                 if has_freq:
@@ -2280,7 +2216,9 @@ class LoadWorker(QThread):
                             freq_data = json.load(f)
                             results["freq_data"] = freq_data
                     except Exception as e:
-                        print(f"Failed to load frequency: {e}")
+                        logging.warning(
+                            "[worker.py] LoadWorker: failed to load freq: %s", e
+                        )
 
                 self.finished_signal.emit(results)
                 return
@@ -2417,7 +2355,9 @@ class LoadWorker(QThread):
                         if "thermo_data" in data:
                             results["thermo_data"] = data["thermo_data"]
                 except Exception as e_json:
-                    print(f"Failed to load freq json: {e_json}")
+                    logging.warning(
+                        "[worker.py] LoadWorker: failed to load freq json: %s", e_json
+                    )
 
             # --- Load Scan Data ---
             scan_csv = os.path.join(base_dir, "scan_results.csv")
@@ -2439,7 +2379,9 @@ class LoadWorker(QThread):
                             scan_res.append(item)
                     results["scan_results"] = scan_res
                 except Exception as e_scan:
-                    print(f"Failed to load scan csv: {e_scan}")
+                    logging.warning(
+                        "[worker.py] LoadWorker: failed to load scan csv: %s", e_scan
+                    )
 
             scan_traj = os.path.join(base_dir, "scan_trajectory.xyz")
             if os.path.exists(scan_traj):
@@ -2455,7 +2397,9 @@ class LoadWorker(QThread):
                         if "tddft_data" in tddft_data:
                             results["tddft_data"] = tddft_data["tddft_data"]
                 except Exception as e_tddft:
-                    print(f"Failed to load TDDFT json: {e_tddft}")
+                    logging.warning(
+                        "[worker.py] LoadWorker: failed to load TDDFT json: %s", e_tddft
+                    )
 
             self.finished_signal.emit(results)
 
