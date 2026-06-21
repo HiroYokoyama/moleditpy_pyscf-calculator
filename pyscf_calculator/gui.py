@@ -295,7 +295,7 @@ class PySCFDialog(QDialog):
                     user_defaults = json.load(f)
                     defaults.update(user_defaults)
             except Exception as _e:
-                logging.warning("[gui.py:271] silenced: %s", _e)
+                logging.warning("apply_defaults silenced: %s", _e)
 
         if getattr(self, "calc_tab", None) is not None:
             self.calc_tab.job_type_combo.setCurrentText(defaults["job_type"])
@@ -375,7 +375,7 @@ class PySCFDialog(QDialog):
                 if current_path:
                     project_dir = os.path.dirname(current_path)
             except Exception as _e:
-                logging.warning("[gui.py:333] silenced: %s", _e)
+                logging.warning("load_settings project_dir silenced: %s", _e)
 
         for h_path in raw_history:
             final_path = h_path
@@ -383,7 +383,7 @@ class PySCFDialog(QDialog):
                 if not os.path.isabs(h_path) and project_dir:
                     final_path = os.path.normpath(os.path.join(project_dir, h_path))
             except Exception as _e:
-                logging.warning("[gui.py:340] silenced: %s", _e)
+                logging.warning("load_settings relpath silenced: %s", _e)
             self.calc_history.append(final_path)
 
         loaded_source = s.get("struct_source", None)
@@ -397,25 +397,15 @@ class PySCFDialog(QDialog):
 
         if self.calc_history:
             last_path = self.calc_history[-1]
-
-            should_reset = False
-            # Logic for reset based on file association could go here if re-implemented.
-            # For now, we trust document_reset hook.
-
-            if should_reset:
-                # Reset logic...
-                pass
-            else:
-                # Auto-load logic
-                if os.path.exists(last_path) and os.path.isdir(last_path):
-                    self.log(f"Auto-loading latest result: {last_path}")
-                    if getattr(self, "vis_tab", None) is not None:
-                        QTimer.singleShot(
-                            200,
-                            lambda: self.vis_tab.load_result_folder(
-                                last_path, update_structure=False
-                            ),
-                        )
+            if os.path.exists(last_path) and os.path.isdir(last_path):
+                self.log(f"Auto-loading latest result: {last_path}")
+                if getattr(self, "vis_tab", None) is not None:
+                    QTimer.singleShot(
+                        200,
+                        lambda: self.vis_tab.load_result_folder(
+                            last_path, update_structure=False
+                        ),
+                    )
 
     def update_internal_state(self):
         # Syncs UI to self.settings for saving project
@@ -458,11 +448,11 @@ class PySCFDialog(QDialog):
                             try:
                                 rel = os.path.relpath(h_path, project_dir)
                                 relative_history.append(rel)
-                            except:
+                            except Exception:
                                 relative_history.append(h_path)
                         history_to_save = relative_history
                 except Exception as _e:
-                    logging.warning("[gui.py:408] silenced: %s", _e)
+                    logging.warning("update_internal_state relpath silenced: %s", _e)
 
         self.settings["calc_history"] = history_to_save
         self.settings["struct_source"] = self.struct_source
@@ -475,7 +465,9 @@ class PySCFDialog(QDialog):
                         mw.init_manager.current_file_path
                     )
         except Exception as _e:
-            logging.warning("[gui.py:418] silenced: %s", _e)
+            logging.warning(
+                "update_internal_state associated_filename silenced: %s", _e
+            )
 
     def save_settings(self):
         self.update_internal_state()

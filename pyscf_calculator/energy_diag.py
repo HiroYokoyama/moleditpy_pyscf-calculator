@@ -1,3 +1,5 @@
+import glob
+import math
 import os
 from PyQt6.QtWidgets import (
     QDialog,
@@ -66,7 +68,7 @@ class EnergyDiagramDialog(QDialog):
         btn_layout.addWidget(self.btn_save)
         layout.addLayout(btn_layout)
 
-        # Status Label (User Request: Bottom message)
+        # Status Label (bottom message)
         self.status_label = QLabel("Ready")
         self.status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.status_label.setStyleSheet("color: gray; font-size: 10px;")
@@ -138,7 +140,7 @@ class EnergyDiagramDialog(QDialog):
         self.lumo_energy = l_e
         gap_center = (h_e + l_e) / 2
 
-        # User Request: Default view is 3x the HOMO-LUMO gap, centered on gap
+        # Default view is 3x the HOMO-LUMO gap, centered on gap
         gap = abs(l_e - h_e)
         if gap < 0.01:
             gap = 0.05  # Fallback for near-degeneracy
@@ -249,7 +251,6 @@ class EnergyDiagramDialog(QDialog):
             # QMessageBox.information(self, "Info", "No result directory linked.")
             return
 
-        import glob
         # Pattern matching
         # Files like: "15_HOMO.cube" or "16_LUMO.cube" or "15_MO_15.cube"
 
@@ -274,12 +275,10 @@ class EnergyDiagramDialog(QDialog):
             patterns.append(f"{target_idx:03d}b_*.cube")  # Padded 010b
         else:
             # Standard Convention: "015_..." (Used for RHF or old UHF)
-            # User Request: "Make them consistent"
             # New RHF uses 1-based index (target_idx), e.g. "016_HOMO.cube"
             patterns.append(f"{target_idx:03d}_*.cube")
 
             # Legacy Fallback (optional, if user wants to load old files)
-            # User Request: "comment out legacy" -> Strict uniformity.
             # patterns.append(f"{index:03d}_*.cube") # Legacy 0-based
             # patterns.append(f"{index}_*.cube")
 
@@ -296,7 +295,6 @@ class EnergyDiagramDialog(QDialog):
             # Call Parent method
             if hasattr(self.parent(), "load_file_by_path"):
                 self.parent().load_file_by_path(target)
-                # User Request: Bottom message instead of title
                 self.status_label.setText(f"Loaded: {os.path.basename(target)}")
                 # Clear title notify
                 self.setWindowTitle("Orbital Energy Diagram")
@@ -304,7 +302,6 @@ class EnergyDiagramDialog(QDialog):
             # File not found
             self.status_label.setText(f"File not found: {label}")
 
-            # User Request: Confirm dialog "same with the rest"
             reply = QMessageBox.question(
                 self,
                 "Confirm Analysis",
@@ -336,8 +333,7 @@ class EnergyDiagramDialog(QDialog):
                         hovering_over_orbital = True
                         hit_found = True
 
-                        # Show Tooltip with Index (User Request)
-                        # Use 1-based index
+                        # Show Tooltip with Index (1-based)
                         idx_1b = index + 1
                         tip_text = f"Index: {idx_1b}"
                         if label:
@@ -364,7 +360,7 @@ class EnergyDiagramDialog(QDialog):
             current_y = event.position().y()
             delta_y = current_y - self.last_mouse_y
 
-            # Zoom Logic (User Request: Drag to Zoom)
+            # Zoom Logic: Drag to Zoom
             # Drag DOWN (Positive Delta) -> Zoom OUT (Factor > 1)
             # Drag UP (Negative Delta) -> Zoom IN (Factor < 1)
 
@@ -403,7 +399,7 @@ class EnergyDiagramDialog(QDialog):
             self, "Save Diagram", "orbital_diagram.png", "Images (*.png)"
         )
         if fname:
-            # User Request: Prevent exporting message (and UI controls)
+            # Hide UI controls before grabbing screenshot
             widgets_to_restore = []
 
             # Hide top buttons and bottom label
@@ -441,7 +437,7 @@ class EnergyDiagramDialog(QDialog):
 
         # Reset Hit Zones
         self.hit_zones = []  # List of (QRect, index, label)
-        from PyQt6.QtCore import QRect
+        from PyQt6.QtCore import QRect  # noqa: PLC0415
 
         w = self.width()
         h = self.height()
@@ -492,8 +488,6 @@ class EnergyDiagramDialog(QDialog):
             range_disp = 1.0
 
         # 2. Calculate Nice Step in Display Units
-        import math
-
         target_ticks = 10
         raw_step = range_disp / target_ticks
 
@@ -508,7 +502,7 @@ class EnergyDiagramDialog(QDialog):
                 step = 2 * magnitude
             else:
                 step = magnitude
-        except:
+        except Exception:
             step = 1.0
 
         if step <= 0:

@@ -177,18 +177,8 @@ class FreqVisualizer(QWidget):
             scaled_freq = freq * sf
             item.setText(1, f"{scaled_freq:.2f}")
 
-            # if self.intensities and i < len(self.intensities):
-            #     val = self.intensities[i]
-            #     if val is not None:
-            #          item.setText(2, f"{val:.2f}")
-            #     else:
-            #          item.setText(2, "-")
-            # else:
-            #     item.setText(2, "-")
-
             item.setTextAlignment(0, Qt.AlignmentFlag.AlignCenter)
             item.setTextAlignment(1, Qt.AlignmentFlag.AlignCenter)
-            # item.setTextAlignment(2, Qt.AlignmentFlag.AlignCenter)
             self.list_freq.addTopLevelItem(item)
 
     def on_scale_changed(self):
@@ -294,7 +284,7 @@ class FreqVisualizer(QWidget):
                 self.mw.view_3d_manager.plotter.remove_actor("pyscf_iso_n")
                 self.mw.view_3d_manager.plotter.remove_actor("pyscf_mapped")
             except Exception as _e:
-                logging.warning("[freq_vis.py:252] silenced: %s", _e)
+                logging.warning("silenced: %s", _e)
 
         if not self.chk_vectors.isChecked():
             try:
@@ -305,7 +295,7 @@ class FreqVisualizer(QWidget):
                 ):
                     self.mw.view_3d_manager.plotter.render()
             except Exception as _e:
-                logging.warning("[freq_vis.py:258] silenced: %s", _e)
+                logging.warning("silenced: %s", _e)
             return
 
         item = self.list_freq.currentItem()
@@ -318,7 +308,7 @@ class FreqVisualizer(QWidget):
                 ):
                     self.mw.view_3d_manager.plotter.render()
             except Exception as _e:
-                logging.warning("[freq_vis.py:266] silenced: %s", _e)
+                logging.warning("silenced: %s", _e)
             return
 
         idx = self.list_freq.indexOfTopLevelItem(item)
@@ -348,7 +338,7 @@ class FreqVisualizer(QWidget):
                 )
                 self.mw.view_3d_manager.plotter.render()
         except Exception as _e:
-            logging.warning("[freq_vis.py:284] silenced: %s", _e)
+            logging.warning("silenced: %s", _e)
 
     def animate_frame(self):
         if not self.is_playing:
@@ -482,9 +472,6 @@ class FreqVisualizer(QWidget):
                     QApplication.processEvents()
                 time.sleep(0.05)  # Allow render to catch up
 
-                if self.chk_vectors.isChecked():
-                    pass
-
                 if hasattr(self.mw, "view_3d_manager") and hasattr(
                     self.mw.view_3d_manager, "plotter"
                 ):
@@ -559,7 +546,7 @@ class FreqVisualizer(QWidget):
                 # Do NOT render during cleanup. It causes Segfaults (0x100).
                 # self.mw.view_3d_manager.plotter.render()
         except Exception as _e:
-            logging.warning("[freq_vis.py:473] silenced: %s", _e)
+            logging.warning("silenced: %s", _e)
 
 
 class SpectrumDialog(QDialog):
@@ -601,13 +588,6 @@ class SpectrumDialog(QDialog):
         self.chk_invert_y = QCheckBox("Invert Intensity")
         self.chk_invert_y.stateChanged.connect(self.update_plot)
         ctrl_layout.addWidget(self.chk_invert_y)
-
-        # Gaussian vs Lorentzian
-        # Removed per user request (Default to Gaussian)
-        # self.chk_gaussian = QCheckBox("Gaussian Profile")
-        # self.chk_gaussian.setChecked(True)
-        # self.chk_gaussian.stateChanged.connect(self.update_plot)
-        # ctrl_layout.addWidget(self.chk_gaussian)
 
         ctrl_layout.addStretch()
 

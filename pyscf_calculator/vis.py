@@ -61,7 +61,7 @@ def parse_cube_data(filename):
                 _ = int(parts[0])
                 # Actually, standard behavior is unconditional skip
                 current_line += 1
-            except:
+            except Exception:
                 current_line += 1
 
     for _ in range(n_atoms):
@@ -77,7 +77,7 @@ def parse_cube_data(filename):
             atomic_num = int(line[0])
             x, y, z = float(line[2]), float(line[3]), float(line[4])
             atoms.append((atomic_num, np.array([x, y, z])))
-        except:
+        except Exception:
             # Skip malformed atom line
             continue
 
@@ -221,7 +221,7 @@ class CubeVisualizer:
 
             return True
         except Exception as e:
-            print(f"Error loading cube: {e}")
+            logging.warning("Error loading cube: %s", e)
             return False
 
     def update_iso(self, isovalue, color_p, color_n, opacity, use_comp_color=False):
@@ -335,7 +335,7 @@ class MappedVisualizer:
 
             return True
         except Exception as e:
-            print(f"Error loading mapped cubes: {e}")
+            logging.warning("Error loading mapped cubes: %s", e)
             return False
 
     def get_mapped_range(self, iso_val):
@@ -359,7 +359,7 @@ class MappedVisualizer:
             if mvals is not None and len(mvals) > 0:
                 return (float(mvals.min()), float(mvals.max()))
             return (-0.1, 0.1)
-        except:
+        except Exception:
             return (-0.1, 0.1)
 
     def update_mesh(self, iso_val, opacity, cmap="jet", clim=None):
@@ -407,10 +407,7 @@ class MappedVisualizer:
                 self.plotter.render()
 
         except Exception as e:
-            print(f"Mapped update error: {e}")
-            import traceback
-
-            traceback.print_exc()
+            logging.exception("Mapped update error: %s", e)
 
     def clear_actors(self):
         if getattr(self, "plotter", None) is None:

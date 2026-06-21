@@ -84,7 +84,7 @@ class ScanDialog(QDialog):
                     ):
                         self.mw.init_manager.measurement_action.setChecked(True)
         except Exception as e:
-            print(f"Failed to activate selection mode: {e}")
+            logging.warning("Failed to activate selection mode: %s", e)
 
     def init_ui(self):
         layout = QVBoxLayout(self)
@@ -234,7 +234,7 @@ class ScanDialog(QDialog):
 
         except Exception as e:
             self.lbl_current.setText("Error calc value")
-            print(f"ScanDialog Calc Error: {e}")
+            logging.warning("ScanDialog Calc Error: %s", e)
 
     def accept_scan(self):
         try:

@@ -75,7 +75,7 @@ def update_molecule_from_xyz(context, xyz_content, mark_modified=True):
             new_mol = Chem.MolFromXYZBlock(raw_xyz)
 
     if new_mol:
-        # User requested: determine bond and bond order by rdkit
+        # determine bond and bond order by rdkit
         try:
             from rdkit.Chem import rdDetermineBonds
 
@@ -87,7 +87,7 @@ def update_molecule_from_xyz(context, xyz_content, mark_modified=True):
             # Fallback for older RDKit?
             pass
         except Exception as e:
-            print(f"Warning: Could not determine bonds: {e}")
+            logging.warning("Could not determine bonds: %s", e)
 
         # Preserve Dirty State if requested NOT to mark modified
         mw = context.get_main_window()

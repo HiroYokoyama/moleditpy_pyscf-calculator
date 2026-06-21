@@ -1,3 +1,4 @@
+import csv
 import os
 import traceback
 import matplotlib
@@ -8,6 +9,7 @@ from matplotlib.figure import Figure
 import matplotlib.collections
 
 from PyQt6.QtWidgets import (
+    QApplication,
     QDialog,
     QVBoxLayout,
     QHBoxLayout,
@@ -21,12 +23,16 @@ from PyQt6.QtWidgets import (
     QCheckBox,
     QFormLayout,
     QDialogButtonBox,
+    QProgressDialog,
 )
 from PyQt6.QtCore import Qt, QTimer
 
 from rdkit import Chem
 from rdkit.Chem import rdGeometry
 import logging
+
+_HARTREE_TO_KJMOL = 2625.5
+_HARTREE_TO_KCALMOL = 627.509
 
 try:
     from PIL import Image
@@ -190,10 +196,6 @@ class ScanResultDialog(QDialog):
         if not self.results:
             return
 
-        # Conversion factors
-        HARTREE_TO_KJMOL = 2625.5
-        HARTREE_TO_KCALMOL = 627.509
-
         unit = (
             self.unit_combo.currentText()
             if getattr(self, "unit_combo", None) is not None
@@ -219,10 +221,10 @@ class ScanResultDialog(QDialog):
 
         # Convert energies based on selected unit
         if unit == "kJ/mol":
-            y = [e * HARTREE_TO_KJMOL for e in y_hartree]
+            y = [e * _HARTREE_TO_KJMOL for e in y_hartree]
             ylabel = f"{ylabel_prefix} (kJ/mol)"
         elif unit == "kcal/mol":
-            y = [e * HARTREE_TO_KCALMOL for e in y_hartree]
+            y = [e * _HARTREE_TO_KCALMOL for e in y_hartree]
             ylabel = f"{ylabel_prefix} (kcal/mol)"
         else:  # Hartree
             y = y_hartree
@@ -292,8 +294,6 @@ class ScanResultDialog(QDialog):
             y_hartree = y_abs
 
         # Apply same conversion as plot_data
-        HARTREE_TO_KJMOL = 2625.5
-        HARTREE_TO_KCALMOL = 627.509
         unit = (
             self.unit_combo.currentText()
             if getattr(self, "unit_combo", None) is not None
@@ -301,9 +301,9 @@ class ScanResultDialog(QDialog):
         )
 
         if unit == "kJ/mol":
-            y = y_hartree * HARTREE_TO_KJMOL
+            y = y_hartree * _HARTREE_TO_KJMOL
         elif unit == "kcal/mol":
-            y = y_hartree * HARTREE_TO_KCALMOL
+            y = y_hartree * _HARTREE_TO_KCALMOL
         else:  # Hartree
             y = y_hartree
 
@@ -352,7 +352,7 @@ class ScanResultDialog(QDialog):
                         coords.append((x, y, z))
                         try:
                             atom = Chem.Atom(sym)
-                        except:
+                        except Exception:
                             atom = Chem.Atom("C")  # Fallback
                         mol.AddAtom(atom)
                     except ValueError:
@@ -384,7 +384,7 @@ class ScanResultDialog(QDialog):
                     rdDetermineBonds.DetermineConnectivity(mol)
                     rdDetermineBonds.DetermineBondOrders(mol)
                 except Exception as e:
-                    print(f"rdDetermineBonds fallback failed: {e}")
+                    logging.warning("rdDetermineBonds fallback failed: %s", e)
 
             self.base_mol = mol.GetMol()
 
@@ -401,8 +401,7 @@ class ScanResultDialog(QDialog):
                 mw.view_3d_manager.plotter.update()
                 mw.view_3d_manager.plotter.render()
         except Exception as e:
-            print(f"Error creating base molecule: {e}")
-            traceback.print_exc()
+            logging.exception("Error creating base molecule: %s", e)
 
     def on_pick(self, event):
         if event.artist and hasattr(event, "ind"):
@@ -433,9 +432,9 @@ class ScanResultDialog(QDialog):
                         disp_energy -= min_e
 
                     if unit == "kJ/mol":
-                        disp_energy *= 2625.5
+                        disp_energy *= _HARTREE_TO_KJMOL
                     elif unit == "kcal/mol":
-                        disp_energy *= 627.509
+                        disp_energy *= _HARTREE_TO_KCALMOL
 
                     # High precision for exact values
                     text = f"X: {val:.6f}\nY: {disp_energy:.8f} {unit}"
@@ -548,8 +547,6 @@ class ScanResultDialog(QDialog):
                 self, "Save CSV", default_path, "CSV Files (*.csv);;All Files (*)"
             )
             if path:
-                import csv
-
                 keys = self.results[0].keys()
                 with open(path, "w", newline="") as f:
                     writer = csv.DictWriter(f, fieldnames=keys)
@@ -674,8 +671,6 @@ class ScanResultDialog(QDialog):
 
         # Progress Dialog
         self.setCursor(Qt.CursorShape.WaitCursor)
-        from PyQt6.QtWidgets import QProgressDialog, QApplication
-
         progress = QProgressDialog(
             "Generating GIF...", "Cancel", 0, len(self.trajectory), self
         )
@@ -686,9 +681,8 @@ class ScanResultDialog(QDialog):
             images = []
 
             mw = self.context.get_main_window() if self.context else None
-            if (
-                not mw
-                or not hasattr(mw, "view_3d_manager")
+            if not mw or not (
+                hasattr(mw, "view_3d_manager")
                 and hasattr(mw.view_3d_manager, "plotter")
             ):
                 raise Exception("3D plotter not available")

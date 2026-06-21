@@ -21,6 +21,10 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt, QTimer
 import logging
 
+_TM_ATOMIC_NUMS = (
+    frozenset(range(21, 31)) | frozenset(range(39, 49)) | frozenset(range(72, 81))
+)
+
 # Local Imports
 try:
     from .worker import PySCFWorker
@@ -368,14 +372,10 @@ class CalcTab(QWidget):
             total_electrons = 0
             has_transition_metal = False
 
-            tm_nums = set(
-                list(range(21, 31)) + list(range(39, 49)) + list(range(72, 81))
-            )
-
             for atom in mol.GetAtoms():
                 an = atom.GetAtomicNum()
                 total_electrons += an
-                if an in tm_nums:
+                if an in _TM_ATOMIC_NUMS:
                     has_transition_metal = True
 
             charge = Chem.GetFormalCharge(mol)
@@ -444,12 +444,8 @@ class CalcTab(QWidget):
 
             try:
                 charge = int(self.charge_input.currentText())
-                spin_txt = self.spin_input.currentText()
-                if " " in spin_txt:
-                    mult = int(spin_txt.split(" ")[0])
-                else:
-                    mult = int(spin_txt)
-            except:
+                mult = self.get_spin_value()
+            except Exception:
                 return
 
             electrons = total_protons - charge
@@ -477,7 +473,7 @@ class CalcTab(QWidget):
                 self.charge_input.setToolTip(msg)
 
         except Exception as _e:
-            logging.warning("[calc_tab.py:396] silenced: %s", _e)
+            logging.warning("validate_spin_settings silenced: %s", _e)
 
     def browse_out_dir(self):
         d = QFileDialog.getExistingDirectory(self, "Select Output Directory")
@@ -500,7 +496,7 @@ class CalcTab(QWidget):
             try:
                 self._scan_config_dlg.close()
             except Exception as _e:
-                logging.warning("[calc_tab.py:417] silenced: %s", _e)
+                logging.warning("configure_scan close silenced: %s", _e)
 
         self._scan_config_dlg = ScanDialog(
             self, self.context, initial_params=self.scan_params
@@ -522,7 +518,7 @@ class CalcTab(QWidget):
             if " " in txt:
                 return int(txt.split(" ")[0])
             return int(txt)
-        except:
+        except Exception:
             return 1
 
     def run_calculation(self):
