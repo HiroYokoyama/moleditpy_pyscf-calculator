@@ -6,6 +6,9 @@ on:
       version:
         description: 'Release version (e.g. 4.0.0 — without leading v)'
         required: true
+  push:
+    tags:
+      - 'v*.*.*'
 
 permissions:
   contents: write
@@ -17,9 +20,24 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Resolve version
+        run: |
+          if [ "${{ github.event_name }}" = "push" ]; then
+            VERSION="${GITHUB_REF_NAME#v}"
+          else
+            VERSION="${{ github.event.inputs.version }}"
+          fi
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+
+      - name: Create and push tag
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          git tag "v$VERSION"
+          git push origin "v$VERSION"
+
       - name: Verify version matches plugin source
         run: |
-          INPUT="${{ github.event.inputs.version }}"
+          INPUT="$VERSION"
           FILE_VERSION=$(python3 -c "
           import re, sys
           text = open('pyscf_calculator/__init__.py', encoding='utf-8').read()
@@ -35,15 +53,15 @@ jobs:
 
       - name: Build release package
         run: |
-          TAG="${{ github.event.inputs.version }}"
+          TAG="$VERSION"
           zip -r "pyscf_calculator_${TAG}.zip" pyscf_calculator/ --exclude "*/__pycache__/*" "*/.git/*"
 
       - name: Create GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          TAG="${{ github.event.inputs.version }}"
-          gh release create "$TAG" \
+          TAG="$VERSION"
+          gh release create "v$TAG" \
             --title "PySCF Calculator $TAG" \
             --generate-notes \
             "pyscf_calculator_$TAG.zip"
@@ -54,11 +72,11 @@ jobs:
         env:
           REGISTRY_PAT: ${{ secrets.REGISTRY_PAT }}
         run: |
-          TAG="${{ github.event.inputs.version }}"
+          TAG="$VERSION"
           if [ -n "$REGISTRY_PAT" ]; then
             curl -s -X POST \
               -H "Authorization: Bearer $REGISTRY_PAT" \
               -H "Accept: application/vnd.github+json" \
               "https://api.github.com/repos/HiroYokoyama/moleditpy-plugins/dispatches" \
-              -d "{\"event_type\":\"plugin_release\",\"client_payload\":{\"repo\":\"${{ github.repository }}\",\"tag\":\"$TAG\"}}"
+              -d "{\"event_type\":\"plugin_release\",\"client_payload\":{\"repo\":\"${{ github.repository }}\",\"tag\":\"v$TAG\"}}"
           fi
