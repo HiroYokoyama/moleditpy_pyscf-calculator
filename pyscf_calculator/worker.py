@@ -1,3 +1,4 @@
+import csv
 import sys
 import os
 import io
@@ -24,6 +25,11 @@ try:
     from pyscf import solvent  # noqa: F401 # Ensure ddCOSMO mixin is available
 except ImportError:
     pyscf = None
+
+_FINITE_DIFF_STEP = (
+    0.005  # Bohr, central-difference displacement for numeric derivatives
+)
+_HC_EV_NM = 1239.84193  # hc in eV·nm, for excitation wavelength conversion
 
 
 class CaptureStdOut:
@@ -291,7 +297,7 @@ class PySCFWorker(QThread):
         # g_scanner automatically handles re-building molecule and re-running SCF
         try:
             g_scanner = mf.nuc_grad_method().as_scanner()
-        except:
+        except Exception:
             # Fallback if as_scanner fails: just use mf.nuc_grad_method() and manual loop
             grad_method = mf.nuc_grad_method()
 
@@ -307,14 +313,13 @@ class PySCFWorker(QThread):
         h_dim = n_atoms * 3
         hessian = np.zeros((h_dim, h_dim))
 
-        # Step size (Bohr)
-        delta = 0.005
+        delta = _FINITE_DIFF_STEP
 
         # Current geometry in Bohr (PySCF internal)
         mol_calc = mol.copy()
         try:
             coords_bohr = mol_calc.atom_coords(unit="Bohr")
-        except:
+        except Exception:
             # Fallback if unit='Bohr' fails in older pyscf
             coords_bohr = mol_calc.atom_coords() * 1.8897259886
 
@@ -452,7 +457,7 @@ class PySCFWorker(QThread):
                     f"PySCF running with {n_threads} OpenMP threads.\n"
                 )
             except Exception as _e:
-                logging.warning("[worker.py:317] silenced: %s", _e)
+                logging.warning("[worker.py] silenced: %s", _e)
 
             # --- Parameters Setup ---
             scan_params = self.config.get("scan_params", None)
@@ -532,7 +537,7 @@ class PySCFWorker(QThread):
                     tol = float(self.config.get("conv_tol", "1e-9"))
                     f.write(f"mf.conv_tol = {tol}\n")
                 except Exception as _e:
-                    logging.warning("[worker.py:436] silenced: %s", _e)
+                    logging.warning("[worker.py] silenced: %s", _e)
 
                 if use_solvent:
                     f.write(f"mf = mf.ddCOSMO()\n")
@@ -590,10 +595,6 @@ class PySCFWorker(QThread):
                     self.result_signal.emit(results)
                     self.finished_signal.emit()
                     return
-                # ---------------------
-                # ---------------------
-
-                # ---------------------
 
                 if "Optimization" in job_type:
                     is_ts = (
@@ -699,9 +700,6 @@ class PySCFWorker(QThread):
                             f"Running partial energy calculation using {method_name}...\n"
                         )
 
-                        # User Request: Apply Symmetry Breaking for UKS/UHF
-                        # "mix_estimation" logic to prevent Alpha=Beta trap
-                        # Condition: UKS/UHF, Spin > 0, AND Option Enabled (Default True)
                         should_break = self.config.get("break_symmetry", True)
 
                         if (
@@ -794,14 +792,6 @@ class PySCFWorker(QThread):
                         # Store data for GUI Visualizer
                         # Check for IR intensity (not always available in standard harmonic_analysis)
                         intensities = freq_res.get("infra_red_intensity", None)
-
-                        # if intensities is None:
-                        #     self.log_signal.emit("Calculating IR Intensities numerically (Finite Difference of Dipole)...\n")
-                        #     try:
-                        #         intensities = self.calculate_ir_intensities(mol, mf, freq_res["norm_mode"])
-                        #     except Exception as e_int:
-                        #         self.log_signal.emit(f"IR Intensity calculation failed: {e_int}\n")
-                        #         intensities = None
 
                         # Process Frequencies: Handle imaginary (complex) values -> negative reals
                         raw_freqs = freq_res["freq_wavenumber"]
@@ -940,7 +930,7 @@ class PySCFWorker(QThread):
                         try:
                             td_obj.stdout = stream
                         except Exception as _e:
-                            logging.warning("[worker.py:847] silenced: %s", _e)
+                            logging.warning("[worker.py] silenced: %s", _e)
 
                         self.log_signal.emit(
                             f"Calculating {nstates} Excited States...\n"
@@ -971,7 +961,7 @@ class PySCFWorker(QThread):
                                 oscs = oscs.tolist()
                             if isinstance(oscs, float):
                                 oscs = [oscs]
-                        except:
+                        except Exception:
                             oscs = [0.0] * len(energies_exc)
 
                         HARTREE_TO_EV = 27.2114
@@ -983,9 +973,8 @@ class PySCFWorker(QThread):
                             exc_energy_au = e_exc_tot - e_ground
                             exc_ev = exc_energy_au * HARTREE_TO_EV
 
-                            # Convert to nm: 1239.84193 / eV
                             if abs(exc_ev) > 1e-6:
-                                exc_nm = 1239.84193 / exc_ev
+                                exc_nm = _HC_EV_NM / exc_ev
                             else:
                                 exc_nm = float("inf")
 
@@ -1107,12 +1096,6 @@ class PySCFWorker(QThread):
 
                 self.log_signal.emit(f"Checkpoint saved to: {chk_path}\n")
 
-                # --- Post Analysis (Optional Auto-Vis) ---
-                cube_files = []
-                # Only if explicitly requested or job type implies it (omitted for now as requested)
-                # The user removed the auto-vis checkbox.
-                # So we just return the checkpoint.
-
                 results["cube_files"] = []
                 self.result_signal.emit(results)
                 self.finished_signal.emit()
@@ -1152,7 +1135,7 @@ class PySCFWorker(QThread):
                 try:
                     capturer.__exit__(None, None, None)
                 except Exception as _e:
-                    logging.warning("[worker.py:1043] silenced: %s", _e)
+                    logging.warning("[worker.py] silenced: %s", _e)
 
     def run_rigid_scan(self, mol, mf, params, results):
         self.log_signal.emit("\n===== Rigid Surface Scan =====\n")
@@ -1217,7 +1200,7 @@ class PySCFWorker(QThread):
                 rw_mol.UpdatePropertyCache(strict=False)
                 Chem.GetSymmSSSR(rw_mol)
             except Exception as _e:
-                logging.warning("[worker.py:1095] silenced: %s", _e)
+                logging.warning("[worker.py] silenced: %s", _e)
 
         # Use the explicit connectivity molecule
         rd_mol = rw_mol
@@ -1609,9 +1592,6 @@ class PySCFWorker(QThread):
         Returns:
             np.array: List of intensities in km/mol.
         """
-        import numpy as np
-        from pyscf import scf, dft
-
         # Check Unrestricted
         is_unrestricted = False
         if isinstance(mf, (scf.uhf.UHF, dft.uks.UKS)):
@@ -1656,14 +1636,14 @@ class PySCFWorker(QThread):
                     mf_temp.kernel(dm0=dm_guess)
                 else:
                     mf_temp.kernel()
-            except:
+            except Exception:
                 # Fallback to fresh start if guess fails
                 mf_temp.kernel()
 
             return mf_temp.dip_moment(mol=mol_instance, unit="Debye", verbose=0)
 
         # 1. Compute Dipole Derivatives (d_mu / d_X)
-        delta = 0.005  # Bohr (Standard step size)
+        delta = _FINITE_DIFF_STEP
         natm = mol.natm
         dip_derivs = np.zeros((natm, 3, 3))  # (Atom, Axis, Dipole_Component)
 
@@ -1842,11 +1822,10 @@ class PropertyWorker(QThread):
                 if self._stop_requested:
                     self.log_signal.emit("Property generation stopped by user.\n")
                     break
+                from .utils import get_unique_path  # noqa: PLC0415 — deferred to keep relative import out of module-level test context
 
                 if task == "ESP":
                     # Generate Unique Paths
-                    from .utils import get_unique_path
-
                     f_esp_base = os.path.join(self.out_dir, "esp.cube")
                     f_esp = get_unique_path(f_esp_base)
 
@@ -1891,8 +1870,6 @@ class PropertyWorker(QThread):
                         spin_dens = dm_ab[0] - dm_ab[1]
 
                         f_spin_base = os.path.join(self.out_dir, "spin_density.cube")
-                        from .utils import get_unique_path
-
                         f_spin = get_unique_path(f_spin_base)
 
                         self.log_signal.emit(
@@ -1914,8 +1891,6 @@ class PropertyWorker(QThread):
                         spin_dens = dm_a - dm_b
 
                         f_spin_base = os.path.join(self.out_dir, "spin_density.cube")
-                        from .utils import get_unique_path
-
                         f_spin = get_unique_path(f_spin_base)
 
                         self.log_signal.emit(
@@ -2056,8 +2031,6 @@ class PropertyWorker(QThread):
                         )
                         continue
 
-                    # Determine Relative Label (HOMO-X / LUMO+X)
-                    # Determine Relative Label (HOMO-X / LUMO+X)
                     clean_lbl = f"MO_{idx}"  # Default fallback
                     if idx <= homo_idx:
                         diff = homo_idx - idx
@@ -2068,33 +2041,16 @@ class PropertyWorker(QThread):
 
                     rel_label = clean_lbl
 
-                    # Filename
-                    # User Request: Use "10a" prefix style
-                    # This ensures sorting separates Alpha (10a) and Beta (10b) clearly.
-
-                    prefix_idx = idx + 1  # Use 1-based index for user-facing filename
-
+                    prefix_idx = idx + 1  # 1-based for user-facing filename
                     if is_uhf:
-                        # e.g. "015a", "015b"
-                        # We use 'a' and 'b' from spin_suffix
-                        # spin_suffix is "_A" or "_B".
-                        # Convert to 'a' or 'b'
                         s_char = "a" if "_A" in spin_suffix else "b"
-                        # User Request: "use 010a not 10a" -> Pad to 3 digits
-                        file_prefix = f"{prefix_idx:03d}{s_char}"
-                        # If we use this prefix, we might not need suffix at end, but keeping it is safe.
-                        # Proposed: "015a_HOMO.cube"
-                        fname = f"{file_prefix}_{rel_label}.cube"
+                        fname = f"{prefix_idx:03d}{s_char}_{rel_label}.cube"
                     else:
-                        # RHF: Use 1-based index for consistency "016_HOMO"
-                        # User Request: "Make them consistent"
                         fname = f"{prefix_idx:03d}_{rel_label}.cube"
 
                     # Sanitization: Ensure safe filenames but keep readable
                     # fname = fname.replace(" ", "") # User requested spaces in name
                     f_path_base = os.path.join(self.out_dir, fname)
-
-                    from .utils import get_unique_path
 
                     f_path = get_unique_path(f_path_base)
 
@@ -2148,6 +2104,20 @@ class LoadWorker(QThread):
         self.chkfile = chkfile
         self._stop_requested = False
 
+    @staticmethod
+    def _load_scan_csv(path):
+        scan_res = []
+        with open(path) as f:
+            for row in csv.DictReader(f):
+                item = {}
+                for k, v in row.items():
+                    try:
+                        item[k] = float(v)
+                    except Exception:
+                        item[k] = v
+                scan_res.append(item)
+        return scan_res
+
     def run(self):
         if pyscf is None:
             self.error_signal.emit("PySCF not found.")
@@ -2169,22 +2139,8 @@ class LoadWorker(QThread):
                 # Load scan data
                 if has_scan:
                     try:
-                        import csv
-
                         scan_csv = os.path.join(base_dir, "scan_results.csv")
-                        scan_res = []
-                        with open(scan_csv, "r") as f:
-                            reader = csv.DictReader(f)
-                            for row in reader:
-                                item = {}
-                                for k, v in row.items():
-                                    try:
-                                        item[k] = float(v)
-                                    except:
-                                        item[k] = v
-                                scan_res.append(item)
-                        results["scan_results"] = scan_res
-
+                        results["scan_results"] = self._load_scan_csv(scan_csv)
                         scan_traj = os.path.join(base_dir, "scan_trajectory.xyz")
                         if os.path.exists(scan_traj):
                             results["scan_trajectory_path"] = scan_traj
@@ -2235,8 +2191,6 @@ class LoadWorker(QThread):
             # Identify Type (Enhanced: UHF, RHF, ROKS, ROHF)
             scf_type = "RHF"
 
-            import numpy as np
-
             # Step 1: Check for Unrestricted (UHF/UKS)
             is_uhf = False
             if isinstance(mo_energy, tuple):
@@ -2246,7 +2200,7 @@ class LoadWorker(QThread):
                 and len(mo_energy) == 2
                 and isinstance(mo_energy[0], (list, np.ndarray))
             ):
-                pass  # Could be list of lists checking
+                is_uhf = True
             elif isinstance(mo_energy, np.ndarray) and mo_energy.ndim == 2:
                 is_uhf = True
 
@@ -2363,21 +2317,7 @@ class LoadWorker(QThread):
             scan_csv = os.path.join(base_dir, "scan_results.csv")
             if os.path.exists(scan_csv):
                 try:
-                    import csv
-
-                    scan_res = []
-                    with open(scan_csv, "r") as f:
-                        reader = csv.DictReader(f)
-                        for row in reader:
-                            # Convert to float/int
-                            item = {}
-                            for k, v in row.items():
-                                try:
-                                    item[k] = float(v)
-                                except:
-                                    item[k] = v
-                            scan_res.append(item)
-                    results["scan_results"] = scan_res
+                    results["scan_results"] = self._load_scan_csv(scan_csv)
                 except Exception as e_scan:
                     logging.warning(
                         "[worker.py] LoadWorker: failed to load scan csv: %s", e_scan
@@ -2404,5 +2344,4 @@ class LoadWorker(QThread):
             self.finished_signal.emit(results)
 
         except Exception as e:
-            traceback.print_exc()
-            self.error_signal.emit(str(e))
+            self.error_signal.emit(str(e) + "\n" + traceback.format_exc())
