@@ -190,6 +190,78 @@ class PySCFWorker(QThread):
         self._stop_requested = False
         self._stream = None  # Will hold StreamToSignal so GUI can invalidate it
 
+    def _parse_spin_2s(self) -> int:
+        """Return 2S from the spin multiplicity stored in config."""
+        try:
+            spin_str = str(self.config.get("spin", "1"))
+            spin_mult = int(spin_str.split(" ")[0]) if " " in spin_str else int(spin_str)
+            return max(0, spin_mult - 1)
+        except Exception:
+            return 0
+
+    def _resolve_solvent_eps(self, solvent_name: str) -> float:
+        """Return the dielectric constant for solvent_name (water fallback on failure)."""
+        _HARDCODED = {
+            "Water": 78.2, "Ethanol": 24.5, "Methanol": 32.7, "Acetone": 20.7,
+            "THF": 7.58, "Chloroform": 4.81, "Dichloromethane": 8.93,
+            "Toluene": 2.38, "Benzene": 2.27,
+        }
+        if solvent_name in _HARDCODED:
+            return _HARDCODED[solvent_name]
+        try:
+            from pyscf.solvent import ddcosmo
+            if hasattr(ddcosmo, "param") and hasattr(ddcosmo.param, "EPSILON"):
+                pyscf_eps = ddcosmo.param.EPSILON
+            elif hasattr(ddcosmo, "EPSILON"):
+                pyscf_eps = ddcosmo.EPSILON
+            else:
+                import pyscf.solvent.ddcosmo.param as dd_param
+                pyscf_eps = dd_param.EPSILON
+            lookup = solvent_name if solvent_name in pyscf_eps else solvent_name.lower()
+            return pyscf_eps.get(lookup, 78.2)
+        except Exception:
+            return 78.2
+
+    def _apply_solvent(self, mf, solvent_name: str):
+        """Wrap mf with ddCOSMO using the resolved eps for solvent_name."""
+        mf = mf.ddCOSMO()
+        mf.with_solvent.eps = self._resolve_solvent_eps(solvent_name)
+        return mf
+
+    def _apply_mf_settings(self, mf):
+        """Apply max_cycle and conv_tol from config to mf."""
+        mf.max_cycle = self.config.get("max_cycle", 100)
+        try:
+            mf.conv_tol = float(self.config.get("conv_tol", "1e-9"))
+        except Exception as _e:
+            logging.warning("[worker.py] _apply_mf_settings silenced: %s", _e)
+
+    def _build_mf(self, mol, method_name, functional):
+        """Create a mean-field object for the given mol, method, and functional."""
+        grid_level = self.config.get("grid_level", 3)
+        if method_name == "RHF":
+            return scf.RHF(mol)
+        elif method_name == "UHF":
+            return scf.UHF(mol)
+        elif method_name == "ROHF":
+            return scf.ROHF(mol)
+        elif method_name == "RKS":
+            mf = dft.RKS(mol)
+        elif method_name == "UKS":
+            mf = dft.UKS(mol)
+        elif method_name == "ROKS":
+            mf = dft.ROKS(mol)
+        else:
+            raise ValueError(f"Unknown method: {method_name}")
+        mf.xc = functional
+        try:
+            mf.grids.level = grid_level
+            if grid_level >= 4:
+                mf.grids.prune = False
+        except Exception as _e:
+            logging.warning("[worker.py] _build_mf grid silenced: %s", _e)
+        return mf
+
     def compute_numeric_hessian(self, mf, mol):
         """
         Manually compute Hessian via Finite Difference of Gradients.
@@ -323,21 +395,7 @@ class PySCFWorker(QThread):
 
             # Prepare Charge and Spin (Convert M -> 2S)
             charge = self.config.get("charge", 0)
-            try:
-                # User inputs Multiplicity (M)
-                # GUI now sends "1 (Singlet)", "2 (Doublet)", etc.
-                spin_str = str(self.config.get("spin", "1"))
-                if " " in spin_str:
-                    spin_mult = int(spin_str.split(" ")[0])
-                else:
-                    spin_mult = int(spin_str)
-
-                # PySCF expects 2S = M - 1
-                spin_2s = spin_mult - 1
-                if spin_2s < 0:
-                    spin_2s = 0
-            except:
-                spin_2s = 0
+            spin_2s = self._parse_spin_2s()
 
             # Setup Molecule
             try:
@@ -397,73 +455,15 @@ class PySCFWorker(QThread):
                     method_name = "UKS"
                     self.log_signal.emit("Switching to UKS due to spin != 0.\n")
 
-            # Save Input Log
             # --- Solvent Setup ---
             selected_solvent = self.config.get("solvent", "None (Vacuum)")
             use_solvent = selected_solvent != "None (Vacuum)"
             eps_value = 0.0
-
-            solvent_eps = {
-                "Water": 78.2,
-                "Ethanol": 24.5,
-                "Methanol": 32.7,
-                "Acetone": 20.7,
-                "THF": 7.58,
-                "Chloroform": 4.81,
-                "Dichloromethane": 8.93,
-                "Toluene": 2.38,
-                "Benzene": 2.27,
-            }
-
             if use_solvent:
-                try:
-                    # 1. Try Hardcoded Lookup (Most Reliable for Plugin workflow)
-                    if selected_solvent in solvent_eps:
-                        eps_value = solvent_eps[selected_solvent]
-                        self.log_signal.emit(
-                            f"Solvent Model: ddCOSMO ({selected_solvent}) using Hardcoded value: eps={eps_value}\n"
-                        )
-
-                    # 2. Try PySCF Internal Lookup (Fallback)
-                    else:
-                        from pyscf.solvent import ddcosmo
-
-                        # Try to find the EPSILON dict
-                        if hasattr(ddcosmo, "param") and hasattr(
-                            ddcosmo.param, "EPSILON"
-                        ):
-                            pyscf_eps = ddcosmo.param.EPSILON
-                        elif hasattr(ddcosmo, "EPSILON"):
-                            pyscf_eps = ddcosmo.EPSILON
-                        else:
-                            import pyscf.solvent.ddcosmo.param as dd_param
-
-                            pyscf_eps = dd_param.EPSILON
-
-                        lookup_name = selected_solvent
-                        if (
-                            lookup_name not in pyscf_eps
-                            and lookup_name.lower() in pyscf_eps
-                        ):
-                            lookup_name = lookup_name.lower()
-
-                        eps_value = pyscf_eps.get(lookup_name, None)
-
-                        if eps_value is None:
-                            self.log_signal.emit(
-                                f"Warning: Solvent '{selected_solvent}' not found in PySCF database. Defaulting to Water (78.2).\n"
-                            )
-                            eps_value = 78.2
-                        else:
-                            self.log_signal.emit(
-                                f"Solvent Model: ddCOSMO ({selected_solvent}) using PySCF internal value: eps={eps_value}\n"
-                            )
-
-                except Exception as e_solv:
-                    self.log_signal.emit(
-                        f"Error loading PySCF solvent data ({e_solv}). Defaulting to Water (78.2).\n"
-                    )
-                    eps_value = 78.2
+                eps_value = self._resolve_solvent_eps(selected_solvent)
+                self.log_signal.emit(
+                    f"Solvent Model: ddCOSMO ({selected_solvent}) eps={eps_value}\n"
+                )
             # ---------------------
 
             inp_file = os.path.join(out_dir, "pyscf_input.py")
@@ -534,68 +534,12 @@ class PySCFWorker(QThread):
                     f.write("td.verbose = 4\n")
                     f.write("td.kernel()\n")
 
-            mf = None
-            if method_name == "RHF":
-                mf = scf.RHF(mol)
-            elif method_name == "UHF":
-                mf = scf.UHF(mol)
-            elif method_name == "RKS":
-                mf = dft.RKS(mol)
-                mf.xc = functional
-                try:
-                    level = self.config.get("grid_level", 3)
-                    mf.grids.level = level
-                    if level >= 4:
-                        mf.grids.prune = False
-                except Exception as _e:
-                    logging.warning("[worker.py:465] silenced: %s", _e)
-            elif method_name == "UKS":
-                mf = dft.UKS(mol)
-                mf.xc = functional
-                try:
-                    level = self.config.get("grid_level", 3)
-                    mf.grids.level = level
-                    if level >= 4:
-                        mf.grids.prune = False
-                except Exception as _e:
-                    logging.warning("[worker.py:473] silenced: %s", _e)
-            # --- Added: RO Support ---
-            elif method_name == "ROHF":
-                mf = scf.ROHF(mol)
-            elif method_name == "ROKS":
-                mf = dft.ROKS(mol)
-                mf.xc = functional
-                try:
-                    level = self.config.get("grid_level", 3)
-                    mf.grids.level = level
-                    if level >= 4:
-                        mf.grids.prune = False
-                except Exception as _e:
-                    logging.warning("[worker.py:484] silenced: %s", _e)
-            # ------------------------
-            else:
-                # Default fallback or error
-                # If spin != 0 and RHF selected, we might crash if not handled,
-                # but explicit RO selection handles it.
-                if spin_2s != 0 and "R" in method_name and "RO" not in method_name:
-                    # e.g. RHF with spin. PySCF might complain.
-                    # But we follow user instruction strictly.
-                    pass
-
-                if method_name not in ["RHF", "UHF", "RKS", "UKS", "ROHF", "ROKS"]:
-                    raise ValueError(f"Unknown method {method_name}")
+            mf = self._build_mf(mol, method_name, functional)
 
             # Ensure Checkpoint is in the new job folder
             chk_path = os.path.join(self.out_dir, "pyscf.chk")
             mf.chkfile = chk_path
-
-            # Apply Advanced Settings
-            mf.max_cycle = self.config.get("max_cycle", 100)
-            try:
-                tol_str = self.config.get("conv_tol", "1e-9")
-                mf.conv_tol = float(tol_str)
-            except Exception as _e:
-                logging.warning("[worker.py:507] silenced: %s", _e)
+            self._apply_mf_settings(mf)
 
             # Explicitly set pyscf logger stream too for global usage
             from pyscf import lib
@@ -675,51 +619,10 @@ class PySCFWorker(QThread):
                         results["optimized_xyz"] = "\n".join(xyz_lines)
 
                         # Re-run single point on optimized geometry for properties
-                        # We need to recreate the MF object on new mol
-                        if method_name == "RHF":
-                            mf = scf.RHF(mol_eq)
-                        elif method_name == "UHF":
-                            mf = scf.UHF(mol_eq)
-                        elif method_name == "RKS":
-                            mf = dft.RKS(mol_eq)
-                            mf.xc = functional
-                            try:
-                                level = self.config.get("grid_level", 3)
-                                mf.grids.level = level
-                                if level >= 4:
-                                    mf.grids.prune = False
-                            except Exception as _e:
-                                logging.warning("[worker.py:587] silenced: %s", _e)
-                        elif method_name == "UKS":
-                            mf = dft.UKS(mol_eq)
-                            mf.xc = functional
-                            try:
-                                level = self.config.get("grid_level", 3)
-                                mf.grids.level = level
-                                if level >= 4:
-                                    mf.grids.prune = False
-                            except Exception as _e:
-                                logging.warning("[worker.py:595] silenced: %s", _e)
+                        mf = self._build_mf(mol_eq, method_name, functional)
 
-                        # --- Added: RO Support for Optimization Re-init ---
-                        elif method_name == "ROHF":
-                            mf = scf.ROHF(mol_eq)
-                        elif method_name == "ROKS":
-                            mf = dft.ROKS(mol_eq)
-                            mf.xc = functional
-                            try:
-                                level = self.config.get("grid_level", 3)
-                                mf.grids.level = level
-                                if level >= 4:
-                                    mf.grids.prune = False
-                            except Exception as _e:
-                                logging.warning("[worker.py:606] silenced: %s", _e)
-                        # -----------------------------------------------
-
-                        # Re-apply solvent if needed
                         if use_solvent and not hasattr(mf, "with_solvent"):
-                            mf = mf.ddCOSMO()
-                            mf.with_solvent.eps = eps_value
+                            mf = self._apply_solvent(mf, selected_solvent)
 
                         # Run Energy on optimized
                         mf.chkfile = chk_path
@@ -1395,41 +1298,8 @@ class PySCFWorker(QThread):
             # Let's add explicit solvent check for Rigid Scan anyway to be safe.
             selected_solvent = self.config.get("solvent", "None")
             if selected_solvent and "None" not in selected_solvent:
-                # If mf_step lost its solvent mixin (unlikely with copy but possible if reset clears it)
-                # We re-apply.
                 if not hasattr(mf_step, "with_solvent"):
-                    from pyscf.solvent import ddcosmo
-
-                    try:
-                        # Attempt to load standard PySCF solvent parameters
-                        if hasattr(ddcosmo, "param") and hasattr(
-                            ddcosmo.param, "EPSILON"
-                        ):
-                            pyscf_eps = ddcosmo.param.EPSILON
-                        elif hasattr(ddcosmo, "EPSILON"):
-                            pyscf_eps = ddcosmo.EPSILON
-                        else:
-                            import pyscf.solvent.ddcosmo.param as dd_param
-
-                            pyscf_eps = dd_param.EPSILON
-
-                        lookup_name = selected_solvent
-                        if (
-                            lookup_name not in pyscf_eps
-                            and lookup_name.lower() in pyscf_eps
-                        ):
-                            lookup_name = (
-                                lookup_name.lower()
-                            )  # PySCF uses lowercase mostly
-
-                        eps_val = pyscf_eps.get(lookup_name, 78.2)
-
-                        mf_step = mf_step.ddCOSMO()
-                        mf_step.with_solvent.eps = eps_val
-                    except:
-                        # Very safe fallback if internal lookup fails completely
-                        mf_step = mf_step.ddCOSMO()
-                        mf_step.with_solvent.eps = 78.2  # Water default
+                    mf_step = self._apply_solvent(mf_step, selected_solvent)
 
             # Save Checkpoint for this step (User Requested)
             step_chk = os.path.join(self.out_dir, f"scan_step_{i + 1}.chk")
@@ -1488,17 +1358,7 @@ class PySCFWorker(QThread):
         charge = self.config.get("charge", 0)
 
         # Extract spin (2S)
-        try:
-            spin_str = str(self.config.get("spin", "1"))
-            if " " in spin_str:
-                spin_mult = int(spin_str.split(" ")[0])
-            else:
-                spin_mult = int(spin_str)
-            spin_2s = spin_mult - 1
-            if spin_2s < 0:
-                spin_2s = 0
-        except:
-            spin_2s = 0
+        spin_2s = self._parse_spin_2s()
 
         # Current geometry as starting point
         current_coords = mol.atom_coords(unit="Ang")
@@ -1577,79 +1437,12 @@ class PySCFWorker(QThread):
                 )
 
                 # 3. Create new mean field object for this step
-                if method_name == "RHF":
-                    step_mf = scf.RHF(step_mol)
-                elif method_name == "UHF":
-                    step_mf = scf.UHF(step_mol)
-                elif method_name == "RKS":
-                    step_mf = dft.RKS(step_mol)
-                    step_mf.xc = functional
-                    try:
-                        level = self.config.get("grid_level", 3)
-                        step_mf.grids.level = level
-                        if level >= 4:
-                            step_mf.grids.prune = False
-                    except Exception as _e:
-                        logging.warning("[worker.py:1337] silenced: %s", _e)
-                elif method_name == "UKS":
-                    step_mf = dft.UKS(step_mol)
-                    step_mf.xc = functional
-                    try:
-                        level = self.config.get("grid_level", 3)
-                        step_mf.grids.level = level
-                        if level >= 4:
-                            step_mf.grids.prune = False
-                    except Exception as _e:
-                        logging.warning("[worker.py:1345] silenced: %s", _e)
-                elif method_name == "ROHF":
-                    step_mf = scf.ROHF(step_mol)
-                elif method_name == "ROKS":
-                    step_mf = dft.ROKS(step_mol)
-                    step_mf.xc = functional
-                    try:
-                        level = self.config.get("grid_level", 3)
-                        step_mf.grids.level = level
-                        if level >= 4:
-                            step_mf.grids.prune = False
-                    except Exception as _e:
-                        logging.warning("[worker.py:1355] silenced: %s", _e)
-                else:
-                    raise ValueError(f"Unsupported method: {method_name}")
+                step_mf = self._build_mf(step_mol, method_name, functional)
 
-                # --- APPLY SOLVENT TO STEP MF (RELAXED SCAN) ---
                 selected_solvent = self.config.get("solvent", "None")
                 if selected_solvent and "None" not in selected_solvent:
-                    try:
-                        from pyscf.solvent import ddcosmo
-
-                        if hasattr(ddcosmo, "param") and hasattr(
-                            ddcosmo.param, "EPSILON"
-                        ):
-                            pyscf_eps = ddcosmo.param.EPSILON
-                        elif hasattr(ddcosmo, "EPSILON"):
-                            pyscf_eps = ddcosmo.EPSILON
-                        else:
-                            import pyscf.solvent.ddcosmo.param as dd_param
-
-                            pyscf_eps = dd_param.EPSILON
-
-                        lookup_name = selected_solvent
-                        if (
-                            lookup_name not in pyscf_eps
-                            and lookup_name.lower() in pyscf_eps
-                        ):
-                            lookup_name = lookup_name.lower()
-
-                        eps_val = pyscf_eps.get(lookup_name, 78.2)
-
-                        if not hasattr(step_mf, "with_solvent"):
-                            step_mf = step_mf.ddCOSMO()
-                            step_mf.with_solvent.eps = eps_val
-                    except:
-                        if not hasattr(step_mf, "with_solvent"):
-                            step_mf = step_mf.ddCOSMO()
-                            step_mf.with_solvent.eps = 78.2
-                # -----------------------------------------------
+                    if not hasattr(step_mf, "with_solvent"):
+                        step_mf = self._apply_solvent(step_mf, selected_solvent)
 
                 # Set checkpoint
                 step_chk = os.path.join(self.out_dir, f"scan_step_{i}.chk")
@@ -1678,13 +1471,7 @@ class PySCFWorker(QThread):
                     )
                 # --------------------------------------------------------
 
-                # Apply settings
-                step_mf.max_cycle = self.config.get("max_cycle", 100)
-                try:
-                    tol_str = self.config.get("conv_tol", "1e-9")
-                    step_mf.conv_tol = float(tol_str)
-                except Exception as _e:
-                    logging.warning("[worker.py:1418] silenced: %s", _e)
+                self._apply_mf_settings(step_mf)
 
                 mol_eq = optimize(step_mf, constraints=const_file)
 
