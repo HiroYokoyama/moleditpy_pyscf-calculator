@@ -194,7 +194,9 @@ class PySCFWorker(QThread):
         """Return 2S from the spin multiplicity stored in config."""
         try:
             spin_str = str(self.config.get("spin", "1"))
-            spin_mult = int(spin_str.split(" ")[0]) if " " in spin_str else int(spin_str)
+            spin_mult = (
+                int(spin_str.split(" ")[0]) if " " in spin_str else int(spin_str)
+            )
             return max(0, spin_mult - 1)
         except Exception:
             return 0
@@ -202,20 +204,28 @@ class PySCFWorker(QThread):
     def _resolve_solvent_eps(self, solvent_name: str) -> float:
         """Return the dielectric constant for solvent_name (water fallback on failure)."""
         _HARDCODED = {
-            "Water": 78.2, "Ethanol": 24.5, "Methanol": 32.7, "Acetone": 20.7,
-            "THF": 7.58, "Chloroform": 4.81, "Dichloromethane": 8.93,
-            "Toluene": 2.38, "Benzene": 2.27,
+            "Water": 78.2,
+            "Ethanol": 24.5,
+            "Methanol": 32.7,
+            "Acetone": 20.7,
+            "THF": 7.58,
+            "Chloroform": 4.81,
+            "Dichloromethane": 8.93,
+            "Toluene": 2.38,
+            "Benzene": 2.27,
         }
         if solvent_name in _HARDCODED:
             return _HARDCODED[solvent_name]
         try:
             from pyscf.solvent import ddcosmo
+
             if hasattr(ddcosmo, "param") and hasattr(ddcosmo.param, "EPSILON"):
                 pyscf_eps = ddcosmo.param.EPSILON
             elif hasattr(ddcosmo, "EPSILON"):
                 pyscf_eps = ddcosmo.EPSILON
             else:
                 import pyscf.solvent.ddcosmo.param as dd_param
+
                 pyscf_eps = dd_param.EPSILON
             lookup = solvent_name if solvent_name in pyscf_eps else solvent_name.lower()
             return pyscf_eps.get(lookup, 78.2)
