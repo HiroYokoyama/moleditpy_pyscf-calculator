@@ -10,7 +10,7 @@ PLUGIN_DESCRIPTION = (
 PLUGIN_DEPENDENCIES = ["pyscf", "geometric", "numpy"]
 PLUGIN_SUPPORTED_MOLEDITPY_VERSION = ">=4.0.0, <5.0.0"
 
-from .gui import PySCFDialog
+from .gui import PySCFDialog  # noqa: E402
 
 # Global settings state (persisted in project file)
 PLUGIN_SETTINGS = {}
@@ -53,9 +53,8 @@ def initialize(context):
                     dlg.raise_()
                     dlg.activateWindow()
                     return
-                else:
-                    dlg.close()
-                    dlg.deleteLater()
+                dlg.close()
+                dlg.deleteLater()
             except RuntimeError:
                 pass
             # Unregister the stale window so it doesn't block creation of a new one

@@ -1,13 +1,8 @@
 import csv
+import logging
 import os
-import traceback
+
 import matplotlib
-
-matplotlib.use("QtAgg")
-from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg
-from matplotlib.figure import Figure
-import matplotlib.collections
-
 from PyQt6.QtWidgets import (
     QApplication,
     QDialog,
@@ -26,10 +21,13 @@ from PyQt6.QtWidgets import (
     QProgressDialog,
 )
 from PyQt6.QtCore import Qt, QTimer
-
 from rdkit import Chem
 from rdkit.Chem import rdGeometry
-import logging
+
+matplotlib.use("QtAgg")  # must precede matplotlib backend imports
+from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg  # noqa: E402
+from matplotlib.figure import Figure  # noqa: E402
+import matplotlib.collections  # noqa: E402
 
 _HARTREE_TO_KJMOL = 2625.5
 _HARTREE_TO_KCALMOL = 627.509

@@ -50,12 +50,12 @@ class CaptureStdOut:
         try:
             # Use __stdout__ to ensure we get the real OS FD, even if sys.stdout was MonkeyPatched/Wrapper
             self.original_stdout_fd = sys.__stdout__.fileno()
-        except:
+        except Exception:
             self.original_stdout_fd = 1  # Fallback to standard FD 1
 
         try:
             self.original_stderr_fd = sys.__stderr__.fileno()
-        except:
+        except Exception:
             self.original_stderr_fd = 2  # Fallback
 
         # Save Original FDs
@@ -154,14 +154,14 @@ class StreamToSignal(io.TextIOBase):
             try:
                 self.target_stream.write(text)
                 self.target_stream.flush()
-            except:
+            except Exception:
                 pass
 
     def flush(self):
         if self.target_stream:
             try:
                 self.target_stream.flush()
-            except:
+            except Exception:
                 pass
 
     def close(self):
@@ -499,9 +499,7 @@ class PySCFWorker(QThread):
                     f.write(f"# Functional: {functional}\n")
                 f.write(f"# Basis: {self.config.get('basis')}\n")
                 f.write(f"# Charge: {charge}\n")
-                f.write(
-                    f"# Multiplicity: {spin_mult if 'spin_mult' in locals() else spin_2s + 1}\n"
-                )
+                f.write(f"# Multiplicity: {spin_2s + 1}\n")
                 f.write(f"# Threads: {n_threads}\n")
                 f.write(f"# Memory: {self.config.get('memory')} MB\n")
                 if "TDDFT" in self.config.get("job_type", None):
@@ -523,7 +521,7 @@ class PySCFWorker(QThread):
                 f.write(f"    basis='{self.config.get('basis')}', \n")
                 f.write(f"    charge={charge}, \n")
                 f.write(f"    spin={spin_2s}, \n")
-                f.write(f"    verbose=4)\n")
+                f.write("    verbose=4)\n")
                 f.write("mol.build()\n")
 
                 if "KS" in method_name:
@@ -540,7 +538,7 @@ class PySCFWorker(QThread):
                     logging.warning("[worker.py] silenced: %s", _e)
 
                 if use_solvent:
-                    f.write(f"mf = mf.ddCOSMO()\n")
+                    f.write("mf = mf.ddCOSMO()\n")
                     f.write(f"mf.with_solvent.eps = {eps_value}\n")
 
                 f.write("mf.kernel()\n")
@@ -888,7 +886,7 @@ class PySCFWorker(QThread):
                             )
 
                 if "TDDFT" in job_type:
-                    self.log_signal.emit(f"Starting TDDFT Calculation...\n")
+                    self.log_signal.emit("Starting TDDFT Calculation...\n")
                     if not mf.e_tot:
                         self.log_signal.emit("Running SCF for TDDFT...\n")
                         mf.kernel()
@@ -1457,7 +1455,7 @@ class PySCFWorker(QThread):
                 # Force an explicit SCF calculation on the final optimized structure
                 # to ensure the energy is 100% accurate and matches the mol_eq coordinates.
                 self.log_signal.emit(
-                    f"  Calculating final energy for optimized structure...\n"
+                    "  Calculating final energy for optimized structure...\n"
                 )
                 try:
                     step_mf.mol = mol_eq
@@ -2091,7 +2089,7 @@ class PropertyWorker(QThread):
             if "capturer" in locals():
                 try:
                     capturer.__exit__(None, None, None)
-                except:
+                except Exception:
                     pass
 
 

@@ -1,7 +1,6 @@
 import os
 import glob
 import re
-import traceback
 import csv
 from PyQt6.QtWidgets import (
     QWidget,

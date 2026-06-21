@@ -256,7 +256,7 @@ class PySCFDialog(QDialog):
             "scan_params": getattr(self.calc_tab, "scan_params", None),
         }
         try:
-            with open(json_path, "w") as f:
+            with open(json_path, "w", encoding="utf-8") as f:
                 json.dump(local_settings, f, indent=4)
 
             self.log("Default settings saved.")
@@ -291,7 +291,7 @@ class PySCFDialog(QDialog):
         )
         if os.path.exists(json_path):
             try:
-                with open(json_path, "r") as f:
+                with open(json_path, "r", encoding="utf-8") as f:
                     user_defaults = json.load(f)
                     defaults.update(user_defaults)
             except Exception as _e:

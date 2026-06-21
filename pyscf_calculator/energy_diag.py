@@ -148,8 +148,7 @@ class EnergyDiagramDialog(QDialog):
         target_span = gap * 3.0
 
         # Ensure reasonable minimum view if gap is tiny
-        if target_span < 0.2:
-            target_span = 0.2
+        target_span = max(target_span, 0.2)
 
         self.current_min = gap_center - target_span / 2.0
         self.current_max = gap_center + target_span / 2.0
@@ -368,10 +367,8 @@ class EnergyDiagramDialog(QDialog):
             factor = 1.0 + (delta_y * 0.01)
 
             # Bounds check
-            if factor < 0.1:
-                factor = 0.1
-            if factor > 10.0:
-                factor = 10.0
+            factor = max(factor, 0.1)
+            factor = min(factor, 10.0)
 
             span = self.current_max - self.current_min
             center = (self.current_min + self.current_max) / 2
@@ -437,7 +434,7 @@ class EnergyDiagramDialog(QDialog):
 
         # Reset Hit Zones
         self.hit_zones = []  # List of (QRect, index, label)
-        from PyQt6.QtCore import QRect  # noqa: PLC0415
+        from PyQt6.QtCore import QRect  # noqa: PLC0415  # pylint: disable=import-outside-toplevel
 
         w = self.width()
         h = self.height()
