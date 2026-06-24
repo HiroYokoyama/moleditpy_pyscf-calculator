@@ -89,10 +89,11 @@ pip install pyscf PyQt6 numpy geometric matplotlib
    - Select specific orbitals (e.g., HOMO, LUMO) to generate Cube files.
    - Click "Show Properties" for thermodynamic data (after Frequency jobs).
 
-## License
+## License & Disclaimer
 
 This project is licensed under the **GNU General Public License v3.0 (GPLv3)**. See the [LICENSE](LICENSE) file for details.
 
+This is open-source software distributed under the GNU GPL v3 license. It is provided 'as is' without warranty of any kind, and the author assumes no responsibility or liability for the results. Although outputs have been carefully verified, users are strongly encouraged to independently check and validate results for critical purposes (such as publications). If you encounter any bugs, please open an issue.
 
 
 
