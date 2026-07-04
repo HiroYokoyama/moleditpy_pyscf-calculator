@@ -54,6 +54,7 @@ jobs:
       - name: Build release package
         run: |
           TAG="$VERSION"
+          cp README.md LICENSE pyscf_calculator/
           zip -r "pyscf_calculator_${TAG}.zip" pyscf_calculator/ --exclude "*/__pycache__/*" "*/.git/*"
 
       - name: Create GitHub Release
