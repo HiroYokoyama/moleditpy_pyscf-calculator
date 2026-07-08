@@ -363,7 +363,7 @@ class ScanResultDialog(QDialog):
             mol.AddConformer(conf)
 
             # Establish topology
-            mw = self.context.get_main_window()
+            mw = self.context.get_main_window() if self.context else None
 
             # Use same logic as xyz_giffer: prefer main window's estimate_bonds_from_distances
             iom = getattr(mw, "io_manager", None)
@@ -397,9 +397,9 @@ class ScanResultDialog(QDialog):
                 # topology-reconstructed scan frame with no dirty indicator.
                 self.context.mark_project_modified()
 
-            # Initial draw
-            self.context.draw_molecule_3d(self.base_mol)
-            self.context.reset_3d_camera()
+                # Initial draw
+                self.context.draw_molecule_3d(self.base_mol)
+                self.context.reset_3d_camera()
             if hasattr(mw, "view_3d_manager") and hasattr(
                 mw.view_3d_manager, "plotter"
             ):

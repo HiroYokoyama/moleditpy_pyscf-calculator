@@ -271,6 +271,20 @@ class TestCreateBaseMoleculeMarksModified(unittest.TestCase):
         except Exception as exc:
             self.fail(f"create_base_molecule() raised with context=None: {exc}")
 
+    def test_no_error_logged_without_context(self):
+        """
+        Regression: draw_molecule_3d/reset_3d_camera used to sit outside the
+        `if self.context:` guard, so context=None raised AttributeError that
+        was swallowed and logged by the outer handler. With the guard fixed,
+        nothing should be logged at all.
+        """
+        dialog = ScanResultDialog.__new__(ScanResultDialog)
+        dialog.trajectory = ["2\ncomment\nH 0.0 0.0 0.0\nH 0.0 0.0 1.0"]
+        dialog.context = None
+        with patch.object(sr_mod.logging, "exception") as mock_log:
+            dialog.create_base_molecule()
+            mock_log.assert_not_called()
+
 
 if __name__ == "__main__":
     unittest.main()
