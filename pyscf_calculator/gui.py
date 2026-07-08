@@ -192,6 +192,14 @@ class PySCFDialog(QDialog):
         if getattr(self, "calc_tab", None) is not None:
             self.calc_tab.stop_calculation()
 
+            # Clear any Scan configuration from the discarded document —
+            # atom indices in scan_params refer to the old molecule and
+            # would silently be reused (without re-prompting the user) if a
+            # Scan job type is selected again after File -> New.
+            self.calc_tab.scan_params = None
+            if getattr(self.calc_tab, "btn_scan_config", None) is not None:
+                self.calc_tab.btn_scan_config.hide()
+
         if getattr(self, "vis_tab", None) is not None:
             self._safe_stop_worker(self.vis_tab.load_worker)
             self.vis_tab.load_worker = None
@@ -213,6 +221,21 @@ class PySCFDialog(QDialog):
             self.vis_tab.btn_show_thermo.setEnabled(False)
 
             self.vis_tab.close_freq_window()
+
+            # Clear stale visualization state so the Isovalue/Opacity/ESP
+            # controls (which stay enabled and connected to their update
+            # slots) don't silently redraw a cube file or grid belonging to
+            # the document that was just discarded.
+            self.vis_tab.last_out_dir = None
+            self.vis_tab.optimized_xyz = None
+            self.vis_tab.loaded_file = None
+            self.vis_tab.mode = "standard"
+            self.vis_tab.visualizer = None
+            self.vis_tab.mapped_visualizer = None
+            if getattr(self.vis_tab, "vis_controls", None) is not None:
+                self.vis_tab.vis_controls.setEnabled(False)
+            if getattr(self.vis_tab, "mapped_group", None) is not None:
+                self.vis_tab.mapped_group.hide()
 
         # Clear internal state
         self.struct_source = "Current Editor"

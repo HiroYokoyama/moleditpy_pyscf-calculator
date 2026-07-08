@@ -220,5 +220,120 @@ class TestOnResultsMarksModified(unittest.TestCase):
         mw.state_manager.assert_not_called()
 
 
+class TestOnDocumentResetClearsStaleVisState(unittest.TestCase):
+    """
+    Regression test: on_document_reset() previously left VisTab.last_out_dir,
+    .optimized_xyz, .loaded_file, .mode, .visualizer and .mapped_visualizer
+    untouched. Since the Isovalue/Opacity sliders (vis_controls) and the ESP
+    mapping controls (mapped_group) stay enabled/connected across a reset,
+    moving them after a File->New would silently redraw stale cube-file data
+    from the discarded document into the new one's 3D scene.
+    """
+
+    def _make_dialog(self):
+        with (
+            patch.object(PySCFDialog, "setup_ui", return_value=None),
+            patch.object(PySCFDialog, "load_settings", return_value=None),
+            patch.object(PySCFDialog, "apply_defaults", return_value=None),
+        ):
+            dlg = PySCFDialog.__new__(PySCFDialog)
+            dlg.context = None
+            dlg.settings = {}
+            dlg.closing = False
+            dlg.struct_source = "Current Editor"
+            dlg.calc_history = []
+            dlg.version = "1.0.0"
+        dlg.calc_tab = MagicMock()
+        dlg.vis_tab = MagicMock()
+        # Simulate a previously-loaded result with live visualization state.
+        dlg.vis_tab.last_out_dir = "/tmp/old_result"
+        dlg.vis_tab.optimized_xyz = "3\ncomment\nH 0 0 0\nH 0 0 1\nH 0 1 0"
+        dlg.vis_tab.loaded_file = "/tmp/old_result/015_HOMO.cube"
+        dlg.vis_tab.mode = "mapped"
+        dlg.vis_tab.visualizer = MagicMock()
+        dlg.vis_tab.mapped_visualizer = MagicMock()
+        dlg.vis_tab.vis_controls = MagicMock()
+        dlg.vis_tab.mapped_group = MagicMock()
+        return dlg
+
+    def test_last_out_dir_cleared(self):
+        dlg = self._make_dialog()
+        dlg.on_document_reset()
+        self.assertIsNone(dlg.vis_tab.last_out_dir)
+
+    def test_optimized_xyz_cleared(self):
+        dlg = self._make_dialog()
+        dlg.on_document_reset()
+        self.assertIsNone(dlg.vis_tab.optimized_xyz)
+
+    def test_loaded_file_cleared(self):
+        dlg = self._make_dialog()
+        dlg.on_document_reset()
+        self.assertIsNone(dlg.vis_tab.loaded_file)
+
+    def test_mode_reset_to_standard(self):
+        dlg = self._make_dialog()
+        dlg.on_document_reset()
+        self.assertEqual(dlg.vis_tab.mode, "standard")
+
+    def test_visualizers_cleared(self):
+        dlg = self._make_dialog()
+        dlg.on_document_reset()
+        self.assertIsNone(dlg.vis_tab.visualizer)
+        self.assertIsNone(dlg.vis_tab.mapped_visualizer)
+
+    def test_vis_controls_disabled_and_mapped_group_hidden(self):
+        dlg = self._make_dialog()
+        dlg.on_document_reset()
+        dlg.vis_tab.vis_controls.setEnabled.assert_called_with(False)
+        dlg.vis_tab.mapped_group.hide.assert_called_once()
+
+
+class TestOnDocumentResetClearsScanParams(unittest.TestCase):
+    """
+    Regression test: on_document_reset() called apply_defaults(), but
+    apply_defaults() only overwrites CalcTab.scan_params when the *loaded*
+    defaults dict itself has a truthy "scan_params" entry (the built-in
+    default is None, so that branch is a no-op). A previously-configured
+    Scan (with atom indices belonging to the just-discarded molecule) stayed
+    on CalcTab.scan_params, so re-selecting a Scan job type after File->New
+    would skip the "configure scan" prompt and run with stale atom indices.
+    """
+
+    def _make_dialog(self):
+        with (
+            patch.object(PySCFDialog, "setup_ui", return_value=None),
+            patch.object(PySCFDialog, "load_settings", return_value=None),
+            patch.object(PySCFDialog, "apply_defaults", return_value=None),
+        ):
+            dlg = PySCFDialog.__new__(PySCFDialog)
+            dlg.context = None
+            dlg.settings = {}
+            dlg.closing = False
+            dlg.struct_source = "Current Editor"
+            dlg.calc_history = []
+            dlg.version = "1.0.0"
+        dlg.calc_tab = MagicMock()
+        dlg.calc_tab.scan_params = {
+            "type": "Dist",
+            "atoms": [0, 5],
+            "start": 1.0,
+            "end": 2.0,
+            "steps": 10,
+        }
+        dlg.vis_tab = MagicMock()
+        return dlg
+
+    def test_scan_params_cleared(self):
+        dlg = self._make_dialog()
+        dlg.on_document_reset()
+        self.assertIsNone(dlg.calc_tab.scan_params)
+
+    def test_scan_config_button_hidden(self):
+        dlg = self._make_dialog()
+        dlg.on_document_reset()
+        dlg.calc_tab.btn_scan_config.hide.assert_called_once()
+
+
 if __name__ == "__main__":
     unittest.main()
