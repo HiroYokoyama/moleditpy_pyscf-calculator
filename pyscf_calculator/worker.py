@@ -502,7 +502,7 @@ class PySCFWorker(QThread):
                 f.write(f"# Multiplicity: {spin_2s + 1}\n")
                 f.write(f"# Threads: {n_threads}\n")
                 f.write(f"# Memory: {self.config.get('memory')} MB\n")
-                if "TDDFT" in self.config.get("job_type", None):
+                if "TDDFT" in self.config.get("job_type", ""):
                     f.write(f"# TDN States: {self.config.get('nstates')}\n")
                 f.write(f"# Max Cycle: {self.config.get('max_cycle')}\n")
                 f.write(f"# Conv Tol: {self.config.get('conv_tol')}\n")
@@ -543,7 +543,7 @@ class PySCFWorker(QThread):
 
                 f.write("mf.kernel()\n")
 
-                if "TDDFT" in self.config.get("job_type", None):
+                if "TDDFT" in self.config.get("job_type", ""):
                     f.write("\n# TDDFT Calculation\n")
                     f.write("from pyscf import tdscf\n")
                     f.write(

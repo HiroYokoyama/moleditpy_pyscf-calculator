@@ -362,5 +362,68 @@ class TestOuterExceptionHandler(unittest.TestCase):
         w.error_signal.emit.assert_called()
 
 
+# ===========================================================================
+# 6. Missing "job_type" key in config (regression)
+# ===========================================================================
+
+
+class TestMissingJobTypeKey(unittest.TestCase):
+    """
+    Regression test for a bug where `self.config.get("job_type", None)` was
+    used to guard `"TDDFT" in job_type` checks while writing pyscf_input.py.
+    If "job_type" is absent from config, `.get(..., None)` returns None and
+    `"TDDFT" in None` raises TypeError, which used to be silently converted
+    into an (unhelpful) error_signal instead of running the calculation.
+    The fix defaults to "" so the membership check is well-defined, letting
+    the job dispatch fall back to its own "Energy" default further down.
+    """
+
+    def test_missing_job_type_does_not_crash(self):
+        config = {
+            "method": "RHF",
+            "basis": "sto-3g",
+            "charge": 0,
+            "spin": "1",
+            "threads": 0,
+            "memory": 4000,
+            "max_cycle": 100,
+            "conv_tol": "1e-9",
+            # "job_type" intentionally omitted
+        }
+        w, results = _run_single_point(config=config)
+        w.finished_signal.emit.assert_called_once()
+        w.error_signal.emit.assert_not_called()
+        self.assertIsNotNone(results)
+
+    def test_missing_job_type_input_file_written(self):
+        config = {
+            "method": "RHF",
+            "basis": "sto-3g",
+            "charge": 0,
+            "spin": "1",
+            "threads": 0,
+            "memory": 4000,
+            "max_cycle": 100,
+            "conv_tol": "1e-9",
+        }
+        mock_mol = _make_mock_mol()
+        mock_mf = _make_mock_mf()
+        _mod.gto = MagicMock()
+        _mod.gto.M.return_value = mock_mol
+        _mod.scf = MagicMock()
+        _mod.scf.RHF.return_value = mock_mf
+
+        w = _make_worker(config)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            w.config["out_dir"] = tmpdir
+            with patch.object(_mod, "CaptureStdOut") as mock_cap:
+                mock_cap.return_value.__enter__ = MagicMock(return_value=MagicMock())
+                mock_cap.return_value.__exit__ = MagicMock(return_value=False)
+                w.run()
+            job_dir = os.path.join(tmpdir, "job_1")
+            inp_file = os.path.join(job_dir, "pyscf_input.py")
+            self.assertTrue(os.path.isfile(inp_file), "pyscf_input.py not written")
+
+
 if __name__ == "__main__":
     unittest.main()
