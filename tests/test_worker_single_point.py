@@ -425,5 +425,53 @@ class TestMissingJobTypeKey(unittest.TestCase):
             self.assertTrue(os.path.isfile(inp_file), "pyscf_input.py not written")
 
 
+# ===========================================================================
+# 7. Restricted open-shell scf_type labeling (regression)
+# ===========================================================================
+
+
+class TestRestrictedOpenShellScfType(unittest.TestCase):
+    """
+    Regression test for live results labeling ROHF/ROKS runs as "RHF".
+    run() knows the configured method, so restricted open-shell jobs must be
+    reported as "ROKS" — the same label LoadWorker derives from the checkpoint
+    (consumers only distinguish RHF / UHF / ROKS).
+    """
+
+    def test_roks_scf_type_labeled_roks(self):
+        mo_e = np.array([-1.0, -0.5, 0.2])
+        mo_o = np.array([2.0, 1.0, 0.0])
+        _, results = _run_single_point(
+            method="ROKS",
+            mo_energy=mo_e,
+            mo_occ=mo_o,
+            extra_config={"spin": "2", "functional": "b3lyp"},
+        )
+        self.assertEqual(results.get("scf_type"), "ROKS")
+
+    def test_rohf_scf_type_labeled_roks(self):
+        mo_e = np.array([-1.0, -0.5, 0.2])
+        mo_o = np.array([2.0, 1.0, 0.0])
+        _, results = _run_single_point(
+            method="ROHF",
+            mo_energy=mo_e,
+            mo_occ=mo_o,
+            extra_config={"spin": "2"},
+        )
+        self.assertEqual(results.get("scf_type"), "ROKS")
+
+    def test_rks_scf_type_stays_rhf(self):
+        """Restricted closed-shell (RKS) must still be labeled RHF."""
+        mo_e = np.array([-1.0, -0.5, 0.2])
+        mo_o = np.array([2.0, 2.0, 0.0])
+        _, results = _run_single_point(
+            method="RKS",
+            mo_energy=mo_e,
+            mo_occ=mo_o,
+            extra_config={"functional": "b3lyp"},
+        )
+        self.assertEqual(results.get("scf_type"), "RHF")
+
+
 if __name__ == "__main__":
     unittest.main()

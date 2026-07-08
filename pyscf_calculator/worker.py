@@ -904,16 +904,11 @@ class PySCFWorker(QThread):
                         # For RKS/UKS -> TDDFT (or TDA)
 
                         td_obj = None
-                        method_base = (
-                            method_name.replace("R", "")
-                            .replace("U", "")
-                            .replace("RO", "")
-                        )  # 'HF', 'KS'
 
                         # Simple dispatch based on MF class is usually safer if unsure
                         # But explicit class usage allows TDA control if we add it later
 
-                        if "KS" in method_base:  # RKS or UKS
+                        if "KS" in method_name:  # RKS, UKS or ROKS
                             # Default to full TDDFT
                             # Could use TDA if we add an option later: tdscf.TDA(mf)
                             td_obj = tdscf.TDDFT(mf)
@@ -1047,6 +1042,12 @@ class PySCFWorker(QThread):
                 results.update({"chkfile": chk_path, "out_dir": self.out_dir})
 
                 is_uhf = False
+                # Match LoadWorker's labels: restricted open-shell (ROHF/ROKS)
+                # is reported as "ROKS" since consumers only distinguish
+                # RHF / UHF / ROKS.
+                restricted_type = (
+                    "ROKS" if method_name in ("ROHF", "ROKS") else "RHF"
+                )
 
                 # Defensive check for None
                 if mf.mo_energy is None or mf.mo_occ is None:
@@ -1055,7 +1056,7 @@ class PySCFWorker(QThread):
                     )
                     results["mo_energy"] = []
                     results["mo_occ"] = []
-                    results["scf_type"] = "RHF"
+                    results["scf_type"] = restricted_type
                 else:
                     if isinstance(mf.mo_energy, tuple):
                         is_uhf = True
@@ -1086,7 +1087,7 @@ class PySCFWorker(QThread):
                         else:
                             results["mo_energy"] = self._to_list(mf.mo_energy)
                             results["mo_occ"] = self._to_list(mf.mo_occ)
-                            results["scf_type"] = "RHF"
+                            results["scf_type"] = restricted_type
                     except Exception as e_process:
                         self.log_signal.emit(f"Error processing MO data: {e_process}\n")
                         results["mo_energy"] = []
