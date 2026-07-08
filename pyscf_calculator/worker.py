@@ -1759,7 +1759,6 @@ class PropertyWorker(QThread):
                 elif isinstance(task, str):
                     # Parse offset or absolute index
                     idx = -1
-                    label = task
                     spin_suffix = ""
                     target_coeff = mo_coeff
 
@@ -1868,8 +1867,6 @@ class PropertyWorker(QThread):
                                     idx = val - 1  # User 1-based index (MO 1 = Index 0)
                             else:
                                 raise ValueError(f"Unknown task format: {task}")
-
-                            label = f"MO_{idx + 1}"  # Normalized label (1-based for display)
                         else:
                             pass  # ... same error handling ...
 
