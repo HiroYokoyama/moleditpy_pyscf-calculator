@@ -21,7 +21,6 @@ Strategy:
 import os
 import sys
 import types
-import logging
 import tempfile
 import unittest
 import importlib.util

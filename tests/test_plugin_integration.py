@@ -43,7 +43,7 @@ import sys
 import types
 import unittest
 import importlib.util
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 
 # ---------------------------------------------------------------------------
@@ -499,7 +499,6 @@ try:
         "../python_molecular_editor/moleditpy/src",
     )
 except ImportError:
-    import functools
 
     def _skipif(cls):
         return unittest.skip("pytest not available for skipif decoration")(cls)

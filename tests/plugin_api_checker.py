@@ -398,7 +398,7 @@ class AppAPIExtractor:
         print("\n=== Detected MainWindow API surface ===")
         for name, kind in sorted(self.api.mw_members.items()):
             print(f"  mw.{name}  [{kind}]")
-        print(f"\n  Managers with parsed members:")
+        print("\n  Managers with parsed members:")
         for mgr, members in self.api.manager_members.items():
             cls = self.api.manager_class_names.get(mgr, "?")
             print(f"    mw.{mgr}  ({cls}, {len(members)} members)")

@@ -5,9 +5,10 @@ Unit tests for the thread-safe stream capture models.
 
 import os
 import sys
+import types
 import unittest
 import importlib.util
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 
 def _load_module_direct(relpath, module_name):
@@ -29,8 +30,6 @@ sys.modules["pyscf.gto"] = MagicMock()
 sys.modules["pyscf.scf"] = MagicMock()
 sys.modules["pyscf.dft"] = MagicMock()
 sys.modules["pyscf.solvent"] = MagicMock()
-
-import types
 
 qt_core = types.ModuleType("PyQt6.QtCore")
 qt_core.QThread = MagicMock()

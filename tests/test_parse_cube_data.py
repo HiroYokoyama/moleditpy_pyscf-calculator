@@ -8,7 +8,6 @@ vis module can be imported headlessly.
 
 import os
 import sys
-import math
 import types
 import textwrap
 import tempfile

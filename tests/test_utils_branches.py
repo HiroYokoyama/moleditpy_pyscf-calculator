@@ -16,7 +16,7 @@ import os
 import sys
 import unittest
 import importlib.util
-from unittest.mock import MagicMock, patch, call
+from unittest.mock import MagicMock, patch
 
 
 def _load_module_direct(relpath, module_name):

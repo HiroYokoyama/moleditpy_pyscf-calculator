@@ -5,7 +5,6 @@ Unit tests for the main GUI state manager.
 
 import os
 import sys
-import json
 import types
 import unittest
 import importlib.util

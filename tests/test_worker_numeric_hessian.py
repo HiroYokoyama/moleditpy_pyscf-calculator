@@ -17,7 +17,7 @@ import types
 import unittest
 import importlib.util
 import numpy as np
-from unittest.mock import MagicMock, patch, call
+from unittest.mock import MagicMock
 
 
 # ---------------------------------------------------------------------------

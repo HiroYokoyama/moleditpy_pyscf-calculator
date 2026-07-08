@@ -19,7 +19,6 @@ import io
 import os
 import sys
 import types
-import logging
 import unittest
 import importlib
 import importlib.util
@@ -250,7 +249,7 @@ class TestCaptureStdOutExit(unittest.TestCase):
         with (
             patch("os.dup2", side_effect=fake_dup2),
             patch("os.close"),
-            self.assertLogs(level="WARNING") as log_ctx,
+            self.assertLogs(level="WARNING"),
         ):
             cap.__exit__(None, None, None)
 

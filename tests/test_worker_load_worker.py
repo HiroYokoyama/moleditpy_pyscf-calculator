@@ -12,7 +12,6 @@ Strategy:
   - No real pyscf computation is performed.
 """
 
-import csv
 import json
 import os
 import sys
@@ -20,7 +19,7 @@ import types
 import unittest
 import tempfile
 import importlib.util
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 
 # ---------------------------------------------------------------------------
@@ -281,9 +280,7 @@ class TestLoadWorkerStopRequested(unittest.TestCase):
                 os.path.join(tmpdir, "scan_results.csv"), "w", encoding="utf-8"
             ) as f:
                 f.write("coord,energy\n1.0,-1.0\n")
-            lw = _make_load_worker(
-                self.mod, os.path.join(tmpdir, "nonexistent.chk")
-            )
+            lw = _make_load_worker(self.mod, os.path.join(tmpdir, "nonexistent.chk"))
             lw._stop_requested = True
             lw.run()
             lw.finished_signal.emit.assert_not_called()

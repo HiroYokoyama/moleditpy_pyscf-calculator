@@ -253,7 +253,6 @@ class TestRecalcCurveLorentzian(unittest.TestCase):
         freq = 1000.0
         intensity = 2.5
         sigma = 40.0
-        gamma = sigma / 2.0
         w = _make_widget([freq], [intensity], width_val=sigma, use_gaussian=False)
         peak = np.max(w.curve_y)
         self.assertAlmostEqual(peak, intensity, delta=0.05)

@@ -1045,9 +1045,7 @@ class PySCFWorker(QThread):
                 # Match LoadWorker's labels: restricted open-shell (ROHF/ROKS)
                 # is reported as "ROKS" since consumers only distinguish
                 # RHF / UHF / ROKS.
-                restricted_type = (
-                    "ROKS" if method_name in ("ROHF", "ROKS") else "RHF"
-                )
+                restricted_type = "ROKS" if method_name in ("ROHF", "ROKS") else "RHF"
 
                 # Defensive check for None
                 if mf.mo_energy is None or mf.mo_occ is None:
