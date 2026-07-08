@@ -2025,12 +2025,16 @@ class LoadWorker(QThread):
                             "[worker.py] LoadWorker: failed to load freq: %s", e
                         )
 
+                if self._stop_requested:
+                    return
                 self.finished_signal.emit(results)
                 return
 
             # Original checkpoint loading logic
             # Load Molecule
             mol = lib.chkfile.load_mol(self.chkfile)
+            if self._stop_requested:
+                return
 
             # Load SCF Data
             scf_data = scf.chkfile.load(self.chkfile, "scf")
@@ -2190,7 +2194,11 @@ class LoadWorker(QThread):
                         "[worker.py] LoadWorker: failed to load TDDFT json: %s", e_tddft
                     )
 
+            if self._stop_requested:
+                return
             self.finished_signal.emit(results)
 
         except Exception as e:
+            if self._stop_requested:
+                return
             self.error_signal.emit(str(e) + "\n" + traceback.format_exc())

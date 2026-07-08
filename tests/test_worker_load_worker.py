@@ -256,5 +256,56 @@ class TestLoadWorkerCheckpointPath(unittest.TestCase):
             self.mod.pyscf.lib.chkfile.load_mol.side_effect = None
 
 
+# ===========================================================================
+# 4. Cooperative stop: _stop_requested suppresses signal emission
+# ===========================================================================
+
+
+class TestLoadWorkerStopRequested(unittest.TestCase):
+    """
+    _safe_stop_worker() sets worker._stop_requested = True before waiting.
+    run() must honor it: no finished_signal / error_signal after a stop, so
+    the caller's wait(1500) succeeds instead of falling through to
+    terminate().
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        pyscf_mock = MagicMock()
+        cls.mod = _load_worker_mod(pyscf_mock)
+        cls.mod.pyscf = pyscf_mock
+
+    def test_stop_suppresses_finished_on_aux_path(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with open(
+                os.path.join(tmpdir, "scan_results.csv"), "w", encoding="utf-8"
+            ) as f:
+                f.write("coord,energy\n1.0,-1.0\n")
+            lw = _make_load_worker(
+                self.mod, os.path.join(tmpdir, "nonexistent.chk")
+            )
+            lw._stop_requested = True
+            lw.run()
+            lw.finished_signal.emit.assert_not_called()
+            lw.error_signal.emit.assert_not_called()
+
+    def test_stop_suppresses_error_on_chkfile_path(self):
+        with tempfile.NamedTemporaryFile(suffix=".chk", delete=False) as f:
+            f.write(b"dummy")
+            chkpath = f.name
+        try:
+            lw = _make_load_worker(self.mod, chkpath)
+            self.mod.pyscf.lib.chkfile.load_mol.side_effect = RuntimeError(
+                "interrupted read"
+            )
+            lw._stop_requested = True
+            lw.run()
+            lw.error_signal.emit.assert_not_called()
+            lw.finished_signal.emit.assert_not_called()
+        finally:
+            os.unlink(chkpath)
+            self.mod.pyscf.lib.chkfile.load_mol.side_effect = None
+
+
 if __name__ == "__main__":
     unittest.main()
