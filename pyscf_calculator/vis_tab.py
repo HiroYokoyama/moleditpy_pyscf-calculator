@@ -934,6 +934,16 @@ class VisTab(QWidget):
                 self, "Error", f"Checkpoint file missing at: {self.chkfile_path}"
             )
             return
+        if self.prop_worker is not None and self.prop_worker.isRunning():
+            # Without this guard, a second call (e.g. from double-clicking an
+            # orbital in the Energy Diagram while the button-triggered
+            # analysis is still running) would overwrite self.prop_worker
+            # with a new PropertyWorker while the old one is still active in
+            # its QThread, racing on self.prop_worker / on_prop_finished.
+            QMessageBox.warning(
+                self, "Busy", "An orbital/property analysis is already running."
+            )
+            return
 
         self.log(f"Starting Analysis for: {', '.join(tasks)}...")
         if not out_d:
