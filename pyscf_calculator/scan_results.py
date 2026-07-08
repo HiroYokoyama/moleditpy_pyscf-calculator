@@ -389,6 +389,13 @@ class ScanResultDialog(QDialog):
             # Set as current molecule in context
             if self.context:
                 self.context.current_molecule = self.base_mol
+                # context.current_molecule's setter only pushes the mol to
+                # the 3D view; it does not touch the unsaved-changes flag
+                # (see PluginContext.current_mol in the main app), so we
+                # must mark the project modified ourselves — otherwise the
+                # document's molecule is silently swapped for this
+                # topology-reconstructed scan frame with no dirty indicator.
+                self.context.mark_project_modified()
 
             # Initial draw
             self.context.draw_molecule_3d(self.base_mol)

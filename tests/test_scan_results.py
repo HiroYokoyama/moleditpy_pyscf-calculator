@@ -232,5 +232,45 @@ class TestScanResults(unittest.TestCase):
         handle.write.assert_any_call("0,1.0,-76.0\r\n")
 
 
+class TestCreateBaseMoleculeMarksModified(unittest.TestCase):
+    """
+    Regression test: create_base_molecule() replaces context.current_molecule
+    with a topology-reconstructed frame-0 molecule from the scan trajectory,
+    but context.current_molecule's setter (see PluginContext.current_mol in
+    the main app) only pushes the mol to the 3D view — it does NOT set the
+    unsaved-changes/dirty flag. Without an explicit mark_project_modified()
+    call, opening the Scan Results viewer silently swaps the document's
+    molecule with no indication that the project now has unsaved changes.
+    """
+
+    def _make_dialog(self):
+        dialog = ScanResultDialog.__new__(ScanResultDialog)
+        dialog.trajectory = ["2\ncomment\nH 0.0 0.0 0.0\nH 0.0 0.0 1.0"]
+        dialog.context = MagicMock()
+        mw = MagicMock()
+        dialog.context.get_main_window.return_value = mw
+        return dialog
+
+    def test_mark_project_modified_called(self):
+        dialog = self._make_dialog()
+        dialog.create_base_molecule()
+        dialog.context.mark_project_modified.assert_called_once()
+
+    def test_current_molecule_set_before_mark_modified(self):
+        dialog = self._make_dialog()
+        dialog.create_base_molecule()
+        # current_molecule must be assigned (not left at whatever default)
+        self.assertIsNotNone(dialog.context.current_molecule)
+
+    def test_no_crash_without_context(self):
+        dialog = ScanResultDialog.__new__(ScanResultDialog)
+        dialog.trajectory = ["2\ncomment\nH 0.0 0.0 0.0\nH 0.0 0.0 1.0"]
+        dialog.context = None
+        try:
+            dialog.create_base_molecule()
+        except Exception as exc:
+            self.fail(f"create_base_molecule() raised with context=None: {exc}")
+
+
 if __name__ == "__main__":
     unittest.main()
