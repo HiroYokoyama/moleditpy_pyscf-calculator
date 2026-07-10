@@ -54,6 +54,11 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
 
+# Master copy lives in moleditpy-plugins/api-checker/; external plugin repos
+# carry copies as tests/plugin_api_checker.py. Bump on every change so
+# divergence between copies is detectable.
+__version__ = "1.1.1"
+
 # Ensure Unicode output works on Windows terminals with narrow code pages.
 if sys.stdout.encoding and sys.stdout.encoding.lower() not in ("utf-8", "utf-16"):
     sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
@@ -63,14 +68,13 @@ if sys.stdout.encoding and sys.stdout.encoding.lower() not in ("utf-8", "utf-16"
 # Data structures
 # ---------------------------------------------------------------------------
 
-
 @dataclass
 class Issue:
     file: str
     line: int
     code: str
     message: str
-    in_try: bool = False  # True if the access is inside a try: body
+    in_try: bool = False   # True if the access is inside a try: body
 
     def __str__(self) -> str:
         tag = "[try]" if self.in_try else "     "
@@ -83,7 +87,6 @@ class Issue:
 @dataclass
 class APIInfo:
     """Public API surface detected from the main app."""
-
     # MainWindow members: name -> kind ("method", "property", "attr", "signal/classattr")
     mw_members: dict[str, str] = field(default_factory=dict)
     # Per-manager attr name -> set of its public member names
@@ -98,86 +101,34 @@ class APIInfo:
 # Qt inherited methods -- these are always valid on a QMainWindow/QWidget.
 # Accesses to these on an MW variable are suppressed to avoid false positives.
 # ---------------------------------------------------------------------------
-_QT_INHERITED = frozenset(
-    {
-        # QMainWindow
-        "statusBar",
-        "menuBar",
-        "toolBar",
-        "centralWidget",
-        "setCentralWidget",
-        "addToolBar",
-        "addDockWidget",
-        "removeDockWidget",
-        # QWidget
-        "show",
-        "hide",
-        "close",
-        "resize",
-        "move",
-        "setWindowTitle",
-        "windowTitle",
-        "setWindowIcon",
-        "setMinimumSize",
-        "setMaximumSize",
-        "setFixedSize",
-        "setSizePolicy",
-        "update",
-        "repaint",
-        "raise_",
-        "lower",
-        "activateWindow",
-        "setEnabled",
-        "setDisabled",
-        "isEnabled",
-        "isVisible",
-        "setVisible",
-        "width",
-        "height",
-        "size",
-        "pos",
-        "geometry",
-        "setGeometry",
-        "parentWidget",
-        "parent",
-        "children",
-        "findChild",
-        "findChildren",
-        "setAttribute",
-        "testAttribute",
-        "setStyleSheet",
-        "setToolTip",
-        "setStatusTip",
-        "setWhatsThis",
-        "installEventFilter",
-        "removeEventFilter",
-        "grabKeyboard",
-        "releaseKeyboard",
-        # QObject
-        "connect",
-        "disconnect",
-        "blockSignals",
-        "signalsBlocked",
-        "deleteLater",
-        "objectName",
-        "setObjectName",
-        "property",
-        "setProperty",
-        "metaObject",
-        "thread",
-        "moveToThread",
-        # Common slots/signals that may be called directly
-        "accept",
-        "reject",
-        "done",
-    }
-)
+_QT_INHERITED = frozenset({
+    # QMainWindow
+    "statusBar", "menuBar", "toolBar", "centralWidget", "setCentralWidget",
+    "addToolBar", "addDockWidget", "removeDockWidget",
+    # QWidget
+    "show", "hide", "close", "resize", "move", "setWindowTitle", "windowTitle", "setWindowIcon",
+    "setMinimumSize", "setMaximumSize", "setFixedSize", "setSizePolicy",
+    "update", "repaint", "raise_", "lower", "activateWindow",
+    "setEnabled", "setDisabled", "isEnabled", "isVisible", "setVisible",
+    "width", "height", "size", "pos", "geometry", "setGeometry",
+    "parentWidget", "parent", "children", "findChild", "findChildren",
+    "setAttribute", "testAttribute", "setStyleSheet",
+    "setToolTip", "setStatusTip", "setWhatsThis",
+    "installEventFilter", "removeEventFilter",
+    "grabKeyboard", "releaseKeyboard",
+    # QObject
+    "connect", "disconnect", "blockSignals", "signalsBlocked",
+    "deleteLater", "objectName", "setObjectName",
+    "property", "setProperty", "metaObject",
+    "thread", "moveToThread",
+    # Common slots/signals that may be called directly
+    "accept", "reject", "done",
+})
 
 
 # ---------------------------------------------------------------------------
 # Phase 1 -- Main App API extraction
 # ---------------------------------------------------------------------------
-
 
 class AppAPIExtractor:
     """
@@ -189,21 +140,11 @@ class AppAPIExtractor:
 
     # Class names that, when found in MainWindow.__init__ as `self.X = SomeClass(...)`,
     # indicate X is a manager whose internals plugins might call.
-    MANAGER_CLASS_HINTS = frozenset(
-        {
-            "StateManager",
-            "IOManager",
-            "View3DManager",
-            "Edit3DManager",
-            "EditActionsManager",
-            "ComputeManager",
-            "DialogManager",
-            "UIManager",
-            "ExportManager",
-            "MainInitManager",
-            "StringImporterManager",
-        }
-    )
+    MANAGER_CLASS_HINTS = frozenset({
+        "StateManager", "IOManager", "View3DManager", "Edit3DManager",
+        "EditActionsManager", "ComputeManager", "DialogManager", "UIManager",
+        "ExportManager", "MainInitManager", "StringImporterManager",
+    })
 
     def __init__(self, app_root: Path, verbose: bool = False):
         self.app_root = app_root
@@ -369,9 +310,7 @@ class AppAPIExtractor:
     # Helpers
     # ------------------------------------------------------------------ #
 
-    def _find_file_containing(
-        self, needle: str, under: Optional[Path] = None
-    ) -> Optional[Path]:
+    def _find_file_containing(self, needle: str, under: Optional[Path] = None) -> Optional[Path]:
         root = under or self.app_root
         for f in sorted(root.rglob("*.py")):
             try:
@@ -383,9 +322,7 @@ class AppAPIExtractor:
 
     @staticmethod
     def _parse(path: Path) -> ast.Module:
-        return ast.parse(
-            path.read_text(encoding="utf-8", errors="ignore"), filename=str(path)
-        )
+        return ast.parse(path.read_text(encoding="utf-8", errors="ignore"), filename=str(path))
 
     @staticmethod
     def _find_class(tree: ast.Module, name: str) -> Optional[ast.ClassDef]:
@@ -398,7 +335,7 @@ class AppAPIExtractor:
         print("\n=== Detected MainWindow API surface ===")
         for name, kind in sorted(self.api.mw_members.items()):
             print(f"  mw.{name}  [{kind}]")
-        print("\n  Managers with parsed members:")
+        print(f"\n  Managers with parsed members:")
         for mgr, members in self.api.manager_members.items():
             cls = self.api.manager_class_names.get(mgr, "?")
             print(f"    mw.{mgr}  ({cls}, {len(members)} members)")
@@ -430,23 +367,24 @@ _MANAGER_ALLOWLIST: dict[str, dict | set] = {
         # StateManager.data is the central MoleculeData object.
         # It is set externally via molecule loading, not in StateManager.__init__.
         "state_manager": {"data"},
+
         # MainInitManager attributes set via self.host.init_manager.X = ... from
         # within other MainInitManager methods or other managers -- not self.X = ...
         # so the AST scan misses them.
         "init_manager": {
-            "scene",  # MoleculeScene -- set in _build_2d_editor()
-            "view_2d",  # ZoomableView  -- set in _build_2d_editor()
-            "current_file_path",  # str|None      -- set in io_logic + edit_actions
+            "scene",               # MoleculeScene -- set in _build_2d_editor()
+            "view_2d",             # ZoomableView  -- set in _build_2d_editor()
+            "current_file_path",   # str|None      -- set in io_logic + edit_actions
             "measurement_action",  # QAction       -- set in _build_toolbar()
-            "analysis_action",  # QAction       -- set in _build_menus()
-            "splitter",  # QSplitter     -- set in _build_layout()
-            "edit_3d_action",  # QAction       -- set in _build_toolbar()
-            "convert_button",  # QPushButton   -- set in _build_toolbar()
+            "analysis_action",     # QAction       -- set in _build_menus()
+            "splitter",            # QSplitter     -- set in _build_layout()
+            "edit_3d_action",      # QAction       -- set in _build_toolbar()
+            "convert_button",      # QPushButton   -- set in _build_toolbar()
             "optimize_3d_button",  # QPushButton   -- set in _build_toolbar()
             "mode_actions",
         },
         "view_3d_manager": {
-            "plotter",  # CustomQtInteractor -- set via self.host.view_3d_manager.plotter = ...
+            "plotter",             # CustomQtInteractor -- set via self.host.view_3d_manager.plotter = ...
         },
     },
 }
@@ -456,19 +394,10 @@ _MW_ALLOWLIST: dict[str, dict | set] = {
     # Only suppressed when --mw-allowlist is explicitly passed, so that real
     # V3 migration bugs in mw.X access patterns remain visible by default.
     "mw": {
-        "host",
-        "view3d",
-        "string_importers",
-        "apply_3d_settings",
-        "main_window_ui_manager",
-        "main_window_string_importers",
-        "toggle_atom_info_display",
-        "halt_all_calculations",
-        "close_all_3d_edit_dialogs",
-        "create_json_data",
-        "load_from_json_data",
-        "get_current_state",
-        "set_state_from_data",
+        "host", "view3d", "string_importers", "apply_3d_settings",
+        "main_window_ui_manager", "main_window_string_importers",
+        "toggle_atom_info_display", "halt_all_calculations", "close_all_3d_edit_dialogs",
+        "create_json_data", "load_from_json_data", "get_current_state", "set_state_from_data",
         "clear_2d_editor",
     },
 }
@@ -520,9 +449,7 @@ def _load_site_allowlist(plugin_path: Path) -> dict:
             result: dict = {}
             if "mw" in data:
                 mw_val = data["mw"]
-                result["mw"] = set(
-                    mw_val.keys() if isinstance(mw_val, dict) else mw_val
-                )
+                result["mw"] = set(mw_val.keys() if isinstance(mw_val, dict) else mw_val)
             if "manager" in data:
                 result["manager"] = {
                     k: set(v.keys() if isinstance(v, dict) else v)
@@ -530,9 +457,7 @@ def _load_site_allowlist(plugin_path: Path) -> dict:
                 }
             if "context" in data:
                 ctx_val = data["context"]
-                result["context"] = set(
-                    ctx_val.keys() if isinstance(ctx_val, dict) else ctx_val
-                )
+                result["context"] = set(ctx_val.keys() if isinstance(ctx_val, dict) else ctx_val)
             return result
         # Stop at repo root or filesystem root — don't leak into parent repos.
         if (directory / ".git").exists() or directory == directory.parent:
@@ -546,15 +471,9 @@ def _load_site_allowlist(plugin_path: Path) -> dict:
 
 # Variable names that strongly suggest the variable holds a MainWindow instance.
 # Deliberately conservative: "window" is excluded because it's used for any QWidget.
-_MW_VAR_NAMES = frozenset(
-    {
-        "mw",
-        "main_window",
-        "parent_window",
-        "app_window",
-        "mainwindow",
-    }
-)
+_MW_VAR_NAMES = frozenset({
+    "mw", "main_window", "parent_window", "app_window", "mainwindow",
+})
 
 # Attribute names on a call target that return a MainWindow.
 _MW_GETTER_ATTRS = frozenset({"get_main_window"})
@@ -637,40 +556,30 @@ class PluginFileChecker:
                         else:
                             mgr = self._is_mw_manager_ref(target.value)
                             if mgr:
-                                self._dynamic_manager_attrs.setdefault(mgr, set()).add(
-                                    target.attr
-                                )
-            elif isinstance(node, ast.AnnAssign) and isinstance(
-                node.target, ast.Attribute
-            ):
+                                self._dynamic_manager_attrs.setdefault(mgr, set()).add(target.attr)
+            elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Attribute):
                 if self._is_mw_ref(node.target.value):
                     self._dynamic_mw_attrs.add(node.target.attr)
                 else:
                     mgr = self._is_mw_manager_ref(node.target.value)
                     if mgr:
-                        self._dynamic_manager_attrs.setdefault(mgr, set()).add(
-                            node.target.attr
-                        )
+                        self._dynamic_manager_attrs.setdefault(mgr, set()).add(node.target.attr)
             elif isinstance(node, ast.Call):
                 if isinstance(node.func, ast.Name) and node.func.id == "setattr":
                     if len(node.args) >= 2:
                         arg0 = node.args[0]
                         arg1 = node.args[1]
                         attr_name = None
-                        if isinstance(arg1, ast.Constant) and isinstance(
-                            arg1.value, str
-                        ):
+                        if isinstance(arg1, ast.Constant) and isinstance(arg1.value, str):
                             attr_name = arg1.value
-
+                            
                         if attr_name:
                             if self._is_mw_ref(arg0):
                                 self._dynamic_mw_attrs.add(attr_name)
                             else:
                                 mgr = self._is_mw_manager_ref(arg0)
                                 if mgr:
-                                    self._dynamic_manager_attrs.setdefault(
-                                        mgr, set()
-                                    ).add(attr_name)
+                                    self._dynamic_manager_attrs.setdefault(mgr, set()).add(attr_name)
 
     # ------------------------------------------------------------------ #
     # Pass 1 -- alias collection
@@ -760,33 +669,26 @@ class PluginFileChecker:
             # ---- mw.something ------------------------------------------
             if self._is_mw_ref(obj):
                 mw_allow = self._allowlist.get("mw", set())
-                if (
-                    attr not in self.api.mw_members
-                    and attr not in mw_allow
-                    and attr not in self._dynamic_mw_attrs
-                ):
+                if attr not in self.api.mw_members and attr not in mw_allow and attr not in self._dynamic_mw_attrs:
                     self._add_issue(
-                        node.lineno,
-                        "UNKNOWN_MW_ATTR",
+                        node.lineno, "UNKNOWN_MW_ATTR",
                         f"`{_repr(obj)}.{attr}` -- '{attr}' not found on MainWindow",
                         in_try,
                     )
 
             # ---- mw.manager_attr.something -----------------------------
-            elif isinstance(obj, ast.Attribute) and self._is_mw_ref(obj.value):
+            elif (
+                isinstance(obj, ast.Attribute)
+                and self._is_mw_ref(obj.value)
+            ):
                 mgr_attr = obj.attr
                 if mgr_attr in self.api.manager_members:
                     mgr_allow = self._allowlist.get("manager", {}).get(mgr_attr, set())
                     dyn_mgr_allow = self._dynamic_manager_attrs.get(mgr_attr, set())
-                    if (
-                        attr not in self.api.manager_members[mgr_attr]
-                        and attr not in mgr_allow
-                        and attr not in dyn_mgr_allow
-                    ):
+                    if attr not in self.api.manager_members[mgr_attr] and attr not in mgr_allow and attr not in dyn_mgr_allow:
                         cls = self.api.manager_class_names.get(mgr_attr, mgr_attr)
                         self._add_issue(
-                            node.lineno,
-                            "UNKNOWN_MANAGER_ATTR",
+                            node.lineno, "UNKNOWN_MANAGER_ATTR",
                             f"`{_repr(obj.value)}.{mgr_attr}.{attr}` -- "
                             f"'{attr}' not found in {cls}",
                             in_try,
@@ -795,14 +697,9 @@ class PluginFileChecker:
             # ---- context.something ------------------------------------
             elif self.check_context and self._is_ctx_ref(obj):
                 ctx_allow = self._allowlist.get("context", set())
-                if (
-                    self.api.context_members
-                    and attr not in self.api.context_members
-                    and attr not in ctx_allow
-                ):
+                if self.api.context_members and attr not in self.api.context_members and attr not in ctx_allow:
                     self._add_issue(
-                        node.lineno,
-                        "UNKNOWN_CONTEXT_ATTR",
+                        node.lineno, "UNKNOWN_CONTEXT_ATTR",
                         f"`{_repr(obj)}.{attr}` -- '{attr}' not found on PluginContext",
                         in_try,
                     )
@@ -849,7 +746,6 @@ class PluginFileChecker:
 # ---------------------------------------------------------------------------
 # Shared AST helpers
 # ---------------------------------------------------------------------------
-
 
 def _is_self_attr(node: ast.expr) -> bool:
     """True if node is `self.something`."""
@@ -907,18 +803,15 @@ def _collect_safe_positions(tree: ast.Module) -> set[int]:
             continue
         func = node.func
         func_name = (
-            func.id
-            if isinstance(func, ast.Name)
-            else func.attr
-            if isinstance(func, ast.Attribute)
-            else None
+            func.id if isinstance(func, ast.Name) else
+            func.attr if isinstance(func, ast.Attribute) else None
         )
         if func_name in _SAFE_CALL_FUNCS and node.args:
             first = node.args[0]
             safe.add(id(first))
             # Also suppress the inner attribute of e.g. hasattr(mw.view_3d_manager, "x")
             if isinstance(first, ast.Attribute):
-                safe.add(id(first))
+                safe.add(id(first.value))
     return safe
 
 
@@ -941,11 +834,13 @@ def _repr(node: ast.expr) -> str:
 # Orchestration
 # ---------------------------------------------------------------------------
 
-
 def collect_plugin_files(plugin_path: Path) -> list[Path]:
     if plugin_path.is_file():
         return [plugin_path]
-    return [f for f in sorted(plugin_path.rglob("*.py")) if "__pycache__" not in str(f)]
+    return [
+        f for f in sorted(plugin_path.rglob("*.py"))
+        if "__pycache__" not in str(f)
+    ]
 
 
 def run(args) -> int:
@@ -957,6 +852,7 @@ def run(args) -> int:
     if not plugin_path.exists():
         _die(f"Plugin path does not exist: {plugin_path}")
 
+    print(f"plugin_api_checker {__version__}")
     print(f"App root  : {app_root}")
     print(f"Plugin(s) : {plugin_path}")
     print()
@@ -984,32 +880,26 @@ def run(args) -> int:
 
     site_allowlist = _load_site_allowlist(plugin_path)
     if site_allowlist:
-        n_s_mw = len(site_allowlist.get("mw", set()))
+        n_s_mw  = len(site_allowlist.get("mw", set()))
         n_s_mgr = sum(len(v) for v in site_allowlist.get("manager", {}).values())
         site_desc = []
-        if n_s_mw:
-            site_desc.append(f"{n_s_mw} mw attr(s)")
-        if n_s_mgr:
-            site_desc.append(f"{n_s_mgr} manager attr(s)")
+        if n_s_mw:  site_desc.append(f"{n_s_mw} mw attr(s)")
+        if n_s_mgr: site_desc.append(f"{n_s_mgr} manager attr(s)")
         print(f"Site allowlist (.moleditpy-api-allowlist): {', '.join(site_desc)}\n")
         parts.append(site_allowlist)
 
     allowlist = _merge_allowlists(*parts) if parts else {}
     if allowlist:
         n_mgr = sum(len(v) for v in allowlist.get("manager", {}).values())
-        n_mw = len(allowlist.get("mw", set()))
+        n_mw  = len(allowlist.get("mw", set()))
         suppressed = []
-        if n_mgr:
-            suppressed.append(f"{n_mgr} manager attr(s)")
-        if n_mw:
-            suppressed.append(f"{n_mw} mw attr(s)")
+        if n_mgr: suppressed.append(f"{n_mgr} manager attr(s)")
+        if n_mw:  suppressed.append(f"{n_mw} mw attr(s)")
         print(f"Allowlist active: {', '.join(suppressed)} suppressed\n")
 
     all_issues: list[tuple[Path, list[Issue]]] = []
     for pf in plugin_files:
-        checker = PluginFileChecker(
-            pf, api, check_context=args.check_context, allowlist=allowlist
-        )
+        checker = PluginFileChecker(pf, api, check_context=args.check_context, allowlist=allowlist)
         issues = checker.check()
         if args.skip_try:
             issues = [i for i in issues if not i.in_try]
@@ -1023,11 +913,7 @@ def run(args) -> int:
 
     total = sum(len(iss) for _, iss in all_issues)
     n_try = sum(1 for _, iss in all_issues for i in iss if i.in_try)
-    suffix = (
-        f"  ({n_try} inside try blocks, shown with [try])"
-        if n_try and not args.skip_try
-        else ""
-    )
+    suffix = f"  ({n_try} inside try blocks, shown with [try])" if n_try and not args.skip_try else ""
     print(f"Found {total} issue(s) in {len(all_issues)} file(s){suffix}:")
     print("=" * 72)
 
@@ -1049,10 +935,10 @@ def run(args) -> int:
     code_counts = Counter(i.code for _, iss in all_issues for i in iss)
     for code, count in code_counts.most_common():
         label = {
-            "UNKNOWN_MW_ATTR": "Unknown MainWindow attribute",
+            "UNKNOWN_MW_ATTR":      "Unknown MainWindow attribute",
             "UNKNOWN_MANAGER_ATTR": "Unknown manager attribute",
             "UNKNOWN_CONTEXT_ATTR": "Unknown PluginContext attribute",
-            "SYNTAX_ERROR": "Syntax error in plugin file",
+            "SYNTAX_ERROR":         "Syntax error in plugin file",
         }.get(code, code)
         print(f"  {label:<40} {count}")
 
@@ -1062,7 +948,6 @@ def run(args) -> int:
 # ---------------------------------------------------------------------------
 # Utilities
 # ---------------------------------------------------------------------------
-
 
 def _die(msg: str) -> None:
     print(f"ERROR: {msg}", file=sys.stderr)
@@ -1076,28 +961,26 @@ def main():
         epilog=__doc__,
     )
     parser.add_argument(
-        "--app",
-        required=True,
+        "--version", action="version", version=f"%(prog)s {__version__}"
+    )
+    parser.add_argument(
+        "--app", required=True,
         help="Path to the main app root (e.g. ../python_molecular_editor/)",
     )
     parser.add_argument(
-        "--plugin",
-        required=True,
+        "--plugin", required=True,
         help="Path to a plugin .py file or a directory of plugins (searched recursively)",
     )
     parser.add_argument(
-        "--check-context",
-        action="store_true",
+        "--check-context", action="store_true",
         help="Also check context.xxx accesses against the PluginContext API",
     )
     parser.add_argument(
-        "--show-api",
-        action="store_true",
+        "--show-api", action="store_true",
         help="Print the detected MainWindow API surface before scanning",
     )
     parser.add_argument(
-        "--default-allowlist",
-        action="store_true",
+        "--default-allowlist", action="store_true",
         help=(
             "Suppress known manager false positives: runtime attrs assigned via "
             "self.host.manager.X patterns invisible to AST "
@@ -1105,16 +988,14 @@ def main():
         ),
     )
     parser.add_argument(
-        "--mw-allowlist",
-        action="store_true",
+        "--mw-allowlist", action="store_true",
         help=(
             "Also suppress known direct mw.X legacy compat attrs "
             "(mw.host, mw.view3d, etc.).  Off by default so mw.X issues remain visible."
         ),
     )
     parser.add_argument(
-        "--skip-try",
-        action="store_true",
+        "--skip-try", action="store_true",
         help=(
             "Hide issues whose access is inside a try: block. "
             "By default all issues are shown; those inside try blocks are tagged [try]."
