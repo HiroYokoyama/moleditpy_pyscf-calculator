@@ -444,7 +444,17 @@ class TestLoadSettingsHistoryAndAutoLoad(unittest.TestCase):
         dlg.context = context
         dlg.settings = {"calc_history": ["rel_result"]}
 
-        with patch.object(_gui_mod.os.path, "isabs", side_effect=RuntimeError("boom")):
+        # Raise only for the history path; a blanket side_effect also breaks
+        # os.path.abspath() (which calls isabs internally on posix) inside
+        # apply_defaults, an unrelated unguarded call.
+        real_isabs = _gui_mod.os.path.isabs
+
+        def _isabs(p):
+            if p == "rel_result":
+                raise RuntimeError("boom")
+            return real_isabs(p)
+
+        with patch.object(_gui_mod.os.path, "isabs", side_effect=_isabs):
             dlg.load_settings()  # must not raise
 
         self.assertEqual(dlg.calc_history, ["rel_result"])
