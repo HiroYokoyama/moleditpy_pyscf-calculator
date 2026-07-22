@@ -885,9 +885,11 @@ class VisTab(QWidget):
                     should_disable = True
             elif task_data and task_data != "ESP":
                 search_label = task_data.upper().replace(" ", "")
-                if search_label.startswith("MO"):
+                mo_prefix_match = re.match(r"^MO(\d+)", search_label)
+                if mo_prefix_match:
                     try:
-                        mo_idx = search_label.replace("MO", "").strip()
+                        # anchor to leading MO<digits>; blanket replace ate "MO" in HOMO/LUMO
+                        mo_idx = mo_prefix_match.group(1)
                         padded_idx = f"{int(mo_idx):03d}"
                         for bn in basenames:
                             if (
@@ -1253,8 +1255,9 @@ class VisTab(QWidget):
             return
         is_rel = re.match(r"^(HOMO|LUMO)([-+]\d+)?$", text, re.IGNORECASE)
         is_digit = text.isdigit()
+        is_spin_digit = re.match(r"^\d+[aAbB]$", text)  # alpha/beta spin, parsed below
 
-        if not (is_digit or is_rel):
+        if not (is_digit or is_rel or is_spin_digit):
             QMessageBox.warning(
                 self,
                 "Invalid Input",
