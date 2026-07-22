@@ -361,7 +361,7 @@ class TestWheelEvent(unittest.TestCase):
 
     def test_mouse_wheel_angle_delta_shifts_range(self):
         d = _make_dialog(RHF_DATA)
-        cmin, cmax = d.current_min, d.current_max
+        cmin, _ = d.current_min, d.current_max
         ev = _WheelEvent(angle_y=120, pixel_null=True)
         d.wheelEvent(ev)
         self.assertNotEqual(d.current_min, cmin)
@@ -590,7 +590,7 @@ class TestContextMenuEvent(unittest.TestCase):
     def test_builds_menu_and_triggers_save(self):
         d = _make_dialog(RHF_DATA)
         ev = MagicMock()
-        with patch.object(d, "save_image") as save_m:
+        with patch.object(d, "save_image"):
             d.contextMenuEvent(ev)
             # Simulate user clicking "Save as PNG..."
         # The action's triggered signal was connected to save_image; emit it.

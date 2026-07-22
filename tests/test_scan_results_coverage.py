@@ -19,7 +19,7 @@ import sys
 import types
 import unittest
 import importlib.util
-from unittest.mock import MagicMock, patch, mock_open
+from unittest.mock import MagicMock, patch
 
 
 def _load_module_direct(relpath, module_name):
@@ -366,9 +366,10 @@ class TestOnUnitChanged(unittest.TestCase):
             results=[{"value": 1.0, "energy": -1.0}, {"value": 2.0, "energy": -2.0}]
         )
         dlg.frame_idx = 0
-        with patch.object(dlg, "plot_data") as mock_plot, patch.object(
-            dlg, "highlight_point"
-        ) as mock_hl:
+        with (
+            patch.object(dlg, "plot_data") as mock_plot,
+            patch.object(dlg, "highlight_point") as mock_hl,
+        ):
             dlg.on_unit_changed("kJ/mol")
         mock_plot.assert_called_once()
         mock_hl.assert_called_once_with(0)
@@ -379,9 +380,10 @@ class TestOnUnitChanged(unittest.TestCase):
             results=[{"value": 1.0, "energy": -1.0}, {"value": 2.0, "energy": -2.0}]
         )
         dlg.frame_idx = None
-        with patch.object(dlg, "plot_data"), patch.object(
-            dlg, "highlight_point"
-        ) as mock_hl:
+        with (
+            patch.object(dlg, "plot_data"),
+            patch.object(dlg, "highlight_point") as mock_hl,
+        ):
             dlg.on_unit_changed("kJ/mol")
         mock_hl.assert_not_called()
 
@@ -644,9 +646,10 @@ class TestSetFrame(unittest.TestCase):
             results=[{"value": 1, "energy": -1}, {"value": 2, "energy": -2}],
             trajectory=["a", "b"],
         )
-        with patch.object(dlg, "highlight_point") as mock_hl, patch.object(
-            dlg, "update_viewer"
-        ) as mock_uv:
+        with (
+            patch.object(dlg, "highlight_point") as mock_hl,
+            patch.object(dlg, "update_viewer") as mock_uv,
+        ):
             dlg.set_frame(1)
         self.assertEqual(dlg.frame_idx, 1)
         dlg.lbl_frame.setText.assert_called_with("Frame: 1")
@@ -733,26 +736,30 @@ class TestTogglePlay(unittest.TestCase):
 class TestSavePlot(unittest.TestCase):
     def test_success_shows_information(self):
         dlg = _make_bare_dialog()
-        with patch.object(
-            sr_mod.QFileDialog, "getSaveFileName", return_value=("/out.png", "")
-        ), patch.object(sr_mod.QMessageBox, "information") as mock_info:
+        with (
+            patch.object(
+                sr_mod.QFileDialog, "getSaveFileName", return_value=("/out.png", "")
+            ),
+            patch.object(sr_mod.QMessageBox, "information") as mock_info,
+        ):
             dlg.save_plot()
         dlg.canvas.fig.savefig.assert_called_once_with("/out.png", dpi=300)
         mock_info.assert_called_once()
 
     def test_cancelled_dialog_no_op(self):
         dlg = _make_bare_dialog()
-        with patch.object(
-            sr_mod.QFileDialog, "getSaveFileName", return_value=("", "")
-        ):
+        with patch.object(sr_mod.QFileDialog, "getSaveFileName", return_value=("", "")):
             dlg.save_plot()
         dlg.canvas.fig.savefig.assert_not_called()
 
     def test_exception_shows_critical(self):
         dlg = _make_bare_dialog()
-        with patch.object(
-            sr_mod.QFileDialog, "getSaveFileName", return_value=("/out.png", "")
-        ), patch.object(sr_mod.QMessageBox, "critical") as mock_crit:
+        with (
+            patch.object(
+                sr_mod.QFileDialog, "getSaveFileName", return_value=("/out.png", "")
+            ),
+            patch.object(sr_mod.QMessageBox, "critical") as mock_crit,
+        ):
             dlg.canvas.fig.savefig.side_effect = RuntimeError("boom")
             dlg.save_plot()
         mock_crit.assert_called_once()
@@ -765,11 +772,13 @@ class TestSaveCsv(unittest.TestCase):
 
     def test_exception_shows_critical(self):
         dlg = _make_bare_dialog(results=[{"value": 1, "energy": -1}])
-        with patch.object(
-            sr_mod.QFileDialog, "getSaveFileName", return_value=("/out.csv", "")
-        ), patch("builtins.open", side_effect=OSError("disk full")), patch.object(
-            sr_mod.QMessageBox, "critical"
-        ) as mock_crit:
+        with (
+            patch.object(
+                sr_mod.QFileDialog, "getSaveFileName", return_value=("/out.csv", "")
+            ),
+            patch("builtins.open", side_effect=OSError("disk full")),
+            patch.object(sr_mod.QMessageBox, "critical") as mock_crit,
+        ):
             dlg.save_csv()
         mock_crit.assert_called_once()
 
@@ -876,18 +885,21 @@ class TestSaveGif(unittest.TestCase):
 
     def test_no_pil_shows_warning(self):
         dlg = self._make_dlg(trajectory=["a"])
-        with patch.object(sr_mod, "HAS_PIL", False), patch.object(
-            sr_mod.QMessageBox, "warning"
-        ) as mock_warn:
+        with (
+            patch.object(sr_mod, "HAS_PIL", False),
+            patch.object(sr_mod.QMessageBox, "warning") as mock_warn,
+        ):
             dlg.save_gif()
         mock_warn.assert_called_once()
 
     def test_pauses_if_playing_before_settings_dialog(self):
         dlg = self._make_dlg(trajectory=["a"])
         dlg.is_playing = True
-        with patch.object(sr_mod, "HAS_PIL", True), patch.object(
-            dlg, "toggle_play"
-        ) as mock_toggle, patch.object(sr_mod, "QDialog") as mock_dialog_cls:
+        with (
+            patch.object(sr_mod, "HAS_PIL", True),
+            patch.object(dlg, "toggle_play") as mock_toggle,
+            patch.object(sr_mod, "QDialog") as mock_dialog_cls,
+        ):
             mock_dialog_instance = MagicMock()
             mock_dialog_instance.exec.return_value = 0  # Rejected
             mock_dialog_cls.return_value = mock_dialog_instance
@@ -899,9 +911,10 @@ class TestSaveGif(unittest.TestCase):
 
     def test_dialog_rejected_returns(self):
         dlg = self._make_dlg(trajectory=["a"])
-        with patch.object(sr_mod, "HAS_PIL", True), patch.object(
-            sr_mod, "QDialog"
-        ) as mock_dialog_cls:
+        with (
+            patch.object(sr_mod, "HAS_PIL", True),
+            patch.object(sr_mod, "QDialog") as mock_dialog_cls,
+        ):
             mock_dialog_instance = MagicMock()
             mock_dialog_instance.exec.return_value = 0
             mock_dialog_cls.return_value = mock_dialog_instance
@@ -920,11 +933,12 @@ class TestSaveGif(unittest.TestCase):
 
     def test_no_file_path_returns(self):
         dlg = self._make_dlg(trajectory=["a"])
-        with patch.object(sr_mod, "HAS_PIL", True), patch.object(
-            sr_mod, "QDialog"
-        ) as mock_dialog_cls, patch.object(
-            sr_mod, "QFileDialog"
-        ) as mock_fd, patch.object(sr_mod, "QProgressDialog") as mock_progress_cls:
+        with (
+            patch.object(sr_mod, "HAS_PIL", True),
+            patch.object(sr_mod, "QDialog") as mock_dialog_cls,
+            patch.object(sr_mod, "QFileDialog") as mock_fd,
+            patch.object(sr_mod, "QProgressDialog") as mock_progress_cls,
+        ):
             mock_dialog_instance = MagicMock()
             mock_dialog_instance.exec.return_value = 1
             mock_dialog_cls.return_value = mock_dialog_instance
@@ -939,15 +953,13 @@ class TestSaveGif(unittest.TestCase):
         mw = MagicMock(spec=[])
         dlg.context.get_main_window.return_value = mw
 
-        with patch.object(sr_mod, "HAS_PIL", True), patch.object(
-            sr_mod, "QDialog"
-        ) as mock_dialog_cls, patch.object(
-            sr_mod, "QFileDialog"
-        ) as mock_fd, patch.object(
-            sr_mod, "QProgressDialog"
-        ) as mock_progress_cls, patch.object(
-            sr_mod.QMessageBox, "critical"
-        ) as mock_crit:
+        with (
+            patch.object(sr_mod, "HAS_PIL", True),
+            patch.object(sr_mod, "QDialog") as mock_dialog_cls,
+            patch.object(sr_mod, "QFileDialog") as mock_fd,
+            patch.object(sr_mod, "QProgressDialog") as mock_progress_cls,
+            patch.object(sr_mod.QMessageBox, "critical") as mock_crit,
+        ):
             mock_dialog_instance = MagicMock()
             mock_dialog_instance.exec.return_value = 1
             mock_dialog_cls.return_value = mock_dialog_instance
@@ -974,21 +986,24 @@ class TestSaveGif(unittest.TestCase):
         fake_img_instance = MagicMock()
         fake_image.fromarray.return_value = fake_img_instance
         fake_img_instance.convert.return_value = fake_img_instance
-        fake_img_instance.split.return_value = [MagicMock(), MagicMock(), MagicMock(), MagicMock()]
+        fake_img_instance.split.return_value = [
+            MagicMock(),
+            MagicMock(),
+            MagicMock(),
+            MagicMock(),
+        ]
         fake_img_instance.quantize.return_value = fake_img_instance
         fake_image.eval.return_value = MagicMock()
 
-        with patch.object(sr_mod, "HAS_PIL", True), patch.object(
-            sr_mod, "QDialog"
-        ) as mock_dialog_cls, patch.object(
-            sr_mod, "QFileDialog"
-        ) as mock_fd, patch.object(
-            sr_mod, "QProgressDialog"
-        ) as mock_progress_cls, patch.object(
-            sr_mod.QMessageBox, "information"
-        ) as mock_info, patch.object(
-            sr_mod, "Image", fake_image
-        ), patch.object(dlg, "set_frame"):
+        with (
+            patch.object(sr_mod, "HAS_PIL", True),
+            patch.object(sr_mod, "QDialog") as mock_dialog_cls,
+            patch.object(sr_mod, "QFileDialog") as mock_fd,
+            patch.object(sr_mod, "QProgressDialog") as mock_progress_cls,
+            patch.object(sr_mod.QMessageBox, "information") as mock_info,
+            patch.object(sr_mod, "Image", fake_image),
+            patch.object(dlg, "set_frame"),
+        ):
             mock_dialog_instance = MagicMock()
             mock_dialog_instance.exec.return_value = 1
             mock_dialog_cls.return_value = mock_dialog_instance
@@ -1010,15 +1025,14 @@ class TestSaveGif(unittest.TestCase):
         mw.view_3d_manager.plotter.screenshot.return_value = None
         dlg.context.get_main_window.return_value = mw
 
-        with patch.object(sr_mod, "HAS_PIL", True), patch.object(
-            sr_mod, "QDialog"
-        ) as mock_dialog_cls, patch.object(
-            sr_mod, "QFileDialog"
-        ) as mock_fd, patch.object(
-            sr_mod, "QProgressDialog"
-        ) as mock_progress_cls, patch.object(
-            sr_mod.QMessageBox, "warning"
-        ) as mock_warn, patch.object(dlg, "set_frame"):
+        with (
+            patch.object(sr_mod, "HAS_PIL", True),
+            patch.object(sr_mod, "QDialog") as mock_dialog_cls,
+            patch.object(sr_mod, "QFileDialog") as mock_fd,
+            patch.object(sr_mod, "QProgressDialog") as mock_progress_cls,
+            patch.object(sr_mod.QMessageBox, "warning") as mock_warn,
+            patch.object(dlg, "set_frame"),
+        ):
             mock_dialog_instance = MagicMock()
             mock_dialog_instance.exec.return_value = 1
             mock_dialog_cls.return_value = mock_dialog_instance
@@ -1038,15 +1052,14 @@ class TestSaveGif(unittest.TestCase):
         mw = MagicMock()
         dlg.context.get_main_window.return_value = mw
 
-        with patch.object(sr_mod, "HAS_PIL", True), patch.object(
-            sr_mod, "QDialog"
-        ) as mock_dialog_cls, patch.object(
-            sr_mod, "QFileDialog"
-        ) as mock_fd, patch.object(
-            sr_mod, "QProgressDialog"
-        ) as mock_progress_cls, patch.object(
-            sr_mod.QMessageBox, "warning"
-        ), patch.object(dlg, "set_frame") as mock_set_frame:
+        with (
+            patch.object(sr_mod, "HAS_PIL", True),
+            patch.object(sr_mod, "QDialog") as mock_dialog_cls,
+            patch.object(sr_mod, "QFileDialog") as mock_fd,
+            patch.object(sr_mod, "QProgressDialog") as mock_progress_cls,
+            patch.object(sr_mod.QMessageBox, "warning"),
+            patch.object(dlg, "set_frame") as mock_set_frame,
+        ):
             mock_dialog_instance = MagicMock()
             mock_dialog_instance.exec.return_value = 1
             mock_dialog_cls.return_value = mock_dialog_instance

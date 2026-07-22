@@ -169,7 +169,9 @@ class TestCheckpointPostProcessMerge(unittest.TestCase):
             f.write(b"")
 
         with open(os.path.join(base_dir, "freq_analysis.json"), "w") as f:
-            json.dump({"freq_data": {"freqs": [100.0]}, "thermo_data": {"E_tot": [1.0]}}, f)
+            json.dump(
+                {"freq_data": {"freqs": [100.0]}, "thermo_data": {"E_tot": [1.0]}}, f
+            )
 
         with open(os.path.join(base_dir, "scan_results.csv"), "w") as f:
             f.write("Step,Value,Energy\n1,0.70,-1.05\n")

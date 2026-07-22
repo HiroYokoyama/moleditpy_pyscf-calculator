@@ -384,7 +384,7 @@ class TestInitUiRealPath(unittest.TestCase):
         fv.list_freq.addTopLevelItem.assert_not_called()
 
     def test_btn_gif_enabled_reflects_has_pil(self):
-        fv = _make_fv_full_init([500.0])
+        _make_fv_full_init([500.0])
         # HAS_PIL True in this stub env (PIL mocked as importable)
         self.assertTrue(_mod.HAS_PIL)
 
@@ -765,7 +765,9 @@ class TestSaveAsGifGuards(unittest.TestCase):
         fv.list_freq.currentItem.return_value = MagicMock()
         fv.list_freq.indexOfTopLevelItem.return_value = 0
         with patch.object(_mod, "QDialog") as dlg_cls:
-            dlg_cls.return_value.exec.return_value = _mod.QDialog.DialogCode.Rejected + 5
+            dlg_cls.return_value.exec.return_value = (
+                _mod.QDialog.DialogCode.Rejected + 5
+            )
             dlg_cls.DialogCode = _mod.QDialog.DialogCode
             fv.save_as_gif()  # must not raise / not proceed to file dialog
 
@@ -804,7 +806,9 @@ class TestSaveAsGifFullPath(unittest.TestCase):
             os.environ.get("TEMP", "."), "freq_vis_coverage_test.gif"
         )
         with (
-            patch.object(_mod.QFileDialog, "getSaveFileName", return_value=(gif_path, "")),
+            patch.object(
+                _mod.QFileDialog, "getSaveFileName", return_value=(gif_path, "")
+            ),
             patch.object(_mod.time, "sleep"),
             patch.object(_mod.QMessageBox, "information") as info_m,
         ):
@@ -834,7 +838,9 @@ class TestSaveAsGifFullPath(unittest.TestCase):
         plotter.render.side_effect = RuntimeError("render failed")
         gif_path = os.path.join(os.environ.get("TEMP", "."), "freq_vis_err.gif")
         with (
-            patch.object(_mod.QFileDialog, "getSaveFileName", return_value=(gif_path, "")),
+            patch.object(
+                _mod.QFileDialog, "getSaveFileName", return_value=(gif_path, "")
+            ),
             patch.object(_mod.time, "sleep"),
             patch.object(_mod.QMessageBox, "critical") as crit_m,
         ):
@@ -846,7 +852,9 @@ class TestSaveAsGifFullPath(unittest.TestCase):
         fv.is_playing = True
         gif_path = os.path.join(os.environ.get("TEMP", "."), "freq_vis_resume.gif")
         with (
-            patch.object(_mod.QFileDialog, "getSaveFileName", return_value=(gif_path, "")),
+            patch.object(
+                _mod.QFileDialog, "getSaveFileName", return_value=(gif_path, "")
+            ),
             patch.object(_mod.time, "sleep"),
             patch.object(_mod.QMessageBox, "information"),
         ):

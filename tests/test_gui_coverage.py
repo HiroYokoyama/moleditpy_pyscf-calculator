@@ -161,7 +161,9 @@ class TestSetupUIRealPath(unittest.TestCase):
         with patch.object(PySCFDialog, "load_settings", return_value=None):
             dlg = PySCFDialog(parent=None, context=MagicMock(), settings={})
 
-        dlg.tabs.addTab.assert_any_call(dlg.tabs.addTab.call_args_list[0][0][0], "Calc (Error)")
+        dlg.tabs.addTab.assert_any_call(
+            dlg.tabs.addTab.call_args_list[0][0][0], "Calc (Error)"
+        )
         self.assertFalse(hasattr(dlg, "calc_tab"))
         self.assertFalse(hasattr(dlg, "vis_tab"))
 
@@ -357,7 +359,10 @@ class TestSaveCustomDefaults(unittest.TestCase):
         dlg.cursor = MagicMock(return_value=MagicMock())
 
         m_open = unittest.mock.mock_open()
-        with patch("builtins.open", m_open), patch.object(_gui_mod.json, "dump") as mock_dump:
+        with (
+            patch("builtins.open", m_open),
+            patch.object(_gui_mod.json, "dump") as mock_dump,
+        ):
             dlg.save_custom_defaults()
 
         mock_dump.assert_called_once()
@@ -426,7 +431,9 @@ class TestLoadSettingsHistoryAndAutoLoad(unittest.TestCase):
         dlg.load_settings()
 
         self.assertEqual(len(dlg.calc_history), 1)
-        self.assertTrue(os.path.isabs(dlg.calc_history[0]) or "proj" in dlg.calc_history[0])
+        self.assertTrue(
+            os.path.isabs(dlg.calc_history[0]) or "proj" in dlg.calc_history[0]
+        )
 
     def test_history_relpath_exception_keeps_raw_path(self):
         dlg = self._make_dlg_for_load_settings()
@@ -551,7 +558,9 @@ class TestUpdateInternalStateExceptionPaths(unittest.TestCase):
         with patch.object(_gui_mod.os.path, "isabs", return_value=False):
             dlg.update_internal_state()
 
-        self.assertEqual(dlg.settings["calc_history"], [os.path.join("results", "run1")])
+        self.assertEqual(
+            dlg.settings["calc_history"], [os.path.join("results", "run1")]
+        )
 
     def test_no_context_skips_relpath_logic(self):
         dlg = self._make_dlg()

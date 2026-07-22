@@ -653,14 +653,20 @@ class TestOnPropFinished(unittest.TestCase):
         self.assertFalse(it.flags() & _ItemFlag.ItemIsEnabled)
 
 
-class TestOnPropResults(unittest.TestCase, ):
+class TestOnPropResults(
+    unittest.TestCase,
+):
     def test_selects_esp_named_file_first(self):
         vt = _make_vis_tab()
-        with patch.object(_vis_tab_mod.os.path, "exists", return_value=True), \
-             patch.object(
-                 _vis_tab_mod.glob, "glob",
-                 return_value=["/d/1_homo.cube", "/d/esp.cube"],
-             ), patch.object(vt, "on_file_selected") as mock_sel:
+        with (
+            patch.object(_vis_tab_mod.os.path, "exists", return_value=True),
+            patch.object(
+                _vis_tab_mod.glob,
+                "glob",
+                return_value=["/d/1_homo.cube", "/d/esp.cube"],
+            ),
+            patch.object(vt, "on_file_selected") as mock_sel,
+        ):
             vt.on_prop_results({"files": ["/d/1_homo.cube", "/d/esp.cube"]})
         self.assertEqual(vt.file_list.count(), 2)
         mock_sel.assert_called_once()
@@ -669,19 +675,25 @@ class TestOnPropResults(unittest.TestCase, ):
 
     def test_falls_back_to_last_new_file_when_no_esp(self):
         vt = _make_vis_tab()
-        with patch.object(_vis_tab_mod.os.path, "exists", return_value=True), \
-             patch.object(
-                 _vis_tab_mod.glob, "glob",
-                 return_value=["/d/1_homo.cube", "/d/2_lumo.cube"],
-             ), patch.object(vt, "on_file_selected") as mock_sel:
+        with (
+            patch.object(_vis_tab_mod.os.path, "exists", return_value=True),
+            patch.object(
+                _vis_tab_mod.glob,
+                "glob",
+                return_value=["/d/1_homo.cube", "/d/2_lumo.cube"],
+            ),
+            patch.object(vt, "on_file_selected") as mock_sel,
+        ):
             vt.on_prop_results({"files": ["/d/1_homo.cube", "/d/2_lumo.cube"]})
         mock_sel.assert_called_once()
 
     def test_no_new_files_no_selection(self):
         vt = _make_vis_tab()
-        with patch.object(_vis_tab_mod.os.path, "exists", return_value=True), \
-             patch.object(_vis_tab_mod.glob, "glob", return_value=["/d/a.cube"]), \
-             patch.object(vt, "on_file_selected") as mock_sel:
+        with (
+            patch.object(_vis_tab_mod.os.path, "exists", return_value=True),
+            patch.object(_vis_tab_mod.glob, "glob", return_value=["/d/a.cube"]),
+            patch.object(vt, "on_file_selected") as mock_sel,
+        ):
             vt.on_prop_results({"files": []})
         mock_sel.assert_not_called()
         self.assertEqual(vt.file_list.count(), 1)
@@ -717,9 +729,11 @@ class TestOnFileSelected(unittest.TestCase):
         def fake_exists(p):
             return True
 
-        with patch.object(_vis_tab_mod.os.path, "exists", side_effect=fake_exists), \
-             patch.object(vt, "switch_to_mapped_mode") as mock_mapped, \
-             patch.object(vt, "clear_3d_actors"):
+        with (
+            patch.object(_vis_tab_mod.os.path, "exists", side_effect=fake_exists),
+            patch.object(vt, "switch_to_mapped_mode") as mock_mapped,
+            patch.object(vt, "clear_3d_actors"),
+        ):
             vt.on_file_selected(item)
         mock_mapped.assert_called_once_with(
             os.path.join("/d", "density.cube"), "/d/esp.cube"
@@ -729,9 +743,11 @@ class TestOnFileSelected(unittest.TestCase):
         vt = _make_vis_tab()
         item = _FakeListItem()
         item.setToolTip("/d/1_homo.cube")
-        with patch.object(_vis_tab_mod.os.path, "exists", return_value=True), \
-             patch.object(vt, "switch_to_standard_mode") as mock_std, \
-             patch.object(vt, "clear_3d_actors"):
+        with (
+            patch.object(_vis_tab_mod.os.path, "exists", return_value=True),
+            patch.object(vt, "switch_to_standard_mode") as mock_std,
+            patch.object(vt, "clear_3d_actors"),
+        ):
             vt.on_file_selected(item)
         mock_std.assert_called_once_with("/d/1_homo.cube")
 
@@ -739,8 +755,10 @@ class TestOnFileSelected(unittest.TestCase):
         vt = _make_vis_tab()
         item = _FakeListItem()
         item.setToolTip("/d/esp.cube")
-        with patch.object(_vis_tab_mod.os.path, "exists", side_effect=RuntimeError("x")), \
-             patch.object(vt, "clear_3d_actors"):
+        with (
+            patch.object(_vis_tab_mod.os.path, "exists", side_effect=RuntimeError("x")),
+            patch.object(vt, "clear_3d_actors"),
+        ):
             # exists() raising inside on_file_selected's own guard re-raises there
             with self.assertRaises(RuntimeError):
                 vt.on_file_selected(item)
@@ -1077,9 +1095,7 @@ class TestAddCustomMo(unittest.TestCase):
         self.assertEqual(item.data(_ItemDataRole.UserRole), "HOMO-1")
 
     def test_digit_resolves_relative_display_label(self):
-        vt = _make_vis_tab(
-            mo_data={"occupations": [2, 2, 0, 0]}
-        )
+        vt = _make_vis_tab(mo_data={"occupations": [2, 2, 0, 0]})
         vt.mo_input.text.return_value = "1"
         vt.add_custom_mo()
         item = vt.orb_list.item(0)
@@ -1139,15 +1155,19 @@ class TestLoadFileByPath(unittest.TestCase):
         item = _FakeListItem()
         item.setToolTip("/d/x.cube")
         vt.file_list.addItem(item)
-        with patch.object(_vis_tab_mod.os.path, "exists", return_value=True), \
-             patch.object(vt, "on_file_selected") as mock_sel:
+        with (
+            patch.object(_vis_tab_mod.os.path, "exists", return_value=True),
+            patch.object(vt, "on_file_selected") as mock_sel,
+        ):
             vt.load_file_by_path("/d/x.cube")
         mock_sel.assert_called_once_with(item)
 
     def test_not_found_falls_back_to_standard_mode(self):
         vt = _make_vis_tab()
-        with patch.object(_vis_tab_mod.os.path, "exists", return_value=True), \
-             patch.object(vt, "switch_to_standard_mode") as mock_std:
+        with (
+            patch.object(_vis_tab_mod.os.path, "exists", return_value=True),
+            patch.object(vt, "switch_to_standard_mode") as mock_std,
+        ):
             vt.load_file_by_path("/d/y.cube")
         mock_std.assert_called_once_with("/d/y.cube")
 
@@ -1281,8 +1301,10 @@ class TestLoadResultFolder(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             open(os.path.join(d, "scan_results.csv"), "w").close()
             open(os.path.join(d, "scan_trajectory.xyz"), "w").close()
-            with patch.object(vt, "load_scan_results") as mock_scan, \
-                 patch.object(vt, "_add_to_history"):
+            with (
+                patch.object(vt, "load_scan_results") as mock_scan,
+                patch.object(vt, "_add_to_history"),
+            ):
                 vt.load_result_folder(path=d)
             mock_scan.assert_called_once_with(os.path.abspath(d))
 
@@ -1411,10 +1433,12 @@ class TestLoadScanResults(unittest.TestCase):
 class TestOnLoadFinished(unittest.TestCase):
     def test_basic_result_enables_buttons(self):
         vt = _make_vis_tab()
-        with patch.object(_vis_tab_mod, "QTimer", _FakeQTimerImmediate), \
-             patch.object(vt, "finalize_load") as mock_final, \
-             patch.object(vt, "clear_3d_actors"), \
-             patch.object(_vis_tab_mod.os.path, "exists", return_value=False):
+        with (
+            patch.object(_vis_tab_mod, "QTimer", _FakeQTimerImmediate),
+            patch.object(vt, "finalize_load") as mock_final,
+            patch.object(vt, "clear_3d_actors"),
+            patch.object(_vis_tab_mod.os.path, "exists", return_value=False),
+        ):
             vt.on_load_finished(
                 {
                     "chkfile": "/out/pyscf.chk",
@@ -1432,14 +1456,14 @@ class TestOnLoadFinished(unittest.TestCase):
         vt = _make_vis_tab()
         mw = MagicMock()
         vt.context.get_main_window.return_value = mw
-        with patch.object(_vis_tab_mod, "QTimer", _FakeQTimerImmediate), \
-             patch.object(vt, "finalize_load"), \
-             patch.object(vt, "clear_3d_actors"), \
-             patch.object(vt, "update_geometry") as mock_upd, \
-             patch.object(_vis_tab_mod.os.path, "exists", return_value=False):
-            vt.on_load_finished(
-                {"optimized_xyz": "3\n\nC 0 0 0\n", "loaded_xyz": None}
-            )
+        with (
+            patch.object(_vis_tab_mod, "QTimer", _FakeQTimerImmediate),
+            patch.object(vt, "finalize_load"),
+            patch.object(vt, "clear_3d_actors"),
+            patch.object(vt, "update_geometry") as mock_upd,
+            patch.object(_vis_tab_mod.os.path, "exists", return_value=False),
+        ):
+            vt.on_load_finished({"optimized_xyz": "3\n\nC 0 0 0\n", "loaded_xyz": None})
         self.assertEqual(vt.optimized_xyz, "3\n\nC 0 0 0\n")
         vt.btn_load_geom.setEnabled.assert_called_with(True)
         mock_upd.assert_called_once_with("3\n\nC 0 0 0\n")
@@ -1449,20 +1473,24 @@ class TestOnLoadFinished(unittest.TestCase):
         vt = _make_vis_tab()
         mw = MagicMock()
         vt.context.get_main_window.return_value = mw
-        with patch.object(_vis_tab_mod, "QTimer", _FakeQTimerImmediate), \
-             patch.object(vt, "finalize_load"), \
-             patch.object(vt, "clear_3d_actors"), \
-             patch.object(vt, "update_geometry") as mock_upd, \
-             patch.object(_vis_tab_mod.os.path, "exists", return_value=False):
+        with (
+            patch.object(_vis_tab_mod, "QTimer", _FakeQTimerImmediate),
+            patch.object(vt, "finalize_load"),
+            patch.object(vt, "clear_3d_actors"),
+            patch.object(vt, "update_geometry") as mock_upd,
+            patch.object(_vis_tab_mod.os.path, "exists", return_value=False),
+        ):
             vt.on_load_finished({"loaded_xyz": "3\n\nC 0 0 0\n"})
         mock_upd.assert_called_once_with("3\n\nC 0 0 0\n")
 
     def test_thermo_data_enables_button(self):
         vt = _make_vis_tab()
-        with patch.object(_vis_tab_mod, "QTimer", _FakeQTimerNoOp), \
-             patch.object(vt, "finalize_load"), \
-             patch.object(vt, "clear_3d_actors"), \
-             patch.object(_vis_tab_mod.os.path, "exists", return_value=False):
+        with (
+            patch.object(_vis_tab_mod, "QTimer", _FakeQTimerNoOp),
+            patch.object(vt, "finalize_load"),
+            patch.object(vt, "clear_3d_actors"),
+            patch.object(_vis_tab_mod.os.path, "exists", return_value=False),
+        ):
             vt.on_load_finished({"thermo_data": {"E_tot": -1.0}})
         vt.btn_show_thermo.setEnabled.assert_called_with(True)
 
@@ -1473,9 +1501,11 @@ class TestOnLoadFinished(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             vt.last_out_dir = d
             open(os.path.join(d, "1_homo.cube"), "w").close()
-            with patch.object(_vis_tab_mod, "QTimer", _FakeQTimerNoOp), \
-                 patch.object(vt, "finalize_load") as mock_final, \
-                 patch.object(vt, "clear_3d_actors"):
+            with (
+                patch.object(_vis_tab_mod, "QTimer", _FakeQTimerNoOp),
+                patch.object(vt, "finalize_load") as mock_final,
+                patch.object(vt, "clear_3d_actors"),
+            ):
                 vt.on_load_finished({})
         self.assertEqual(vt.file_list.count(), 1)
         mock_final.assert_called_once()
@@ -1486,10 +1516,12 @@ class TestOnLoadFinished(unittest.TestCase):
         vt.freq_dock = MagicMock()
         mw = MagicMock()
         vt.context.get_main_window.return_value = mw
-        with patch.object(_vis_tab_mod, "QTimer", _FakeQTimerNoOp), \
-             patch.object(vt, "finalize_load"), \
-             patch.object(vt, "clear_3d_actors"), \
-             patch.object(_vis_tab_mod.os.path, "exists", return_value=False):
+        with (
+            patch.object(_vis_tab_mod, "QTimer", _FakeQTimerNoOp),
+            patch.object(vt, "finalize_load"),
+            patch.object(vt, "clear_3d_actors"),
+            patch.object(_vis_tab_mod.os.path, "exists", return_value=False),
+        ):
             vt.on_load_finished({})
         self.assertIsNone(vt.visualizer)
         self.assertIsNone(vt.mapped_visualizer)
@@ -1513,7 +1545,10 @@ class TestFinalizeLoad(unittest.TestCase):
         self.assertIsNotNone(vt.freq_data)
         # FreqVisualizer(None-callable) raises TypeError -> caught -> logged
         self.assertTrue(
-            any("Error opening Frequency Visualizer" in str(c) for c in vt.log.call_args_list)
+            any(
+                "Error opening Frequency Visualizer" in str(c)
+                for c in vt.log.call_args_list
+            )
         )
 
     def test_freq_data_present_no_current_molecule_skips_visualizer(self):
@@ -1526,8 +1561,10 @@ class TestFinalizeLoad(unittest.TestCase):
         vt = _make_vis_tab()
         fake_mod = types.ModuleType("pyscf_calculator.tddft_table")
         fake_mod.TddftTable = MagicMock(return_value=MagicMock())
-        with patch.dict(sys.modules, {"pyscf_calculator.tddft_table": fake_mod}), \
-             patch.object(_vis_tab_mod, "__package__", "pyscf_calculator"):
+        with (
+            patch.dict(sys.modules, {"pyscf_calculator.tddft_table": fake_mod}),
+            patch.object(_vis_tab_mod, "__package__", "pyscf_calculator"),
+        ):
             vt.finalize_load({"tddft_data": {"states": []}})
         # Either succeeds (dlg shown) or fails gracefully (logged) -- both fine;
         # just confirm no unhandled exception escaped.

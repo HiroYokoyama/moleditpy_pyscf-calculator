@@ -141,8 +141,19 @@ _vis.pv = types.SimpleNamespace(
 # ---------------------------------------------------------------------------
 
 
-def _write_cube(path, n_atoms=1, extra_mo_line=False, data_line=None, natoms_override=None,
-                 nx=2, ny=2, nz=2, negative_dims=False, atom_lines=None, header_lines=None):
+def _write_cube(
+    path,
+    n_atoms=1,
+    extra_mo_line=False,
+    data_line=None,
+    natoms_override=None,
+    nx=2,
+    ny=2,
+    nz=2,
+    negative_dims=False,
+    atom_lines=None,
+    header_lines=None,
+):
     lines = []
     lines.append("comment 1\n")
     lines.append("comment 2\n")
@@ -234,7 +245,9 @@ class TestParseCubeDataBasics(_TempDirMixin, unittest.TestCase):
 
     def test_negative_natoms_skips_mo_info_line(self):
         p = self._path()
-        _write_cube(p, n_atoms=1, natoms_override=-1, extra_mo_line=True, nx=2, ny=2, nz=2)
+        _write_cube(
+            p, n_atoms=1, natoms_override=-1, extra_mo_line=True, nx=2, ny=2, nz=2
+        )
         meta = parse_cube_data(p)
         # n_atoms is abs(-1) == 1, MO info line skipped, atom parsed correctly
         self.assertEqual(len(meta["atoms"]), 1)
@@ -274,9 +287,12 @@ class TestParseCubeDataBasics(_TempDirMixin, unittest.TestCase):
         p = self._path()
         # write header+atoms, no data lines at all after atoms
         lines = [
-            "c1\n", "c2\n",
+            "c1\n",
+            "c2\n",
             "1 0.0 0.0 0.0\n",
-            "2 1 0 0\n", "2 0 1 0\n", "2 0 0 1\n",
+            "2 1 0 0\n",
+            "2 0 1 0\n",
+            "2 0 0 1\n",
             "6 0.0 0.0 0.0 0.0\n",
         ]
         with open(p, "w") as f:
@@ -288,11 +304,15 @@ class TestParseCubeDataBasics(_TempDirMixin, unittest.TestCase):
     def test_blank_lines_before_data_are_skipped(self):
         p = self._path()
         lines = [
-            "c1\n", "c2\n",
+            "c1\n",
+            "c2\n",
             "1 0.0 0.0 0.0\n",
-            "2 1 0 0\n", "2 0 1 0\n", "2 0 0 1\n",
+            "2 1 0 0\n",
+            "2 0 1 0\n",
+            "2 0 0 1\n",
             "6 0.0 0.0 0.0 0.0\n",
-            "\n", "   \n",
+            "\n",
+            "   \n",
             " ".join(["1.0"] * 8) + "\n",
         ]
         with open(p, "w") as f:
@@ -335,7 +355,9 @@ class TestCubeVisualizerPlotter(unittest.TestCase):
 
     def test_plotter_none_when_ren_win_access_raises(self):
         p = MagicMock()
-        type(p).ren_win = property(lambda self: (_ for _ in ()).throw(RuntimeError("dead")))
+        type(p).ren_win = property(
+            lambda self: (_ for _ in ()).throw(RuntimeError("dead"))
+        )
         mw = _mw_with_plotter(p)
         cv = CubeVisualizer(mw)
         self.assertIsNone(cv.plotter)
@@ -481,10 +503,22 @@ class TestMappedVisualizerLoadFiles(_TempDirMixin, unittest.TestCase):
     def _two_files(self):
         surf = self._path("density.cube")
         prop = self._path("esp.cube")
-        _write_cube(surf, n_atoms=1, nx=2, ny=2, nz=2,
-                    data_line="1.0 2.0 3.0 4.0 5.0 6.0 7.0 8.0\n")
-        _write_cube(prop, n_atoms=1, nx=2, ny=2, nz=2,
-                    data_line="-1.0 -2.0 0.0 1.0 2.0 3.0 4.0 5.0\n")
+        _write_cube(
+            surf,
+            n_atoms=1,
+            nx=2,
+            ny=2,
+            nz=2,
+            data_line="1.0 2.0 3.0 4.0 5.0 6.0 7.0 8.0\n",
+        )
+        _write_cube(
+            prop,
+            n_atoms=1,
+            nx=2,
+            ny=2,
+            nz=2,
+            data_line="-1.0 -2.0 0.0 1.0 2.0 3.0 4.0 5.0\n",
+        )
         return surf, prop
 
     def test_load_files_success(self):

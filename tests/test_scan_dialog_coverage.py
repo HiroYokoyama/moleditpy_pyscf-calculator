@@ -151,7 +151,7 @@ class TestInitBasic(unittest.TestCase):
         mw = MagicMock()
         mw.edit_3d_manager.measurement_mode = False
         context.get_main_window.return_value = mw
-        dlg = ScanDialog(parent=None, context=context)
+        ScanDialog(parent=None, context=context)
         mw.init_manager.measurement_action.setChecked.assert_called_with(True)
 
 
@@ -166,9 +166,7 @@ class TestInitRestoreParams(unittest.TestCase):
         mw.edit_3d_manager = e3d
         context.get_main_window.return_value = mw
 
-        dlg = ScanDialog(
-            parent=None, context=context, initial_params={"atoms": [1, 2]}
-        )
+        dlg = ScanDialog(parent=None, context=context, initial_params={"atoms": [1, 2]})
         self.assertEqual(dlg.selected_atoms, [1, 2])
         self.assertEqual(e3d.selected_atoms_3d, {1, 2})
         self.assertEqual(e3d.selected_atoms_for_measurement, [1, 2])
@@ -180,11 +178,10 @@ class TestInitRestoreParams(unittest.TestCase):
         mw.edit_3d_manager.measurement_mode = False
         context.get_main_window.return_value = mw
         # getattr(self.mw, "edit_3d_manager", None) raising inside try
-        with patch.object(
-            ScanDialog, "update_ui_state", side_effect=lambda: None
-        ):
+        with patch.object(ScanDialog, "update_ui_state", side_effect=lambda: None):
             with patch("builtins.getattr", side_effect=getattr):
                 pass  # not needed; simulate failure via broken mw attribute access instead
+
         # Force failure a simpler way: make hasattr() raise by giving a
         # pathological e3d whose attribute access blows up.
         class _BadE3D:
@@ -213,9 +210,7 @@ class TestInitRestoreParams(unittest.TestCase):
     def test_no_atoms_key_skips_restore_block(self):
         context = MagicMock()
         context.get_main_window.return_value = None
-        dlg = ScanDialog(
-            parent=None, context=context, initial_params={"start": "1.0"}
-        )
+        dlg = ScanDialog(parent=None, context=context, initial_params={"start": "1.0"})
         self.assertEqual(dlg.selected_atoms, [])
 
 
@@ -344,9 +339,7 @@ class TestCalculateCurrentValue(unittest.TestCase):
         dlg.context.current_molecule = mol
         dlg.selected_atoms = [0, 1, 2]
 
-        with patch.object(
-            scan_mod.rdMolTransforms, "GetAngleDeg", return_value=109.5
-        ):
+        with patch.object(scan_mod.rdMolTransforms, "GetAngleDeg", return_value=109.5):
             dlg.calculate_current_value()
 
         self.assertEqual(dlg.scan_type, "Angle")

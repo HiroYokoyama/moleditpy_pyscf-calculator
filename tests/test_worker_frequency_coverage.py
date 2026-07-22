@@ -180,9 +180,13 @@ def _make_thermo_mock(freqs, intensities=None):
     thermo_mock = MagicMock()
     thermo_mock.harmonic_analysis.return_value = {
         "freq_au": np.array([0.01] * len(freqs)),
-        "freq_wavenumber": np.array(freqs) if not any(isinstance(f, complex) for f in freqs) else freqs,
+        "freq_wavenumber": np.array(freqs)
+        if not any(isinstance(f, complex) for f in freqs)
+        else freqs,
         "norm_mode": np.zeros((len(freqs), 2, 3)),
-        "infra_red_intensity": np.array(intensities) if intensities is not None else None,
+        "infra_red_intensity": np.array(intensities)
+        if intensities is not None
+        else None,
     }
     thermo_mock.thermo.return_value = {
         "E_tot": (1.0, "Eh"),
@@ -194,7 +198,9 @@ def _make_thermo_mock(freqs, intensities=None):
 
 class TestFrequencySuccess(unittest.TestCase):
     def test_real_frequencies_stored(self):
-        thermo_mock = _make_thermo_mock([100.0, 200.0, 300.0], intensities=[1.0, 2.0, 3.0])
+        thermo_mock = _make_thermo_mock(
+            [100.0, 200.0, 300.0], intensities=[1.0, 2.0, 3.0]
+        )
         w, results, out_dir = _run(_base_config(), FakeMF(), thermo_mock)
         w.finished_signal.emit.assert_called_once()
         self.assertIn("freq_data", results)

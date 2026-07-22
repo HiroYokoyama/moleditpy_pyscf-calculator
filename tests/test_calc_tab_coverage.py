@@ -418,7 +418,9 @@ class TestValidateSpinSettings(_BaseTabTest):
         self.tab.validate_spin_settings()
         style = "background-color: #ffcccc; color: black;"
         self.tab.spin_input.setStyleSheet.assert_called_with(style)
-        self.assertIn("More unpaired electrons", self.tab.spin_input.setToolTip.call_args[0][0])
+        self.assertIn(
+            "More unpaired electrons", self.tab.spin_input.setToolTip.call_args[0][0]
+        )
 
     def test_invalid_parity_mismatch_sets_error_style(self):
         self.tab.context.current_molecule = self._make_mol(2)

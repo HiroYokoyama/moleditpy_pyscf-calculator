@@ -12,7 +12,6 @@ real numpy math (linalg.norm/arccos) are exercised.
 
 import os
 import sys
-import copy
 import types
 import builtins
 import tempfile
@@ -273,18 +272,32 @@ class TestRigidScan(unittest.TestCase):
     def test_rdkit_mol_none_still_emits_result(self):
         """run_rigid_scan bails out early, but run() still emits result/finished."""
         chem_mock, _, _ = _make_rd_stub(rd_mol_none=True)
-        scan_params = {"type": "Dist", "atoms": [0, 1], "start": 0.7, "end": 0.9, "steps": 2}
+        scan_params = {
+            "type": "Dist",
+            "atoms": [0, 1],
+            "start": 0.7,
+            "end": 0.9,
+            "steps": 2,
+        }
         w, results, out_dir = _run(
             _base_config("Rigid Scan", scan_params), chem_mock=chem_mock
         )
         w.error_signal.emit.assert_called_once()
-        self.assertIn("Failed to create RDKit molecule", w.error_signal.emit.call_args[0][0])
+        self.assertIn(
+            "Failed to create RDKit molecule", w.error_signal.emit.call_args[0][0]
+        )
         w.finished_signal.emit.assert_called_once()
         self.assertNotIn("scan_results", results)
 
     def test_dist_scan_success_writes_csv_and_trajectory(self):
         chem_mock, rw_mol, conf = _make_rd_stub()
-        scan_params = {"type": "Dist", "atoms": [0, 1], "start": 0.7, "end": 0.9, "steps": 2}
+        scan_params = {
+            "type": "Dist",
+            "atoms": [0, 1],
+            "start": 0.7,
+            "end": 0.9,
+            "steps": 2,
+        }
         w, results, out_dir = _run(
             _base_config("Rigid Scan", scan_params), chem_mock=chem_mock
         )
@@ -297,7 +310,13 @@ class TestRigidScan(unittest.TestCase):
 
     def test_angle_scan_type(self):
         chem_mock, rw_mol, conf = _make_rd_stub()
-        scan_params = {"type": "Angle", "atoms": [0, 1, 0], "start": 100.0, "end": 110.0, "steps": 2}
+        scan_params = {
+            "type": "Angle",
+            "atoms": [0, 1, 0],
+            "start": 100.0,
+            "end": 110.0,
+            "steps": 2,
+        }
         w, results, out_dir = _run(
             _base_config("Rigid Scan", scan_params), chem_mock=chem_mock
         )
@@ -321,7 +340,13 @@ class TestRigidScan(unittest.TestCase):
 
     def test_stop_requested_breaks_loop_early(self):
         chem_mock, rw_mol, conf = _make_rd_stub()
-        scan_params = {"type": "Dist", "atoms": [0, 1], "start": 0.7, "end": 0.9, "steps": 5}
+        scan_params = {
+            "type": "Dist",
+            "atoms": [0, 1],
+            "start": 0.7,
+            "end": 0.9,
+            "steps": 5,
+        }
 
         config = _base_config("Rigid Scan", scan_params)
         mock_mol = _make_mock_mol()
@@ -352,7 +377,13 @@ class TestRigidScan(unittest.TestCase):
     def test_sanitize_exception_falls_back_to_partial_update(self):
         chem_mock, rw_mol, conf = _make_rd_stub()
         chem_mock.SanitizeMol.side_effect = ValueError("bad valence")
-        scan_params = {"type": "Dist", "atoms": [0, 1], "start": 0.7, "end": 0.9, "steps": 1}
+        scan_params = {
+            "type": "Dist",
+            "atoms": [0, 1],
+            "start": 0.7,
+            "end": 0.9,
+            "steps": 1,
+        }
         w, results, out_dir = _run(
             _base_config("Rigid Scan", scan_params), chem_mock=chem_mock
         )
@@ -364,7 +395,13 @@ class TestRigidScan(unittest.TestCase):
         chem_mock, rw_mol, conf = _make_rd_stub()
         rdmt = MagicMock()
         rdmt.SetBondLength.side_effect = RuntimeError("bad geometry")
-        scan_params = {"type": "Dist", "atoms": [0, 1], "start": 0.7, "end": 0.9, "steps": 2}
+        scan_params = {
+            "type": "Dist",
+            "atoms": [0, 1],
+            "start": 0.7,
+            "end": 0.9,
+            "steps": 2,
+        }
         w, results, out_dir = _run(
             _base_config("Rigid Scan", scan_params), chem_mock=chem_mock, rdmt_mock=rdmt
         )
@@ -376,7 +413,13 @@ class TestRigidScan(unittest.TestCase):
 
     def test_solvent_applied_when_selected(self):
         chem_mock, rw_mol, conf = _make_rd_stub()
-        scan_params = {"type": "Dist", "atoms": [0, 1], "start": 0.7, "end": 0.9, "steps": 1}
+        scan_params = {
+            "type": "Dist",
+            "atoms": [0, 1],
+            "start": 0.7,
+            "end": 0.9,
+            "steps": 1,
+        }
         w, results, out_dir = _run(
             _base_config("Rigid Scan", scan_params, extra={"solvent": "Water"}),
             chem_mock=chem_mock,
@@ -410,7 +453,13 @@ def _make_mol_eq(coords=None, symbols=("H", "H")):
 
 class TestRelaxedScan(unittest.TestCase):
     def test_missing_geometric_emits_error(self):
-        scan_params = {"type": "Dist", "atoms": [0, 1], "start": 0.7, "end": 0.9, "steps": 2}
+        scan_params = {
+            "type": "Dist",
+            "atoms": [0, 1],
+            "start": 0.7,
+            "end": 0.9,
+            "steps": 2,
+        }
         w, results, out_dir = _run(
             _base_config("Relaxed Scan", scan_params),
             block_imports=["pyscf.geomopt.geometric_solver"],
@@ -431,7 +480,13 @@ class TestRelaxedScan(unittest.TestCase):
         _mod.scf = scf_mock
         _mod.dft = MagicMock()
 
-        scan_params = {"type": "Dist", "atoms": [0, 1], "start": 0.7, "end": 0.9, "steps": 2}
+        scan_params = {
+            "type": "Dist",
+            "atoms": [0, 1],
+            "start": 0.7,
+            "end": 0.9,
+            "steps": 2,
+        }
         w, results, out_dir = _run(
             _base_config("Relaxed Scan", scan_params), fake_mf=FakeMF()
         )
@@ -453,7 +508,13 @@ class TestRelaxedScan(unittest.TestCase):
         _mod.scf = scf_mock
         _mod.dft = MagicMock()
 
-        scan_params = {"type": "Angle", "atoms": [0, 1, 2], "start": 90.0, "end": 100.0, "steps": 1}
+        scan_params = {
+            "type": "Angle",
+            "atoms": [0, 1, 2],
+            "start": 90.0,
+            "end": 100.0,
+            "steps": 1,
+        }
         w, results, out_dir = _run(
             _base_config("Relaxed Scan", scan_params), fake_mf=FakeMF()
         )
@@ -506,7 +567,13 @@ class TestRelaxedScan(unittest.TestCase):
         _mod.scf = scf_mock
         _mod.dft = MagicMock()
 
-        scan_params = {"type": "Dist", "atoms": [0, 1], "start": 0.7, "end": 0.9, "steps": 5}
+        scan_params = {
+            "type": "Dist",
+            "atoms": [0, 1],
+            "start": 0.7,
+            "end": 0.9,
+            "steps": 5,
+        }
         config = _base_config("Relaxed Scan", scan_params)
         mock_mol = _make_mock_mol()
         gto_mock = MagicMock()
@@ -532,7 +599,13 @@ class TestRelaxedScan(unittest.TestCase):
         geo_optimize = _install_geometric(mol_eq)
         geo_optimize.side_effect = RuntimeError("optimizer diverged")
 
-        scan_params = {"type": "Dist", "atoms": [0, 1], "start": 0.7, "end": 0.9, "steps": 3}
+        scan_params = {
+            "type": "Dist",
+            "atoms": [0, 1],
+            "start": 0.7,
+            "end": 0.9,
+            "steps": 3,
+        }
         w, results, out_dir = _run(
             _base_config("Relaxed Scan", scan_params), fake_mf=FakeMF()
         )
