@@ -1220,7 +1220,7 @@ class PySCFWorker(QThread):
 
         scan_values = np.linspace(start_val, end_val, steps)
 
-        csv_lines = ["Step,Value,Energy"]
+        csv_lines = ["Step,Value,Energy,Converged"]
 
         for i, val in enumerate(scan_values):
             # Cooperative stop check — avoids force-kill between steps
@@ -1299,10 +1299,25 @@ class PySCFWorker(QThread):
             mf_step.kernel()
             e_tot = mf_step.e_tot
 
-            self.log_signal.emit(f"E = {e_tot:.6f} Ha\n")
+            # An unconverged point can sit many kcal/mol off and would
+            # otherwise enter the profile looking like a real barrier.
+            converged = bool(getattr(mf_step, "converged", True))
+            if converged:
+                self.log_signal.emit(f"E = {e_tot:.6f} Ha\n")
+            else:
+                self.log_signal.emit(f"E = {e_tot:.6f} Ha  ** SCF NOT CONVERGED **\n")
 
-            scan_results.append({"step": i + 1, "value": val, "energy": e_tot})
-            csv_lines.append(f"{i + 1},{val:.6f},{e_tot:.8f}")
+            scan_results.append(
+                {
+                    "step": i + 1,
+                    "value": val,
+                    "energy": e_tot,
+                    "converged": converged,
+                }
+            )
+            csv_lines.append(
+                f"{i + 1},{val:.6f},{e_tot:.8f},{'yes' if converged else 'NO'}"
+            )
 
             # Keep UI responsive-ish
             QThread.msleep(10)
@@ -1468,9 +1483,11 @@ class PySCFWorker(QThread):
                 self.log_signal.emit(
                     "  Calculating final energy for optimized structure...\n"
                 )
+                step_converged = True
                 try:
                     step_mf.mol = mol_eq
                     e_tot = step_mf.kernel()
+                    step_converged = bool(getattr(step_mf, "converged", True))
                     self.log_signal.emit(
                         f"  ✓ Final optimized energy: {e_tot:.8f} Ha\n"
                     )
@@ -1478,10 +1495,17 @@ class PySCFWorker(QThread):
                     self.log_signal.emit(
                         f"  ⚠ Failed final SCF, attempting fallback... {e}\n"
                     )
+                    step_converged = False
                     if hasattr(step_mf, "e_tot") and step_mf.e_tot is not None:
                         e_tot = step_mf.e_tot
                     else:
-                        e_tot = 0.0
+                        # Recording 0.0 Ha put a ~76 Hartree spike in the
+                        # energy profile that reads as a real barrier.
+                        self.log_signal.emit(
+                            "  ⚠ No usable energy for this point; dropping it "
+                            "from the scan.\n"
+                        )
+                        continue
 
                 # Capture optimized geometry
                 current_coords = mol_eq.atom_coords(unit="Ang")
@@ -1552,13 +1576,19 @@ class PySCFWorker(QThread):
                 xyz_frame = "\n".join(xyz_lines)
                 trajectory.append(xyz_frame)
 
-                self.log_signal.emit(f"  ✓ Converged: E = {e_tot:.8f} Ha\n")
+                if step_converged:
+                    self.log_signal.emit(f"  ✓ Converged: E = {e_tot:.8f} Ha\n")
+                else:
+                    self.log_signal.emit(
+                        f"  ** SCF NOT CONVERGED **: E = {e_tot:.8f} Ha\n"
+                    )
 
                 scan_results.append(
                     {
                         "step": i + 1,
                         "value": actual_val,  # Use actual measured value
                         "energy": e_tot,
+                        "converged": step_converged,
                     }
                 )
                 csv_lines.append(f"{i + 1},{actual_val:.6f},{e_tot:.8f}")
@@ -1965,15 +1995,27 @@ class LoadWorker(QThread):
 
     @staticmethod
     def _load_scan_csv(path):
+        """Reload a scan from its CSV.
+
+        Keys are lower-cased to match what the live scan emits ("energy",
+        "value", ...); the CSV header is capitalised, so a reloaded scan used
+        to raise KeyError as soon as the viewer asked for r["energy"].
+        """
         scan_res = []
         with open(path) as f:
             for row in csv.DictReader(f):
                 item = {}
                 for k, v in row.items():
+                    if k is None:
+                        continue
+                    key = k.strip().lower()
+                    if key == "converged":
+                        item[key] = str(v).strip().lower() in ("yes", "true", "1")
+                        continue
                     try:
-                        item[k] = float(v)
-                    except Exception:
-                        item[k] = v
+                        item[key] = float(v)
+                    except (TypeError, ValueError):
+                        item[key] = v
                 scan_res.append(item)
         return scan_res
 
