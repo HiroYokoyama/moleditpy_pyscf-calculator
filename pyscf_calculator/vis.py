@@ -49,21 +49,6 @@ def parse_cube_data(filename):
     atoms = []
     current_line = 6
 
-    # Skip extra header line if n_atoms_raw < 0 (MO info line usually)
-    if n_atoms_raw < 0:
-        if current_line < len(lines):
-            parts = lines[current_line].split()
-            # MO info line usually has 2 integers, but strict check isn't needed, just skip it
-            try:
-                # Heuristic: if it looks like an atom line (5 chars), don't skip?
-                # Standard: if N < 0, next line is MO info.
-                # Let's verify if the *next* line looks like an atom.
-                _ = int(parts[0])
-                # Actually, standard behavior is unconditional skip
-                current_line += 1
-            except Exception:
-                current_line += 1
-
     for _ in range(n_atoms):
         if current_line >= len(lines):
             break
@@ -80,6 +65,22 @@ def parse_cube_data(filename):
         except Exception:
             # Skip malformed atom line
             continue
+
+    # A negative atom count means the cube holds several data sets. The
+    # DSET_IDS block (count + that many ids, possibly wrapped) sits *after*
+    # the atom lines -- skipping a line before them consumed the first atom.
+    n_datasets = 1
+    if n_atoms_raw < 0 and current_line < len(lines):
+        try:
+            parts = lines[current_line].split()
+            n_datasets = max(1, int(parts[0]))
+            consumed = len(parts) - 1
+            current_line += 1
+            while consumed < n_datasets and current_line < len(lines):
+                consumed += len(lines[current_line].split())
+                current_line += 1
+        except Exception:
+            n_datasets = 1
 
     # --- Volumetric Data Parsing ---
     # Find start of data
@@ -110,7 +111,8 @@ def parse_cube_data(filename):
         except Exception:
             data_values = np.array([])
 
-    expected_size = nx * ny * nz
+    n_points = nx * ny * nz
+    expected_size = n_points * n_datasets
     actual_size = len(data_values)
 
     # Correct size mismatches defensively
@@ -123,6 +125,11 @@ def parse_cube_data(filename):
         if pad_size > 0:
             pad = np.zeros(pad_size)
             data_values = np.concatenate((data_values, pad))
+
+    if n_datasets > 1:
+        # Values are interleaved point by point; the first n_points of the
+        # mixed stream belong to no single orbital.
+        data_values = data_values.reshape(n_points, n_datasets)[:, 0]
 
     return {
         "atoms": atoms,

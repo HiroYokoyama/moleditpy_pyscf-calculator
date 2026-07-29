@@ -165,13 +165,14 @@ def _write_cube(
     lines.append(f"{nz} 0.0 0.0 1.0\n")
     if header_lines:
         lines = header_lines
-    if extra_mo_line:
-        lines.append("1 1\n")
     if atom_lines is not None:
         lines.extend(atom_lines)
     else:
         for i in range(n_atoms):
             lines.append(f"6 0.0 {i}.0 0.0 0.0\n")
+    # The DSET_IDS block sits *after* the atom lines, not before them.
+    if extra_mo_line:
+        lines.append("1 1\n")
     if data_line is not None:
         lines.append(data_line)
     else:
@@ -243,14 +244,20 @@ class TestParseCubeDataBasics(_TempDirMixin, unittest.TestCase):
         self.assertTrue(meta["is_angstrom_header"])
         self.assertEqual(meta["dims"], (3, 2, 2))
 
-    def test_negative_natoms_skips_mo_info_line(self):
+    def test_negative_natoms_keeps_every_atom(self):
+        """The DSET_IDS line must be skipped, not the first atom.
+
+        The old parser skipped a line *before* the atom block, so every MO
+        cube -- including the common single-orbital case -- silently lost its
+        first atom.
+        """
         p = self._path()
         _write_cube(
-            p, n_atoms=1, natoms_override=-1, extra_mo_line=True, nx=2, ny=2, nz=2
+            p, n_atoms=3, natoms_override=-3, extra_mo_line=True, nx=2, ny=2, nz=2
         )
         meta = parse_cube_data(p)
-        # n_atoms is abs(-1) == 1, MO info line skipped, atom parsed correctly
-        self.assertEqual(len(meta["atoms"]), 1)
+        self.assertEqual(len(meta["atoms"]), 3)
+        self.assertEqual([a[0] for a in meta["atoms"]], [6, 6, 6])
 
     def test_malformed_atom_line_skipped(self):
         p = self._path()
