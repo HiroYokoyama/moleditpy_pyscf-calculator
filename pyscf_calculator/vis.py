@@ -129,7 +129,7 @@ def parse_cube_data(filename):
     if n_datasets > 1:
         # Values are interleaved point by point; the first n_points of the
         # mixed stream belong to no single orbital.
-        data_values = data_values.reshape(n_points, n_datasets)[:, 0]
+        data_values = data_values[0 : n_points * n_datasets : n_datasets]
 
     return {
         "atoms": atoms,
