@@ -129,7 +129,9 @@ class FakeMF:
     def get_init_guess(self, key="minao"):
         if self.get_init_guess_raises:
             raise RuntimeError("init guess failed")
-        return np.zeros((2, 2))
+        # Spin-resolved (2, nao, nao) and non-zero, so that breaking symmetry
+        # is observable in the returned matrix.
+        return np.ones((2, 4, 4))
 
     def ddCOSMO(self):
         self.with_solvent = MagicMock()
@@ -149,6 +151,11 @@ def _make_mock_mol(natm=2):
     mol.verbose = 4
     mol.output = None
     mol.natm = natm
+    # Two basis functions per atom, so the broken-symmetry guess has a real
+    # AO slice to zero out.
+    mol.aoslice_by_atom.return_value = np.array(
+        [[0, 0, 2 * i, 2 * i + 2] for i in range(natm)]
+    )
     return mol
 
 
@@ -327,18 +334,32 @@ class TestEnsureEnergyKernelCall(unittest.TestCase):
 
 
 class TestSymmetryBreaking(unittest.TestCase):
+    """Symmetry breaking applies to the spin-RESTRICTED case (multiplicity 1),
+    where UHF/UKS would otherwise relax straight back onto RHF/RKS. With
+    spin_2s > 0 the alpha and beta occupations already differ, so there is
+    nothing left to break -- the old code had this condition inverted."""
+
     def test_uhf_symmetry_breaking_success(self):
         fake_mf = FakeMF(e_tot=None)
         w, results = _run(
-            _base_config(job_type="Energy", method="UHF", extra={"spin": "3"}),
+            _base_config(job_type="Energy", method="UHF", extra={"spin": "1"}),
             fake_mf,
         )
         all_logs = " ".join(str(c) for c in w.log_signal.emit.call_args_list)
-        self.assertIn("Symmetry Breaking", all_logs)
+        self.assertIn("symmetry-broken initial guess", all_logs)
         # dm0 was passed on the (only) kernel call
         self.assertEqual(len(fake_mf.kernel_calls), 1)
         self.assertIsNotNone(fake_mf.kernel_calls[0])
         w.error_signal.emit.assert_not_called()
+
+    def test_the_guess_handed_to_the_kernel_is_actually_asymmetric(self):
+        fake_mf = FakeMF(e_tot=None)
+        _run(
+            _base_config(job_type="Energy", method="UHF", extra={"spin": "1"}),
+            fake_mf,
+        )
+        dm0 = fake_mf.kernel_calls[0]
+        self.assertFalse(np.allclose(dm0[0], dm0[1]))
 
     def test_uks_symmetry_breaking_success(self):
         fake_mf = FakeMF(e_tot=None)
@@ -346,19 +367,29 @@ class TestSymmetryBreaking(unittest.TestCase):
             _base_config(
                 job_type="Energy",
                 method="UKS",
-                extra={"spin": "3", "functional": "b3lyp"},
+                extra={"spin": "1", "functional": "b3lyp"},
             ),
             fake_mf,
         )
         all_logs = " ".join(str(c) for c in w.log_signal.emit.call_args_list)
-        self.assertIn("Symmetry Breaking", all_logs)
+        self.assertIn("symmetry-broken initial guess", all_logs)
         self.assertEqual(len(fake_mf.kernel_calls), 1)
+
+    def test_open_shell_does_not_need_breaking(self):
+        fake_mf = FakeMF(e_tot=None)
+        w, _results = _run(
+            _base_config(job_type="Energy", method="UHF", extra={"spin": "3"}),
+            fake_mf,
+        )
+        all_logs = " ".join(str(c) for c in w.log_signal.emit.call_args_list)
+        self.assertNotIn("symmetry-broken initial guess", all_logs)
+        self.assertIsNone(fake_mf.kernel_calls[0])
 
     def test_symmetry_breaking_exception_falls_back(self):
         fake_mf = FakeMF(e_tot=None)
         fake_mf.get_init_guess_raises = True
         w, results = _run(
-            _base_config(job_type="Energy", method="UHF", extra={"spin": "3"}),
+            _base_config(job_type="Energy", method="UHF", extra={"spin": "1"}),
             fake_mf,
         )
         all_logs = " ".join(str(c) for c in w.log_signal.emit.call_args_list)
@@ -373,12 +404,12 @@ class TestSymmetryBreaking(unittest.TestCase):
             _base_config(
                 job_type="Energy",
                 method="UHF",
-                extra={"spin": "3", "break_symmetry": False},
+                extra={"spin": "1", "break_symmetry": False},
             ),
             fake_mf,
         )
         all_logs = " ".join(str(c) for c in w.log_signal.emit.call_args_list)
-        self.assertNotIn("Symmetry Breaking", all_logs)
+        self.assertNotIn("symmetry-broken initial guess", all_logs)
         self.assertEqual(len(fake_mf.kernel_calls), 1)
         self.assertIsNone(fake_mf.kernel_calls[0])
 

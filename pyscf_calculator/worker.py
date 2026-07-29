@@ -258,6 +258,26 @@ class PySCFWorker(QThread):
             return []
         return arr.tolist() if hasattr(arr, "tolist") else list(arr)
 
+    def _broken_symmetry_guess(self, mf, mol):
+        """A spin-asymmetric initial density matrix for unrestricted SCF.
+
+        A spin-restricted guess makes UHF/UKS relax straight back onto the
+        RHF/RKS solution, which is the wrong answer for a singlet diradical or
+        an antiferromagnetically coupled pair. Draining the beta density from
+        the first atom's basis functions is PySCF's standard recipe; the SCF
+        then relaxes into the broken-symmetry state.
+        """
+        dm = np.array(mf.get_init_guess(key="minao"), copy=True)
+        if dm.ndim != 3 or dm.shape[0] != 2:
+            raise ValueError("initial guess is not spin-resolved")
+
+        ao_start, ao_end = mol.aoslice_by_atom()[0][2:4]
+        if ao_end <= ao_start:
+            raise ValueError("first atom contributes no basis functions")
+
+        dm[1][ao_start:ao_end, ao_start:ao_end] = 0.0
+        return dm
+
     def _build_mf(self, mol, method_name, functional):
         """Create a mean-field object for the given mol, method, and functional."""
         grid_level = self.config.get("grid_level", 3)
@@ -319,9 +339,10 @@ class PySCFWorker(QThread):
         mol_calc = mol.copy()
         try:
             coords_bohr = mol_calc.atom_coords(unit="Bohr")
-        except Exception:
-            # Fallback if unit='Bohr' fails in older pyscf
-            coords_bohr = mol_calc.atom_coords() * 1.8897259886
+        except TypeError:
+            # Older pyscf has no unit= kwarg; atom_coords() is Bohr already,
+            # so this must NOT scale by the Angstrom conversion.
+            coords_bohr = mol_calc.atom_coords()
 
         step_count = 0
 
@@ -700,30 +721,21 @@ class PySCFWorker(QThread):
 
                         should_break = self.config.get("break_symmetry", True)
 
+                        # Only a spin-restricted guess needs breaking. With
+                        # spin_2s > 0 the alpha and beta occupations already
+                        # differ, so there is no symmetry left to break.
                         if (
                             should_break
                             and method_name in ["UHF", "UKS"]
-                            and spin_2s > 0
+                            and spin_2s == 0
                         ):
-                            self.log_signal.emit(
-                                "Applying Symmetry Breaking to Initial Guess (mix_estimation)...\n"
-                            )
                             try:
-                                # 1. Base Guess
-                                dm_guess = mf.get_init_guess(key="minao")
-
-                                # 2. Mix Alpha/Beta
-                                if "KS" in method_name:  # UKS
-                                    dm_mix = dft.uks.mulliken_meta(
-                                        mol, dm_guess, verbose=4
-                                    )
-                                else:  # UHF
-                                    dm_mix = scf.uhf.mulliken_meta(
-                                        mol, dm_guess, verbose=4
-                                    )
-
-                                # 3. Kernel with broken symmetry guess
-                                mf.kernel(dm0=dm_mix)
+                                dm0 = self._broken_symmetry_guess(mf, mol)
+                                self.log_signal.emit(
+                                    "Applying symmetry-broken initial guess "
+                                    "(beta density removed from atom 1)...\n"
+                                )
+                                mf.kernel(dm0=dm0)
                             except Exception as e:
                                 self.log_signal.emit(
                                     f"WARNING: Symmetry breaking failed ({str(e)}). Proceeding with standard initial guess.\n"

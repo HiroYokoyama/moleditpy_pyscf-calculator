@@ -1386,7 +1386,15 @@ class VisTab(QWidget):
         dlg.setWindowTitle("Thermodynamic Properties")
         dlg.resize(600, 400)
         layout = QVBoxLayout(dlg)
-        layout.addWidget(QLabel("Thermodynamic Properties (standard conditions)"))
+        # The worker honours the user's temperature/pressure, so read the
+        # conditions back out instead of always claiming standard ones.
+        temp_val, temp_unit = flatten_value(data.get("temperature"))
+        pres_val, pres_unit = flatten_value(data.get("pressure"))
+        if isinstance(temp_val, (int, float)) and isinstance(pres_val, (int, float)):
+            conditions = f"{float(temp_val):.2f} {temp_unit or 'K'}, {float(pres_val):.0f} {pres_unit or 'Pa'}"
+        else:
+            conditions = "conditions reported below"
+        layout.addWidget(QLabel(f"Thermodynamic Properties ({conditions})"))
 
         table = QTableWidget()
         table.setColumnCount(3)
