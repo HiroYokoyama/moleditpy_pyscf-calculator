@@ -1,6 +1,11 @@
 name: Zenodo Production Upload
 
 on:
+  # Publishing a GitHub release archives it automatically. Re-running is safe:
+  # update_zenodo.py refuses a version identical to the record's current one,
+  # so a repeat cannot mint a duplicate DOI.
+  release:
+    types: [published]
   workflow_dispatch:
     inputs:
       tag:
@@ -17,14 +22,14 @@ on:
         type: boolean
         default: false
 
-# Manual only, deliberately: publishing a Zenodo version mints a DOI and
-# cannot be undone, so it is never triggered by a release event.
 permissions:
   contents: read
 
 jobs:
   zenodo-upload:
     runs-on: ubuntu-latest
+    # A pre-release is not the thing to mint a permanent DOI for.
+    if: github.event_name != 'release' || github.event.release.prerelease == false
 
     steps:
       - name: Checkout Code
@@ -41,10 +46,14 @@ jobs:
         run: |
           mkdir -p dist
 
-          TAG="${{ github.event.inputs.tag }}"
-          if [ -z "$TAG" ]; then
-            echo "No tag specified, fetching latest release tag..."
-            TAG=$(gh release view --json tagName --template '{{.tagName}}')
+          if [ "${{ github.event_name }}" = "release" ]; then
+            TAG="${{ github.event.release.tag_name }}"
+          else
+            TAG="${{ github.event.inputs.tag }}"
+            if [ -z "$TAG" ]; then
+              echo "No tag specified, fetching latest release tag..."
+              TAG=$(gh release view --json tagName --template '{{.tagName}}')
+            fi
           fi
           echo "Processing tag: $TAG"
           echo "TAG=$TAG" >> $GITHUB_ENV
