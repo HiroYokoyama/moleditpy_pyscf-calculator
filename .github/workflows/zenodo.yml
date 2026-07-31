@@ -1,0 +1,75 @@
+name: Zenodo Production Upload
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to upload (e.g. v3.3.2). If left empty, the latest release will be used."
+        required: false
+        type: string
+      deposition_id:
+        description: "Override the Zenodo record ID (defaults to DEPOSITION_ID in scripts/update_zenodo.py)."
+        required: false
+        type: string
+      draft:
+        description: "Keep as a draft (do not publish)."
+        required: false
+        type: boolean
+        default: false
+
+# Manual only, deliberately: publishing a Zenodo version mints a DOI and
+# cannot be undone, so it is never triggered by a release event.
+permissions:
+  contents: read
+
+jobs:
+  zenodo-upload:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Download Release Assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          mkdir -p dist
+
+          TAG="${{ github.event.inputs.tag }}"
+          if [ -z "$TAG" ]; then
+            echo "No tag specified, fetching latest release tag..."
+            TAG=$(gh release view --json tagName --template '{{.tagName}}')
+          fi
+          echo "Processing tag: $TAG"
+          echo "TAG=$TAG" >> $GITHUB_ENV
+
+          # Release assets, if this release carries any.
+          gh release download "$TAG" --pattern "*.zip" --dir dist --skip-existing || true
+
+          # The source archive is always available for a tag.
+          curl -L -o "dist/source.tar.gz" "https://github.com/${{ github.repository }}/archive/refs/tags/${TAG}.tar.gz"
+
+          echo "Downloaded assets:"
+          ls -la dist/
+
+      - name: Upload and Publish to Zenodo
+        env:
+          ZENODO_TOKEN: ${{ secrets.ZENODO_TOKEN }}
+        run: |
+          DEP_ARG=""
+          if [ -n "${{ github.event.inputs.deposition_id }}" ]; then
+            DEP_ARG="--deposition-id ${{ github.event.inputs.deposition_id }}"
+          fi
+
+          PUBLISH_ARG="--publish"
+          if [ "${{ github.event.inputs.draft }}" = "true" ]; then
+            PUBLISH_ARG=""
+          fi
+
+          python scripts/update_zenodo.py             $PUBLISH_ARG             $DEP_ARG             --version-string "$TAG"             dist/*
