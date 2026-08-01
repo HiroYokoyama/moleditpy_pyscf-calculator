@@ -23,6 +23,7 @@ Master quantum chemistry calculations in MoleditPy with step-by-step interactive
 ![](img/img3.png)
 
 ![](img/img4.png)
+[![GitHub tag](https://img.shields.io/github/v/tag/HiroYokoyama/moleditpy_pyscf-calculator?label=version)](https://github.com/HiroYokoyama/moleditpy_pyscf-calculator/tags)
 
 ## Features
 
