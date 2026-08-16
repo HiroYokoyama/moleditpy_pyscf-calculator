@@ -6,6 +6,8 @@
 [![GitHub tag](https://img.shields.io/github/v/tag/HiroYokoyama/moleditpy_pyscf-calculator?label=version)](https://github.com/HiroYokoyama/moleditpy_pyscf-calculator/tags)
 [![GitHub Downloads](https://img.shields.io/github/downloads/HiroYokoyama/moleditpy_pyscf-calculator/total)](https://github.com/HiroYokoyama/moleditpy_pyscf-calculator/releases)
 
+Repo: [https://github.com/HiroYokoyama/moleditpy_pyscf-calculator/](https://github.com/HiroYokoyama/moleditpy_pyscf-calculator/)
+
 A powerful, user-friendly GUI interface for performing quantum chemistry calculations using PySCF. This plugin provides an intuitive workflow for configuring calculations, managing jobs, and visualizing molecular electronic structure.
 
 **Research-Grade Power with Educational Clarity**: Transform abstract quantum mechanics into tangible, interactive discoveries. Built on the industrial-strength **PySCF** engine, this plugin delivers rigorous accuracy for researchers while offering an intuitive visual interface that makes it an indispensable platform for mastering **Physical Chemistry or Organic Chemistry**. Whether you are a researcher performing rapid conformational scans and transition state searches to screen candidates, or a student decoding the principles of molecular orbital theory, this tool bridges the gap between complex algorithms and chemical insight. From predicting reactivity with HOMO/LUMO visualizations to mapping detailed Potential Energy Surfaces, it empowers users at all levels to visualize, analyze, and understand the fundamental forces driving chemical change.
