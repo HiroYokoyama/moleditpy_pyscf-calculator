@@ -3,6 +3,7 @@
 [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.18312165.svg)](https://doi.org/10.5281/zenodo.18312165)
 [![Python CI](https://github.com/HiroYokoyama/moleditpy_pyscf-calculator/actions/workflows/pytest.yml/badge.svg)](https://github.com/HiroYokoyama/moleditpy_pyscf-calculator/actions/workflows/pytest.yml)
 ![Test Coverage](https://img.shields.io/badge/coverage->90%25-green)
+[![MoleditPy](https://img.shields.io/badge/MoleditPy->=4.0.0-3577F7)](https://github.com/HiroYokoyama/python_molecular_editor)
 [![GitHub tag](https://img.shields.io/github/v/tag/HiroYokoyama/moleditpy_pyscf-calculator?label=version)](https://github.com/HiroYokoyama/moleditpy_pyscf-calculator/tags)
 [![GitHub Downloads](https://img.shields.io/github/downloads/HiroYokoyama/moleditpy_pyscf-calculator/total)](https://github.com/HiroYokoyama/moleditpy_pyscf-calculator/releases)
 
