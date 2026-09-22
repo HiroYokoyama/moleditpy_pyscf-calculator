@@ -7,9 +7,9 @@
     /* Slate-900 */
     --accent-color: #3577F7;
     /* MoleditPy Blue */
-    --accent-gradient: linear-gradient(135deg, #0ea5e9, #2563eb);
-    /* Sky to Blue gradient */
-    --accent-hover-gradient: linear-gradient(135deg, #0284c7, #1d4ed8);
+    --accent-gradient: linear-gradient(135deg, #0ea5e9, #3577F7);
+    /* Sky to MoleditPy Blue gradient */
+    --accent-hover-gradient: linear-gradient(135deg, #0284c7, #2553ad);
     --border-color: #e2e8f0;
     --code-bg: #f1f5f9;
     --code-text: #0f172a;
