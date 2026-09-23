@@ -53,6 +53,11 @@ _DISPERSION = {
 }
 
 
+def _unwrap_angle(measured: float, target: float) -> float:
+    """measured +/- k*360 closest to target (degrees)."""
+    return target + ((measured - target + 180.0) % 360.0 - 180.0)
+
+
 def resolve_xc(functional: str) -> str:
     """The xc string PySCF needs for a functional name shown in the UI."""
     return _XC_ALIASES.get(str(functional).strip().lower(), functional)
@@ -1694,13 +1699,17 @@ class PySCFWorker(QThread):
                         temp_mol.AddConformer(conf)
 
                         # Calculate dihedral using RDKit
-                        actual_val = rdMolTransforms.GetDihedralDeg(
+                        measured = rdMolTransforms.GetDihedralDeg(
                             temp_mol.GetConformer(),
                             atoms[0],
                             atoms[1],
                             atoms[2],
                             atoms[3],
                         )
+                        # RDKit reports (-180, 180]; put it on the branch of
+                        # the target, or a 180 deg point comes back as -180
+                        # and jumps to the other end of the profile.
+                        actual_val = _unwrap_angle(measured, val)
                 except Exception as e:
                     self.log_signal.emit(
                         f"  Warning: Could not measure actual value: {e}\n"
@@ -1932,30 +1941,13 @@ class PropertyWorker(QThread):
                         )
 
                 elif isinstance(task, str):
-                    # Parse offset or absolute index
+                    # Task forms: "HOMO", "LUMO+1", "HOMO-2", "MO 15",
+                    # "MO 15_HOMO-1" (1-based), "#14" (0-based), each with an
+                    # optional "_A" / "_B" spin suffix (UHF; alpha by default).
                     idx = -1
                     spin_suffix = ""
                     target_coeff = mo_coeff
-
-                    # Detect Spin Request in label (internal convention)
-                    # "15_HOMO_A" ? NO, task string is likely "HOMO" or "#5"
-                    # But if we want to differentiate Alpha/Beta, the GUI must pass it.
-                    # Currently strict GUI implementation doesn't pass suffix yet.
-                    # But we can try to guess or handle it if we add it to the call.
-
-                    # Assume task might be "HOMO_A" or "HOMO_B" logic?
-                    # Or we just assume Alpha for now unless specified?
-
                     is_uhf = self._is_uhf_coeff(mo_coeff)
-
-                    # Standard logic: if UHF, we need to know A or B.
-                    # If not specified, maybe generate both? Or just Alpha?
-                    # Let's check if task has specific format.
-
-                    # NOTE: EnergyDiagramDialog generates "MO <n>" or "HOMO".
-                    # We need to support "MO <n> A" or simple mapping.
-                    # Let's look at the label logic in GUI later.
-                    # For now, handle existing logic + suffix if present.
 
                     use_beta = False
                     if "_B" in task or "Beta" in task:
@@ -1989,40 +1981,30 @@ class PropertyWorker(QThread):
                         # Improved Task Parsing for "MO <idx>_<Label>" format
                         # Explicit regex for "MO <index>_<Label>" (e.g. MO 15_HOMO)
                         mo_lbl_match = re.search(r"MO\s+(\d+)_([A-Za-z0-9+-]+)", task)
-                        clean_lbl = "MO"  # Default
 
                         if mo_lbl_match:
-                            # e.g. "MO 15_HOMO" -> idx=14, lbl="HOMO"
-                            idx = (
-                                int(mo_lbl_match.group(1)) - 1
-                            )  # Convert 1-based to 0-based
-                            clean_lbl = mo_lbl_match.group(2)
+                            # e.g. "MO 15_HOMO" -> idx=14 (1-based -> 0-based)
+                            idx = int(mo_lbl_match.group(1)) - 1
 
                         # Case 1: Relative to HOMO/LUMO (Legacy/Manual)
                         elif "HOMO" in task:
                             base = homo_idx
-                            clean_lbl = "HOMO"
                             if "+" in task:
                                 offset = int(task.split("+")[1])
                                 idx = base + offset
-                                clean_lbl = f"HOMO+{offset}"
                             elif "-" in task:
                                 offset = int(task.split("-")[1])
                                 idx = base - offset
-                                clean_lbl = f"HOMO-{offset}"
                             else:
                                 idx = base
                         elif "LUMO" in task:
                             base = lumo_idx
-                            clean_lbl = "LUMO"
                             if "+" in task:
                                 offset = int(task.split("+")[1])
                                 idx = base + offset
-                                clean_lbl = f"LUMO+{offset}"
                             elif "-" in task:
                                 offset = int(task.split("-")[1])
                                 idx = base - offset
-                                clean_lbl = f"LUMO-{offset}"
                             else:
                                 idx = base
 
@@ -2043,7 +2025,7 @@ class PropertyWorker(QThread):
                             else:
                                 raise ValueError(f"Unknown task format: {task}")
                         else:
-                            pass  # ... same error handling ...
+                            raise ValueError(f"Unknown task format: {task}")
 
                     except Exception as e:
                         self.log_signal.emit(f"Error parsing orbital: {task} ({e})\n")
@@ -2072,8 +2054,6 @@ class PropertyWorker(QThread):
                     else:
                         fname = f"{prefix_idx:03d}_{rel_label}.cube"
 
-                    # Sanitization: Ensure safe filenames but keep readable
-                    # fname = fname.replace(" ", "") # User requested spaces in name
                     f_path_base = os.path.join(self.out_dir, fname)
 
                     f_path = get_unique_path(f_path_base)

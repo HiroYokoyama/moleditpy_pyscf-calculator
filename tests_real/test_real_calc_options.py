@@ -383,11 +383,12 @@ def test_relaxed_distance_scan(run_job):
 
 def test_relaxed_dihedral_scan(run_job):
     pytest.importorskip("geometric")
-    params = {"type": "Dihedral", "atoms": [2, 0, 1, 3], "start": 100.0, "end": 140.0, "steps": 2}
+    # ends on 180 deg: the measured value must stay on the +180 branch
+    params = {"type": "Dihedral", "atoms": [2, 0, 1, 3], "start": 140.0, "end": 180.0, "steps": 2}
     res = run_job(XYZ_H2O2, job_type="Relaxed Surface Scan", scan_params=params)
     _scan_energy_check(res)
     vals = [p["value"] for p in res.results["scan_results"]]
-    assert vals == pytest.approx([100.0, 140.0], abs=0.1)
+    assert vals == pytest.approx([140.0, 180.0], abs=0.1)
     assert os.path.exists(os.path.join(res.results["out_dir"], "scan_info.json"))
 
 

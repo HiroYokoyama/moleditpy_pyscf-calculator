@@ -83,6 +83,13 @@ class TestLoadScanCsv(unittest.TestCase):
         loader = self.mod.LoadWorker._load_scan_csv
         return loader(path)
 
+    def test_dihedral_is_unwrapped_onto_the_target_branch(self):
+        unwrap = self.mod._unwrap_angle
+        self.assertAlmostEqual(unwrap(-179.99, 180.0), 180.01)
+        self.assertAlmostEqual(unwrap(179.5, -180.0), -180.5)
+        self.assertAlmostEqual(unwrap(-170.0, 190.0), 190.0)
+        self.assertAlmostEqual(unwrap(60.2, 60.0), 60.2)
+
     def test_scan_type_is_read_back_from_scan_info(self):
         import json
 
