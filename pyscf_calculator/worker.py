@@ -152,16 +152,16 @@ class CaptureStdOut:
         self.log_file = open(self.filename, "a", buffering=1, encoding="utf-8")
 
         # Get FDs
+        # The real OS descriptors, even if sys.stdout is wrapped. __stdout__
+        # is None under pythonw and fileno() may be unsupported: use 1 / 2.
         try:
-            # Use __stdout__ to ensure we get the real OS FD, even if sys.stdout was MonkeyPatched/Wrapper
             self.original_stdout_fd = sys.__stdout__.fileno()
-        except Exception:
-            self.original_stdout_fd = 1  # Fallback to standard FD 1
-
+        except (AttributeError, OSError, ValueError):
+            self.original_stdout_fd = 1
         try:
             self.original_stderr_fd = sys.__stderr__.fileno()
-        except Exception:
-            self.original_stderr_fd = 2  # Fallback
+        except (AttributeError, OSError, ValueError):
+            self.original_stderr_fd = 2
 
         # Save Original FDs
         if self.original_stdout_fd is not None:
@@ -178,20 +178,11 @@ class CaptureStdOut:
         return self.log_file
 
     def __exit__(self, exc_type, exc_val, exc_tb):
-        # Flush — safe to swallow: stream may already be dead after thread kill
-        try:
-            sys.stdout.flush()
-        except Exception:
-            pass  # safe: stdout may be redirected or closed
-        try:
-            sys.stderr.flush()
-        except Exception:
-            pass  # safe: stderr may be redirected or closed
-        try:
-            if getattr(self, "log_file", None) is not None:
-                self.log_file.flush()
-        except (OSError, ValueError):
-            pass  # safe: log file may already be closed
+        # The streams may already be closed after a thread kill.
+        for stream in (sys.stdout, sys.stderr, getattr(self, "log_file", None)):
+            if stream is not None:
+                with contextlib.suppress(OSError, ValueError):
+                    stream.flush()
         _flush_c_stdio()  # C output of this job still goes to the file
 
         # Restore stdout FD — each step is independently guarded so that
@@ -200,16 +191,14 @@ class CaptureStdOut:
         if self.saved_stdout_fd is not None and self.original_stdout_fd is not None:
             try:
                 os.dup2(self.saved_stdout_fd, self.original_stdout_fd)
-            except Exception as _e:
-                logger.warning(
-                    "[worker.py] CaptureStdOut: failed to restore stdout FD: %s", _e
-                )
+            except OSError as _e:
+                logger.warning("CaptureStdOut: failed to restore stdout FD: %s", _e)
             finally:
                 try:
                     os.close(self.saved_stdout_fd)
-                except Exception as _e:
+                except OSError as _e:
                     logger.warning(
-                        "[worker.py] CaptureStdOut: failed to close saved stdout FD: %s",
+                        "CaptureStdOut: failed to close saved stdout FD: %s",
                         _e,
                     )
                 self.saved_stdout_fd = None
@@ -217,25 +206,22 @@ class CaptureStdOut:
         if self.saved_stderr_fd is not None and self.original_stderr_fd is not None:
             try:
                 os.dup2(self.saved_stderr_fd, self.original_stderr_fd)
-            except Exception as _e:
-                logger.warning(
-                    "[worker.py] CaptureStdOut: failed to restore stderr FD: %s", _e
-                )
+            except OSError as _e:
+                logger.warning("CaptureStdOut: failed to restore stderr FD: %s", _e)
             finally:
                 try:
                     os.close(self.saved_stderr_fd)
-                except Exception as _e:
+                except OSError as _e:
                     logger.warning(
-                        "[worker.py] CaptureStdOut: failed to close saved stderr FD: %s",
+                        "CaptureStdOut: failed to close saved stderr FD: %s",
                         _e,
                     )
                 self.saved_stderr_fd = None
 
         if getattr(self, "log_file", None) is not None:
-            try:
+            # may already be closed by the OS after terminate()
+            with contextlib.suppress(OSError, ValueError):
                 self.log_file.close()
-            except Exception:
-                pass  # safe: file may already be closed by OS after terminate()
             self.log_file = None
 
 
@@ -257,18 +243,15 @@ class StreamToSignal(io.TextIOBase):
 
         # Always try to write to target stream as fallback
         if self.target_stream:
-            try:
+            # the log file may be closed already during teardown
+            with contextlib.suppress(OSError, ValueError):
                 self.target_stream.write(text)
                 self.target_stream.flush()
-            except Exception:
-                pass
 
     def flush(self):
         if self.target_stream:
-            try:
+            with contextlib.suppress(OSError, ValueError):
                 self.target_stream.flush()
-            except Exception:
-                pass
 
     def close(self):
         # Mark as destroyed to stop signal emissions
@@ -350,7 +333,7 @@ class PySCFWorker(QThread):
                 int(spin_str.split(" ")[0]) if " " in spin_str else int(spin_str)
             )
             return max(0, spin_mult - 1)
-        except Exception:
+        except (TypeError, ValueError):
             return 0
 
     def _resolve_solvent_eps(self, solvent_name: str) -> float:
@@ -381,7 +364,7 @@ class PySCFWorker(QThread):
                 pyscf_eps = dd_param.EPSILON
             lookup = solvent_name if solvent_name in pyscf_eps else solvent_name.lower()
             return pyscf_eps.get(lookup, 78.2)
-        except Exception:
+        except (ImportError, AttributeError, TypeError):
             return 78.2
 
     def _apply_solvent(self, mf, solvent_name: str):
@@ -395,8 +378,11 @@ class PySCFWorker(QThread):
         mf.max_cycle = self.config.get("max_cycle", 100)
         try:
             mf.conv_tol = float(self.config.get("conv_tol", "1e-9"))
-        except Exception as _e:
-            logger.warning("[worker.py] _apply_mf_settings silenced: %s", _e)
+        except (TypeError, ValueError):
+            logger.warning(
+                "conv_tol %r is not a number; keeping PySCF's default",
+                self.config.get("conv_tol"),
+            )
 
     def _new_step_mf(self, mol, method_name, functional):
         """A fresh, fully configured mf (solvent + SCF settings) for a scan point.
@@ -476,16 +462,19 @@ class PySCFWorker(QThread):
                 "mulliken_charges": np.asarray(charges, dtype=float).tolist(),
                 "atom_symbols": [mol.atom_symbol(i) for i in range(mol.natm)],
             }
-        except Exception as exc:
-            logger.warning("[worker.py] SCF properties unavailable: %s", exc)
+        # optional extras: whatever PySCF raises must not lose the job's result
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("SCF properties unavailable: %s", exc)
             return {}
 
     def _report_scf_properties(self, props):
         dx, dy, dz = props["dipole_debye"]
         lines = [
             "\n===== SCF Properties =====\n",
-            f"Dipole moment (Debye): X={dx:.4f} Y={dy:.4f} Z={dz:.4f}  "
-            f"Total={props['dipole_total_debye']:.4f}\n",
+            (
+                f"Dipole moment (Debye): X={dx:.4f} Y={dy:.4f} Z={dz:.4f}  "
+                f"Total={props['dipole_total_debye']:.4f}\n"
+            ),
             "Mulliken charges:\n",
         ]
         for i, (sym, q) in enumerate(
@@ -498,7 +487,7 @@ class PySCFWorker(QThread):
                 os.path.join(self.out_dir, "properties.json"), "w", encoding="utf-8"
             ) as fh:
                 json.dump(props, fh, indent=2)
-        except Exception as exc:
+        except (OSError, TypeError, ValueError) as exc:
             self._log(f"Warning: Failed to save properties.json: {exc}\n")
 
     @staticmethod
@@ -557,8 +546,8 @@ class PySCFWorker(QThread):
                 mf.grids.level = grid_level
                 if grid_level >= 4:
                     mf.grids.prune = False
-            except Exception as _e:
-                logger.warning("[worker.py] _build_mf grid silenced: %s", _e)
+            except AttributeError as _e:
+                logger.warning("grid settings not applied: %s", _e)
         # Set at construction: PySCF caches the dispersion object on the mf.
         disp = self._dispersion()
         if disp:
@@ -1191,7 +1180,7 @@ class PySCFWorker(QThread):
             self._log(
                 "Warning: rdDetermineBonds not found. Group rotation might fail.\n"
             )
-        except Exception as e:
+        except (ValueError, RuntimeError) as e:
             self._log(f"Warning deriving connectivity: {e}\n")
 
         # 2. Force-add bonds specifically needed for the scan metric
@@ -1215,14 +1204,14 @@ class PySCFWorker(QThread):
         # Initialize Ring Info (Critical for rdMolTransforms)
         try:
             Chem.SanitizeMol(rw_mol)
-        except Exception as e:
+        except (ValueError, RuntimeError) as e:
             # If sanitization fails (e.g. valence), try to just compute rings
             self._log(f"Sanitization warning: {e}. Attempting partial update.\n")
             try:
                 rw_mol.UpdatePropertyCache(strict=False)
                 Chem.GetSymmSSSR(rw_mol)
-            except Exception as _e:
-                logger.warning("[worker.py] silenced: %s", _e)
+            except (ValueError, RuntimeError) as _e:
+                logger.warning("ring perception failed: %s", _e)
 
         # Use the explicit connectivity molecule
         rd_mol = rw_mol
@@ -1257,7 +1246,7 @@ class PySCFWorker(QThread):
                     rdMolTransforms.SetDihedralDeg(
                         conf, atoms[0], atoms[1], atoms[2], atoms[3], val
                     )
-            except Exception as e:
+            except (ValueError, RuntimeError) as e:  # e.g. a bond inside a ring
                 self._log(f"Geometry set failed: {e}\n")
                 continue
 
@@ -1297,9 +1286,10 @@ class PySCFWorker(QThread):
             # otherwise enter the profile looking like a real barrier.
             converged = bool(getattr(mf_step, "converged", True))
             if converged:
+                # only a seed for the next point: any failure means "no seed"
                 try:
                     dm_prev = mf_step.make_rdm1()
-                except Exception:
+                except Exception:  # noqa: BLE001
                     dm_prev = None
                 self._log(f"E = {e_tot:.6f} Ha\n")
             else:
@@ -1453,7 +1443,7 @@ class PySCFWorker(QThread):
                         shutil.copyfile(src_chk, step_chk)
                         step_mf.init_guess = "chkfile"
                         # self._log(f"  > Seeding guess from {os.path.basename(src_chk)}\n")
-                except Exception as e_seed:
+                except (OSError, shutil.Error) as e_seed:
                     self._log(f"  Warning: Failed to seed initial guess: {e_seed}\n")
                 # --------------------------------------------------------
 
@@ -1470,7 +1460,8 @@ class PySCFWorker(QThread):
                     e_tot = step_mf.kernel()
                     step_converged = bool(getattr(step_mf, "converged", True))
                     self._log(f"  ✓ Final optimized energy: {e_tot:.8f} Ha\n")
-                except Exception as e:
+                # a failed point is reported and dropped, never fatal to the scan
+                except Exception as e:  # noqa: BLE001
                     self._log(f"  ⚠ Failed final SCF, attempting fallback... {e}\n")
                     step_converged = False
                     if hasattr(step_mf, "e_tot") and step_mf.e_tot is not None:
@@ -1537,7 +1528,7 @@ class PySCFWorker(QThread):
                         # the target, or a 180 deg point comes back as -180
                         # and jumps to the other end of the profile.
                         actual_val = _unwrap_angle(measured, val)
-                except Exception as e:
+                except (IndexError, ValueError, RuntimeError) as e:
                     self._log(f"  Warning: Could not measure actual value: {e}\n")
 
                 if abs(actual_val - val) > 0.01:  # Log if difference is significant
@@ -1571,7 +1562,8 @@ class PySCFWorker(QThread):
                     f"{'yes' if step_converged else 'NO'}"
                 )
 
-            except Exception as e:
+            # geomeTRIC / PySCF can fail in many ways; report and stop the scan
+            except Exception as e:  # noqa: BLE001
                 self._log(f"  ✗ Optimization step {i + 1} failed: {e}\n")
                 self._log(traceback.format_exc())
                 # Break scan on failure
@@ -1820,7 +1812,7 @@ class LoadWorker(QThread):
                 os.path.join(result_dir, "scan_info.json"), encoding="utf-8"
             ) as fh:
                 return json.load(fh).get("type")
-        except Exception:
+        except (OSError, ValueError, AttributeError):
             return None
 
     @staticmethod
@@ -1914,10 +1906,8 @@ class LoadWorker(QThread):
                 continue
             try:
                 results.update(loader(path))
-            except Exception as exc:
-                logger.warning(
-                    "[worker.py] LoadWorker: failed to load %s: %s", name, exc
-                )
+            except (OSError, ValueError, KeyError, TypeError, csv.Error) as exc:
+                logger.warning("LoadWorker: failed to load %s: %s", name, exc)
         traj = os.path.join(base_dir, "scan_trajectory.xyz")
         if os.path.exists(traj):
             results["scan_trajectory_path"] = traj
@@ -1948,7 +1938,7 @@ class LoadWorker(QThread):
                 return
             self.finished_signal.emit(results)
 
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 -- thread boundary: report, never raise
             if self._stop_requested:
                 return
             self.error_signal.emit(str(e) + "\n" + traceback.format_exc())
