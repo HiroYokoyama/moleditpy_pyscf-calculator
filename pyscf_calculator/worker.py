@@ -4,7 +4,6 @@ import os
 import io
 import json
 import traceback
-import copy
 import numpy as np
 import math
 import re
@@ -252,6 +251,19 @@ class PySCFWorker(QThread):
         except Exception as _e:
             logging.warning("[worker.py] _apply_mf_settings silenced: %s", _e)
 
+    def _new_step_mf(self, mol, method_name, functional):
+        """A fresh, fully configured mf (solvent + SCF settings) for a scan point.
+
+        Scan points used to share a shallow copy of the job's mf, whose grids
+        and solvent objects reset() mutates in place.
+        """
+        mf = self._build_mf(mol, method_name, functional)
+        solvent_name = self.config.get("solvent", "None (Vacuum)")
+        if solvent_name and "None" not in solvent_name:
+            mf = self._apply_solvent(mf, solvent_name)
+        self._apply_mf_settings(mf)
+        return mf
+
     @staticmethod
     def _to_list(arr):
         if arr is None:
@@ -496,6 +508,10 @@ class PySCFWorker(QThread):
                 elif method_name == "RKS":
                     method_name = "UKS"
                     self.log_signal.emit("Switching to UKS due to spin != 0.\n")
+
+            # The scans rebuild mf per point and must use the same (possibly
+            # open-shell-switched) method as the rest of the job.
+            self._method_name = method_name
 
             # --- Solvent Setup ---
             selected_solvent = self.config.get("solvent", "None (Vacuum)")
@@ -1206,6 +1222,10 @@ class PySCFWorker(QThread):
 
         csv_lines = ["Step,Value,Energy,Converged"]
 
+        method_name = getattr(self, "_method_name", self.config.get("method", "RHF"))
+        functional = self.config.get("functional", "b3lyp")
+        dm_prev = None  # density of the last converged point
+
         for i, val in enumerate(scan_values):
             # Cooperative stop check — avoids force-kill between steps
             if self._stop_requested:
@@ -1246,47 +1266,28 @@ class PySCFWorker(QThread):
                 charge=mol.charge,
                 spin=mol.spin,
                 verbose=0,
+                max_memory=self.config.get("memory", 4000),
             )
             mol_step.build()
 
-            # 3. Singleton Energy
-            mf_step = copy.copy(mf)
-
-            # Ensure solvent is preserved in copy or re-applied
-            # If mf is already solvated, copy usually keeps it, but safe to check.
-            # Actually, `copy.copy(mf)` works for standard objects but let's be robust.
-            # If the user selected solvent, we can force re-application or rely on copy.
-            # However, for ddCOSMO, a shallow copy might be tricky with C-level objects.
-            # It is safer to rebuild or re-wrap if we are doing a fresh build.
-            # But here we are just resetting.
-
-            # IMPORTANT: For Scan, we use copy.copy(mf). If mf has ddCOSMO applied,
-            # its class is already modified (e.g. RKS with ddCOSMO).
-            # So reset() should respect it.
-
-            # BUT: checking `run_relaxed_scan` below recreates MF from scratch.
-            # So we should be consistent.
-
-            # Let's add explicit solvent check for Rigid Scan anyway to be safe.
-            selected_solvent = self.config.get("solvent", "None")
-            if selected_solvent and "None" not in selected_solvent:
-                if not hasattr(mf_step, "with_solvent"):
-                    mf_step = self._apply_solvent(mf_step, selected_solvent)
-
-            # Save Checkpoint for this step (User Requested)
-            step_chk = os.path.join(self.out_dir, f"scan_step_{i + 1}.chk")
-            mf_step.chkfile = step_chk
-
-            mf_step.reset(mol_step)
+            # 3. Single-point energy on a fresh mf, seeded from the last
+            # converged neighbour so the whole profile stays on one SCF
+            # solution instead of each point picking its own from minao.
+            mf_step = self._new_step_mf(mol_step, method_name, functional)
+            mf_step.chkfile = os.path.join(self.out_dir, f"scan_step_{i + 1}.chk")
             mf_step.verbose = 0
 
-            mf_step.kernel()
+            mf_step.kernel(dm0=dm_prev)
             e_tot = mf_step.e_tot
 
             # An unconverged point can sit many kcal/mol off and would
             # otherwise enter the profile looking like a real barrier.
             converged = bool(getattr(mf_step, "converged", True))
             if converged:
+                try:
+                    dm_prev = mf_step.make_rdm1()
+                except Exception:
+                    dm_prev = None
                 self.log_signal.emit(f"E = {e_tot:.6f} Ha\n")
             else:
                 self.log_signal.emit(f"E = {e_tot:.6f} Ha  ** SCF NOT CONVERGED **\n")
@@ -1336,10 +1337,10 @@ class PySCFWorker(QThread):
 
         scan_results = []
         trajectory = []
-        csv_lines = ["Step,Value,Energy"]
+        csv_lines = ["Step,Value,Energy,Converged"]
 
         # Store method info for reconstruction
-        method_name = self.config.get("method", "RHF")
+        method_name = getattr(self, "_method_name", self.config.get("method", "RHF"))
         functional = self.config.get("functional", "b3lyp")
         basis = self.config.get("basis", "sto-3g")
         charge = self.config.get("charge", 0)
@@ -1424,12 +1425,7 @@ class PySCFWorker(QThread):
                 )
 
                 # 3. Create new mean field object for this step
-                step_mf = self._build_mf(step_mol, method_name, functional)
-
-                selected_solvent = self.config.get("solvent", "None")
-                if selected_solvent and "None" not in selected_solvent:
-                    if not hasattr(step_mf, "with_solvent"):
-                        step_mf = self._apply_solvent(step_mf, selected_solvent)
+                step_mf = self._new_step_mf(step_mol, method_name, functional)
 
                 # Set checkpoint
                 step_chk = os.path.join(self.out_dir, f"scan_step_{i}.chk")
@@ -1458,8 +1454,6 @@ class PySCFWorker(QThread):
                     )
                 # --------------------------------------------------------
 
-                self._apply_mf_settings(step_mf)
-
                 mol_eq = optimize(step_mf, constraints=const_file)
 
                 # Force an explicit SCF calculation on the final optimized structure
@@ -1469,7 +1463,9 @@ class PySCFWorker(QThread):
                 )
                 step_converged = True
                 try:
-                    step_mf.mol = mol_eq
+                    # reset(), not `.mol =`: the DFT grids and the solvent
+                    # cavity are only rebuilt for the new geometry by reset().
+                    step_mf.reset(mol_eq)
                     e_tot = step_mf.kernel()
                     step_converged = bool(getattr(step_mf, "converged", True))
                     self.log_signal.emit(
@@ -1575,7 +1571,10 @@ class PySCFWorker(QThread):
                         "converged": step_converged,
                     }
                 )
-                csv_lines.append(f"{i + 1},{actual_val:.6f},{e_tot:.8f}")
+                csv_lines.append(
+                    f"{i + 1},{actual_val:.6f},{e_tot:.8f},"
+                    f"{'yes' if step_converged else 'NO'}"
+                )
 
             except Exception as e:
                 self.log_signal.emit(f"  ✗ Optimization step {i + 1} failed: {e}\n")

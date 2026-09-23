@@ -97,7 +97,7 @@ class _BlockImport:
 
 
 class FakeMF:
-    """Copy-friendly mean-field stand-in for scan steps (copy.copy(mf))."""
+    """Mean-field stand-in for scan steps."""
 
     def __init__(self, e_tot=-1.0):
         self.e_tot = e_tot
@@ -105,13 +105,20 @@ class FakeMF:
         self.verbose = 4
         self.max_cycle = 100
         self.conv_tol = 1e-9
+        self.kernel_dm0 = []
+        self.reset_with = []
 
     def reset(self, mol):
+        self.reset_with.append(mol)
         return self
 
-    def kernel(self):
+    def kernel(self, dm0=None):
+        self.kernel_dm0.append(dm0)
         self.e_tot = -1.05
         return self.e_tot
+
+    def make_rdm1(self):
+        return f"dm@{len(self.kernel_dm0)}"
 
     def ddCOSMO(self):
         self.with_solvent = MagicMock()
@@ -207,6 +214,7 @@ def _run(config, fake_mf=None, chem_mock=None, rdmt_mock=None, block_imports=Non
     scf_mock = MagicMock()
     scf_mock.RHF.return_value = fake_mf
     scf_mock.UHF.return_value = fake_mf
+    scf_mock.ROHF.return_value = fake_mf
     _mod.scf = scf_mock
 
     dft_mock = MagicMock()
@@ -613,6 +621,60 @@ class TestRelaxedScan(unittest.TestCase):
         self.assertEqual(results["scan_results"], [])
         all_logs = " ".join(str(c) for c in w.log_signal.emit.call_args_list)
         self.assertIn("Optimization step 1 failed", all_logs)
+
+
+# ===========================================================================
+# 4. Every scan point gets its own, fully configured mf
+# ===========================================================================
+
+
+_DIST = {"type": "Dist", "atoms": [0, 1], "start": 0.7, "end": 0.9, "steps": 3}
+
+
+class TestScanPointMF(unittest.TestCase):
+    def test_rigid_points_use_fresh_configured_mf(self):
+        chem_mock, _, _ = _make_rd_stub()
+        fake_mf = FakeMF()
+        _run(
+            _base_config("Rigid Scan", _DIST, extra={"max_cycle": 77}),
+            fake_mf=fake_mf,
+            chem_mock=chem_mock,
+        )
+        # one build for the job + one per point, no shallow copies
+        self.assertEqual(_mod.scf.RHF.call_count, 1 + 3)
+        self.assertEqual(fake_mf.max_cycle, 77)
+
+    def test_rigid_points_are_seeded_from_the_previous_point(self):
+        chem_mock, _, _ = _make_rd_stub()
+        fake_mf = FakeMF()
+        _run(_base_config("Rigid Scan", _DIST), fake_mf=fake_mf, chem_mock=chem_mock)
+        self.assertEqual(fake_mf.kernel_dm0, [None, "dm@1", "dm@2"])
+
+    def test_relaxed_final_scf_resets_to_optimized_geometry(self):
+        mol_eq = _make_mol_eq()
+        _install_geometric(mol_eq)
+        fake_mf = FakeMF()
+        _run(_base_config("Relaxed Scan", _DIST), fake_mf=fake_mf)
+        self.assertEqual(fake_mf.reset_with, [mol_eq] * 3)
+
+    def test_open_shell_relaxed_scan_keeps_the_uhf_switch(self):
+        mol_eq = _make_mol_eq()
+        _install_geometric(mol_eq)
+        _run(
+            _base_config("Relaxed Scan", _DIST, extra={"spin": "2"}),
+            fake_mf=FakeMF(),
+        )
+        self.assertEqual(_mod.scf.UHF.call_count, 1 + 3)
+        _mod.scf.RHF.assert_not_called()
+
+    def test_relaxed_csv_records_convergence(self):
+        mol_eq = _make_mol_eq()
+        _install_geometric(mol_eq)
+        _, _, out_dir = _run(_base_config("Relaxed Scan", _DIST), fake_mf=FakeMF())
+        with open(os.path.join(out_dir, "scan_results.csv")) as fh:
+            lines = fh.read().splitlines()
+        self.assertEqual(lines[0], "Step,Value,Energy,Converged")
+        self.assertTrue(lines[1].endswith(",yes"))
 
 
 if __name__ == "__main__":
