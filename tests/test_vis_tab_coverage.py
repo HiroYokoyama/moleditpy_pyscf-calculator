@@ -16,13 +16,12 @@ QTableWidget, QTableWidgetItem, QHeaderView) are rebound directly on our own
 test file's behavior independent of import order across the test suite.
 """
 
+import importlib.util
 import os
 import sys
 import types
 import unittest
-import importlib.util
 from unittest.mock import MagicMock, patch
-
 
 # ---------------------------------------------------------------------------
 # Minimal stubs -- just enough that vis_tab.py imports without raising.
@@ -103,6 +102,31 @@ _vis_tab_mod = _load_module_direct(
     os.path.join("pyscf_calculator", "vis_tab.py"),
     "pyscf_calculator_vis_tab_coverage_under_test",
 )
+# The real (pure-Python) trajectory reader; vis_tab's relative import of it
+# fails when the module is loaded outside its package.
+_real_utils = _load_module_direct(
+    os.path.join("pyscf_calculator", "utils.py"),
+    "pyscf_calculator_utils_for_vis_tab_tests",
+)
+
+
+def _install_scan_readers():
+    """Tests elsewhere in this file rebind LoadWorker (to None, to mocks);
+    the scan-loading paths need a reader that actually parses the files."""
+    import csv
+
+    def _load_scan_csv(path):
+        with open(path) as fh:
+            return [
+                {k.lower(): float(v) for k, v in row.items()}
+                for row in csv.DictReader(fh)
+            ]
+
+    reader = MagicMock()
+    reader._load_scan_csv.side_effect = _load_scan_csv
+    reader.load_scan_type.return_value = None
+    _vis_tab_mod.LoadWorker = reader
+    _vis_tab_mod.read_xyz_frames = _real_utils.read_xyz_frames
 
 
 # ---------------------------------------------------------------------------
@@ -519,7 +543,9 @@ class TestPopulateAnalysisOptions(unittest.TestCase):
         vt.populate_analysis_options()
         tasks = self._tasks(vt)
         self.assertEqual(tasks[0], "ESP")
-        self.assertEqual(len(tasks), 6)  # ESP + 5 LUMOs, no HOMOs (occ_a empty)
+        self.assertEqual(tasks[1], "SpinDensity")
+        # ESP + Spin Density + 5 LUMOs, no HOMOs (occ_a empty)
+        self.assertEqual(len(tasks), 7)
 
 
 # ---------------------------------------------------------------------------
@@ -987,12 +1013,14 @@ class TestClear3dActors(unittest.TestCase):
         vt.clear_3d_actors()
         vt.freq_vis.cleanup.assert_called_once()
 
-    def test_freq_vis_cleanup_skipped_when_early_return(self):
+    def test_freq_vis_cleaned_up_even_without_a_plotter(self):
+        """The frequency animation's timer must stop whether or not there
+        is a 3D view; it used to be skipped by an early return."""
         vt = _make_vis_tab()
         vt.context.get_main_window.return_value = MagicMock(spec=[])
         vt.freq_vis = MagicMock()
         vt.clear_3d_actors()
-        vt.freq_vis.cleanup.assert_not_called()
+        vt.freq_vis.cleanup.assert_called_once()
 
     def test_swallows_outer_exception(self):
         vt = _make_vis_tab()
@@ -1374,6 +1402,9 @@ class TestLoadResultFolder(unittest.TestCase):
 
 
 class TestLoadScanResults(unittest.TestCase):
+    def setUp(self):
+        _install_scan_readers()
+
     def _write_scan_dir(self, d):
         with open(os.path.join(d, "scan_results.csv"), "w", newline="") as f:
             f.write("Step,Value,Energy\n0,1.0,-10.0\n1,1.1,-10.1\n")
@@ -1399,7 +1430,7 @@ class TestLoadScanResults(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             with open(os.path.join(d, "scan_trajectory.xyz"), "w") as f:
                 f.write("1\ncomment\nC 0 0 0\n")
-            with self.assertRaises(Exception):
+            with self.assertRaises(RuntimeError):
                 vt.load_scan_results(d)
 
     def test_scan_result_dialog_none_raises(self):
@@ -1409,7 +1440,7 @@ class TestLoadScanResults(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as d:
             self._write_scan_dir(d)
-            with self.assertRaises(Exception):
+            with self.assertRaises(RuntimeError):
                 vt.load_scan_results(d)
 
     def test_history_changed_marks_project_modified(self):
@@ -1570,6 +1601,7 @@ class TestFinalizeLoad(unittest.TestCase):
         # just confirm no unhandled exception escaped.
 
     def test_scan_results_opens_dialog_with_trajectory(self):
+        _install_scan_readers()
         vt = _make_vis_tab()
         fake_dlg = MagicMock()
         _vis_tab_mod.ScanResultDialog = MagicMock(return_value=fake_dlg)
@@ -1587,6 +1619,11 @@ class TestFinalizeLoad(unittest.TestCase):
             )
         fake_dlg.show.assert_called_once()
         self.assertIs(vt.scan_dlg, fake_dlg)
+        # the trajectory file was really parsed into frames
+        self.assertEqual(
+            _vis_tab_mod.ScanResultDialog.call_args.kwargs["trajectory"],
+            ["1\ncomment\nC 0 0 0"],
+        )
 
     def test_cubes_disables_existing_items(self):
         vt = _make_vis_tab()

@@ -11,13 +11,12 @@ by test_energy_diag.py:
   - Tiny gap: falls back to minimum span (lines 129-134)
 """
 
+import importlib.util
 import os
 import sys
 import types
 import unittest
-import importlib.util
 from unittest.mock import MagicMock
-
 
 # ---------------------------------------------------------------------------
 # Stubs (reuse same approach as test_energy_diag.py, but isolated module name)

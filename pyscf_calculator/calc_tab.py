@@ -1,35 +1,39 @@
+import contextlib
+import logging
 import os
-from rdkit import Chem
 
+from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtWidgets import (
-    QWidget,
-    QVBoxLayout,
+    QCheckBox,
+    QComboBox,
+    QDoubleSpinBox,
+    QFileDialog,
+    QFormLayout,
+    QGroupBox,
     QHBoxLayout,
     QLabel,
-    QComboBox,
+    QLineEdit,
+    QMessageBox,
+    QProgressBar,
     QPushButton,
     QSpinBox,
-    QCheckBox,
-    QGroupBox,
-    QFormLayout,
-    QMessageBox,
-    QLineEdit,
-    QFileDialog,
-    QProgressBar,
     QTextEdit,
+    QVBoxLayout,
+    QWidget,
 )
-from PyQt6.QtCore import Qt, QTimer
-import logging
+from rdkit import Chem
 
 _TM_ATOMIC_NUMS = (
     frozenset(range(21, 31)) | frozenset(range(39, 49)) | frozenset(range(72, 81))
 )
 
+logger = logging.getLogger(__name__)
+
 # Local Imports
 try:
-    from .worker import PySCFWorker
-    from .utils import rdkit_to_xyz
     from .scan_dialog import ScanDialog
+    from .utils import rdkit_to_xyz
+    from .worker import PySCFWorker
 except ImportError:
     PySCFWorker = None
     ScanDialog = None
@@ -91,6 +95,40 @@ class CalcTab(QWidget):
         self.nstates_input.setVisible(False)
         form_layout.addRow(self.lbl_nstates, self.nstates_input)
 
+        # Hessian (Frequency jobs)
+        self.lbl_hessian = QLabel("Hessian:")
+        self.hessian_combo = QComboBox()
+        self.hessian_combo.addItems(["Analytic", "Numerical (finite difference)"])
+        self.hessian_combo.setToolTip(
+            "Analytic: fast, but not available for every method/solvent.\n"
+            "Numerical: central differences of analytic gradients "
+            "(6 x N atoms gradient runs); works wherever gradients do."
+        )
+        self.lbl_hessian.setVisible(False)
+        self.hessian_combo.setVisible(False)
+        form_layout.addRow(self.lbl_hessian, self.hessian_combo)
+
+        # Thermochemistry conditions (Frequency jobs)
+        self.lbl_temperature = QLabel("Temperature (K):")
+        self.spin_temperature = QDoubleSpinBox()
+        self.spin_temperature.setRange(0.1, 5000.0)
+        self.spin_temperature.setDecimals(2)
+        self.spin_temperature.setValue(298.15)
+        self.lbl_pressure = QLabel("Pressure (atm):")
+        self.spin_pressure = QDoubleSpinBox()
+        self.spin_pressure.setRange(0.001, 1000.0)
+        self.spin_pressure.setDecimals(3)
+        self.spin_pressure.setValue(1.0)
+        for w in (
+            self.lbl_temperature,
+            self.spin_temperature,
+            self.lbl_pressure,
+            self.spin_pressure,
+        ):
+            w.setVisible(False)
+        form_layout.addRow(self.lbl_temperature, self.spin_temperature)
+        form_layout.addRow(self.lbl_pressure, self.spin_pressure)
+
         self.method_combo = QComboBox()
         self.method_combo.addItems(["RKS", "RHF", "UKS", "UHF", "ROKS", "ROHF"])
         self.method_combo.currentTextChanged.connect(self.update_options)
@@ -113,6 +151,7 @@ class CalcTab(QWidget):
                 # --- Meta-GGA ---
                 "tpss",
                 "scan",
+                "r2scan",
                 "m06-l",
                 # --- Hybrid Meta-GGA ---
                 "m06",
@@ -120,7 +159,10 @@ class CalcTab(QWidget):
                 "tpssh",
                 "m11",
                 # --- Range-Separated ---
-                "wb97x-d",
+                # wB97X-D is not implemented in PySCF (2.14 raises); the
+                # VV10 variants carry their dispersion in the functional.
+                "wb97x-v",
+                "wb97m-v",
                 "cam-b3lyp",
                 "lrc-wpbe",
                 "lrc-wpbeh",
@@ -191,6 +233,15 @@ class CalcTab(QWidget):
             ]
         )
         form_layout.addRow("Solvent:", self.solvent_combo)
+
+        # Empirical dispersion (pyscf-dispersion package)
+        self.dispersion_combo = QComboBox()
+        self.dispersion_combo.addItems(["None", "D3(BJ)", "D3(zero)", "D4"])
+        self.dispersion_combo.setToolTip(
+            "Grimme dispersion correction (needs: pip install pyscf-dispersion).\n"
+            "Not with wb97x-v / wb97m-v, which already include VV10."
+        )
+        form_layout.addRow("Dispersion:", self.dispersion_combo)
 
         self.charge_input = QComboBox()
         self.charge_input.addItems([str(i) for i in range(-5, 6)])
@@ -362,6 +413,19 @@ class CalcTab(QWidget):
             self.lbl_nstates.setVisible(is_tddft)
             self.nstates_input.setVisible(is_tddft)
 
+        if getattr(self, "hessian_combo", None) is not None:
+            has_freq = "Frequency" in job
+            self.lbl_hessian.setVisible(has_freq)
+            self.hessian_combo.setVisible(has_freq)
+            for w in (
+                "lbl_temperature",
+                "spin_temperature",
+                "lbl_pressure",
+                "spin_pressure",
+            ):
+                if getattr(self, w, None) is not None:
+                    getattr(self, w).setVisible(has_freq)
+
     def auto_detect_charge_spin(self):
         if not self.context or not self.context.current_molecule:
             QMessageBox.warning(self, "Warning", "No molecule loaded.")
@@ -431,7 +495,7 @@ class CalcTab(QWidget):
                     f"Auto-Detect: Set Charge={charge}, Mult={suggested_spin} (Electrons={net_electrons})"
                 )
 
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 -- Qt slot: an escaping exception aborts the host app (PyQt6)
             QMessageBox.warning(self, "Error", f"Auto-detection failed: {e}")
 
     def validate_spin_settings(self):
@@ -445,7 +509,7 @@ class CalcTab(QWidget):
             try:
                 charge = int(self.charge_input.currentText())
                 mult = self.get_spin_value()
-            except Exception:
+            except (TypeError, ValueError):
                 return
 
             electrons = total_protons - charge
@@ -472,8 +536,8 @@ class CalcTab(QWidget):
                 self.spin_input.setToolTip(msg)
                 self.charge_input.setToolTip(msg)
 
-        except Exception as _e:
-            logging.warning("validate_spin_settings silenced: %s", _e)
+        except Exception as _e:  # noqa: BLE001 -- Qt slot: an escaping exception aborts the host app (PyQt6)
+            logger.warning("validate_spin_settings silenced: %s", _e)
 
     def browse_out_dir(self):
         d = QFileDialog.getExistingDirectory(self, "Select Output Directory")
@@ -495,8 +559,8 @@ class CalcTab(QWidget):
         if getattr(self, "_scan_config_dlg", None) is not None:
             try:
                 self._scan_config_dlg.close()
-            except Exception as _e:
-                logging.warning("configure_scan close silenced: %s", _e)
+            except (AttributeError, RuntimeError) as _e:
+                logger.warning("configure_scan close silenced: %s", _e)
 
         self._scan_config_dlg = ScanDialog(
             self, self.context, initial_params=self.scan_params
@@ -518,7 +582,7 @@ class CalcTab(QWidget):
             if " " in txt:
                 return int(txt.split(" ")[0])
             return int(txt)
-        except Exception:
+        except (TypeError, ValueError, RuntimeError):  # RuntimeError: widget deleted
             return 1
 
     def run_calculation(self):
@@ -574,20 +638,19 @@ class CalcTab(QWidget):
                 final_out_dir = os.path.join(os.path.expanduser("~"), raw_out_dir)
 
         job_type = self.job_type_combo.currentText()
-        if "Scan" in job_type:
-            if not getattr(self, "scan_params", None):
-                reply = QMessageBox.question(
-                    self,
-                    "Scan Not Configured",
-                    "Scan parameters are missing. Configure now?",
-                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-                )
-                if reply == QMessageBox.StandardButton.Yes:
-                    self.configure_scan()
-                    if not self.scan_params:
-                        return
-                else:
-                    return
+        if "Scan" in job_type and not getattr(self, "scan_params", None):
+            reply = QMessageBox.question(
+                self,
+                "Scan Not Configured",
+                "Scan parameters are missing. Configure now?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            )
+            if reply != QMessageBox.StandardButton.Yes:
+                return
+            # The scan dialog is modeless: the job runs on the next click.
+            self.configure_scan()
+            if not self.scan_params:
+                return
 
         config = {
             "job_type": job_type,
@@ -598,6 +661,10 @@ class CalcTab(QWidget):
             "charge": int(self.charge_input.currentText()),
             "spin": self.get_spin_value(),
             "nstates": self.nstates_input.value(),
+            "hessian": self.hessian_combo.currentText(),
+            "dispersion": self.dispersion_combo.currentText(),
+            "temperature": self.spin_temperature.value(),
+            "pressure": self.spin_pressure.value() * 101325.0,  # atm -> Pa
             "threads": self.spin_threads.value(),
             "memory": self.spin_memory.value(),
             "symmetry": self.check_symmetry.isChecked(),
@@ -612,7 +679,7 @@ class CalcTab(QWidget):
 
         try:
             os.makedirs(config["out_dir"], exist_ok=True)
-        except Exception as e:
+        except OSError as e:
             self.log(f"Error creating output directory: {e}")
             return
 
@@ -652,24 +719,25 @@ class CalcTab(QWidget):
         #    do not crash after we disconnect signals below.
         stream = getattr(self.worker, "_stream", None)
         if stream is not None:
-            try:
-                stream.close()  # Sets _destroyed = True; safe to call from GUI thread
-            except Exception as _e:
-                logging.warning("[calc_tab.py] silenced stream.close: %s", _e)
+            stream.close()  # only sets a flag; safe from the GUI thread
 
-        # 3. Disconnect signals AFTER invalidating the stream.
-        try:
-            self.worker.log_signal.disconnect()
-            self.worker.finished_signal.disconnect()
-            self.worker.error_signal.disconnect()
-            self.worker.result_signal.disconnect()
-        except Exception as _e:
-            logging.warning("[calc_tab.py] silenced signal disconnect: %s", _e)
+        # 3. Disconnect signals AFTER invalidating the stream -- each on its
+        #    own: PyQt6 raises TypeError for a signal with no connections,
+        #    which must not leave the others connected.
+        for sig in (
+            self.worker.log_signal,
+            self.worker.finished_signal,
+            self.worker.error_signal,
+            self.worker.result_signal,
+        ):
+            with contextlib.suppress(TypeError, RuntimeError):
+                sig.disconnect()
 
-        # 4. Connect deferred cleanup — self.worker is only set to None AFTER
-        #    the thread has fully exited, preventing use-after-free.
+        # 4. Deferred cleanup: self.worker is only set to None once the
+        #    thread has fully exited, preventing use-after-free. (QThread in
+        #    PyQt6 has no `terminated` signal -- connecting to it raised
+        #    AttributeError, so Stop and closing the dialog mid-job failed.)
         self.worker.finished.connect(self._on_worker_stopped)
-        self.worker.terminated.connect(self._on_worker_stopped)
 
         # 5. Give the cooperative flag 2 s to take effect before force-killing.
         if not self.worker.wait(2000):
@@ -678,16 +746,18 @@ class CalcTab(QWidget):
             # wait() after terminate() blocks until the OS has cleaned up.
             self.worker.wait(1000)
 
+        # A terminated thread does not reliably emit `finished`; once wait()
+        # has seen it end, clean up here (the call is idempotent).
+        if self.worker is not None and not self.worker.isRunning():
+            self._on_worker_stopped()
         self.log("Calculation stopped.")
-        # Do NOT call cleanup_ui_state() here — _on_worker_stopped handles it.
 
     def _on_worker_stopped(self):
-        """Called from finished/terminated signal once the thread has fully exited.
+        """Clean up once the worker thread has fully exited.
 
-        Both QThread.finished and QThread.terminated are connected during stop_calculation(),
-        so this method may be called twice on some platforms. The self.worker is None guard
-        prevents cleanup_ui_state() from running a second time, which could corrupt UI state
-        if the user has already started a new calculation.
+        Reached from QThread.finished and directly from stop_calculation(),
+        so it can run twice; the `self.worker is None` guard keeps the second
+        call from resetting the UI of a calculation started in between.
         """
         if self.worker is None:
             return  # Already cleaned up (duplicate signal delivery)

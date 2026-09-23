@@ -1,8 +1,11 @@
+import logging
+import os
+
 import numpy as np
 import pyvista as pv
-import os
 from PyQt6.QtGui import QColor
-import logging
+
+logger = logging.getLogger(__name__)
 
 
 def parse_cube_data(filename):
@@ -42,8 +45,8 @@ def parse_cube_data(filename):
         is_angstrom_header = nx < 0 or ny < 0 or nz < 0
         nx, ny, nz = abs(nx), abs(ny), abs(nz)
 
-    except Exception as e:
-        raise ValueError(f"Header parsing failed: {e}")
+    except (ValueError, IndexError) as e:
+        raise ValueError(f"Header parsing failed: {e}") from e
 
     # --- Atoms Parsing ---
     atoms = []
@@ -62,9 +65,8 @@ def parse_cube_data(filename):
             atomic_num = int(line[0])
             x, y, z = float(line[2]), float(line[3]), float(line[4])
             atoms.append((atomic_num, np.array([x, y, z])))
-        except Exception:
-            # Skip malformed atom line
-            continue
+        except (ValueError, IndexError):
+            continue  # skip a malformed atom line
 
     # A negative atom count means the cube holds several data sets. The
     # DSET_IDS block (count + that many ids, possibly wrapped) sits *after*
@@ -79,7 +81,7 @@ def parse_cube_data(filename):
             while consumed < n_datasets and current_line < len(lines):
                 consumed += len(lines[current_line].split())
                 current_line += 1
-        except Exception:
+        except (ValueError, IndexError):
             n_datasets = 1
 
     # --- Volumetric Data Parsing ---
@@ -105,11 +107,19 @@ def parse_cube_data(filename):
         # Fallback for empty data
         data_values = np.zeros(nx * ny * nz)
     else:
-        full_str = " ".join(lines[current_line:])
+        # (np.fromstring with sep= is deprecated; this also stops at the
+        # first non-number, as it did.)
+        tokens = " ".join(lines[current_line:]).split()
         try:
-            data_values = np.fromstring(full_str, sep=" ")
-        except Exception:
-            data_values = np.array([])
+            data_values = np.array(tokens, dtype=float)
+        except ValueError:
+            good = []
+            for tok in tokens:
+                try:
+                    good.append(float(tok))
+                except ValueError:
+                    break
+            data_values = np.array(good)
 
     n_points = nx * ny * nz
     expected_size = n_points * n_datasets
@@ -192,240 +202,184 @@ def build_grid_from_meta(meta):
     return grid
 
 
-class CubeVisualizer:
+# What tearing down a pyvista actor can raise: the render window is already
+# gone (RuntimeError) or the host has no 3D manager (AttributeError).
+_GONE = (RuntimeError, AttributeError)
+# What reading / gridding a cube can raise.
+_CUBE_ERRORS = (OSError, ValueError, KeyError, IndexError)
+
+
+class _Visualizer:
+    """Common plotter lookup. Never cache the plotter: the host can rebuild
+    it, and a cached one outlives its render window."""
+
     def __init__(self, mw):
         self.mw = mw
-        # self.plotter = mw.view_3d_manager.plotter # Do not cache!
-        self.current_grid = None
-        self.actors = {}  # Store actors by key
-        self.data_max = 1.0
 
     @property
     def plotter(self):
-        if (
-            hasattr(self.mw, "view_3d_manager")
-            and hasattr(self.mw.view_3d_manager, "plotter")
-            and self.mw.view_3d_manager.plotter is not None
-        ):
-            # Strict check: Ensure RenderWindow exists
-            try:
-                if self.mw.view_3d_manager.plotter.ren_win:
-                    return self.mw.view_3d_manager.plotter
-            except Exception as _e:
-                logging.warning("[vis.py:197] silenced: %s", _e)
-        return None
+        plotter = getattr(getattr(self.mw, "view_3d_manager", None), "plotter", None)
+        if plotter is None:
+            return None
+        try:
+            return plotter if plotter.ren_win else None
+        except _GONE as exc:  # render window already closed
+            logger.debug("plotter unavailable: %s", exc)
+            return None
+
+
+class CubeVisualizer(_Visualizer):
+    def __init__(self, mw):
+        super().__init__(mw)
+        self.current_grid = None
+        self.actors = {}  # Store actors by key
+        self.data_max = 1.0
 
     def load_file(self, filename):
         try:
             meta = parse_cube_data(filename)
             self.current_grid = build_grid_from_meta(meta)
-
-            flat_data = self.current_grid.point_data["values"]
-            if len(flat_data) > 0:
-                self.data_max = float(np.max(np.abs(flat_data)))
-            else:
-                self.data_max = 1.0
-
-            return True
-        except Exception as e:
-            logging.warning("Error loading cube: %s", e)
+        except _CUBE_ERRORS as e:
+            logger.warning("Error loading cube: %s", e)
             return False
+        flat_data = self.current_grid.point_data["values"]
+        self.data_max = float(np.max(np.abs(flat_data))) if len(flat_data) else 1.0
+        return True
 
     def update_iso(self, isovalue, color_p, color_n, opacity, use_comp_color=False):
         if not self.current_grid:
             return
-
-        # Clean previous actors safely
         self.clear_actors()
-
-        # Input Validation
         if isovalue is None or not isinstance(isovalue, (int, float)):
             return
-
-        # Calculate colors
-        if use_comp_color:
-            c = QColor(color_p)
-            h = (c.hue() + 180) % 360
-            c_n = QColor.fromHsv(h, c.saturation(), c.value())
-            color_n = c_n.name()
-
-        try:
-            # Positive
-            iso_p = self.current_grid.contour(isosurfaces=[isovalue])
-            if iso_p.n_points > 0:
-                actor = self.plotter.add_mesh(
-                    iso_p,
-                    color=color_p,
-                    opacity=opacity,
-                    name="pyscf_iso_p",
-                    reset_camera=False,
-                )
-                self.actors["p"] = actor
-
-            # Negative
-            iso_n = self.current_grid.contour(isosurfaces=[-isovalue])
-            if iso_n.n_points > 0:
-                actor = self.plotter.add_mesh(
-                    iso_n,
-                    color=color_n,
-                    opacity=opacity,
-                    name="pyscf_iso_n",
-                    reset_camera=False,
-                )
-                self.actors["n"] = actor
-
-            if self.plotter:
-                self.plotter.render()
-        except Exception as e:
-            # print(f"Iso update error: {e}")
-            logging.warning("[vis.py:249] silenced: %s", e)
-
-    def clear_actors(self):
-        # Remove actors if they exist and plotter is valid
-        if getattr(self, "plotter", None) is None:
+        plotter = self.plotter
+        if plotter is None:
             return
 
+        if use_comp_color:
+            c = QColor(color_p)
+            color_n = QColor.fromHsv(
+                (c.hue() + 180) % 360, c.saturation(), c.value()
+            ).name()
+
+        # Driven by the isovalue / opacity controls (Qt slots): a VTK error
+        # must be logged, not escape and abort the host application.
         try:
-            self.plotter.remove_actor("pyscf_iso_p")
-            self.plotter.remove_actor("pyscf_iso_n")
-        except Exception as _e:
-            logging.warning("[vis.py:261] silenced: %s", _e)
+            for key, level, color in (
+                ("p", isovalue, color_p),
+                ("n", -isovalue, color_n),
+            ):
+                iso = self.current_grid.contour(isosurfaces=[level])
+                if iso.n_points > 0:
+                    self.actors[key] = plotter.add_mesh(
+                        iso,
+                        color=color,
+                        opacity=opacity,
+                        name=f"pyscf_iso_{key}",
+                        reset_camera=False,
+                    )
+            plotter.render()
+        except Exception:
+            logger.exception("isosurface update failed")
 
+    def clear_actors(self):
+        plotter = self.plotter
+        if plotter is not None:
+            for name in ("pyscf_iso_p", "pyscf_iso_n"):
+                try:
+                    plotter.remove_actor(name)
+                except _GONE as exc:
+                    logger.debug("remove %s skipped: %s", name, exc)
         self.actors.clear()
-        # Do NOT render here. Caller handles it. Rendering on close causes crashes.
-        # try: self.plotter.render()
-        # except: pass
+        # No render here: the caller renders, and rendering while the
+        # dialog closes crashes VTK.
 
 
-class MappedVisualizer:
+class MappedVisualizer(_Visualizer):
     def __init__(self, mw):
-        self.mw = mw
-        # self.plotter = mw.view_3d_manager.plotter # Do not cache
+        super().__init__(mw)
         self.grid_surf = None
         self.grid_prop = None
         self.actor = None
         self.data_surf_max = 1.0
         self.data_prop_range = (-0.1, 0.1)
 
-    @property
-    def plotter(self):
-        if (
-            hasattr(self.mw, "view_3d_manager")
-            and hasattr(self.mw.view_3d_manager, "plotter")
-            and self.mw.view_3d_manager.plotter is not None
-        ):
-            try:
-                if self.mw.view_3d_manager.plotter.ren_win:
-                    return self.mw.view_3d_manager.plotter
-            except Exception as _e:
-                logging.warning("[vis.py:284] silenced: %s", _e)
-        return None
-
     def load_files(self, surf_file, prop_file):
         try:
-            # Load Surface
-            meta_s = parse_cube_data(surf_file)
-            self.grid_surf = build_grid_from_meta(meta_s)
-
-            # Load Property
-            meta_p = parse_cube_data(prop_file)
-            self.grid_prop = build_grid_from_meta(meta_p)
-
-            # Update stats
-            flat_s = self.grid_surf.point_data["values"]
-            if len(flat_s) > 0:
-                self.data_surf_max = float(np.max(np.abs(flat_s)))
-
-            flat_p = self.grid_prop.point_data["values"]
-            if len(flat_p) > 0:
-                self.data_prop_range = (float(np.min(flat_p)), float(np.max(flat_p)))
-
-            return True
-        except Exception as e:
-            logging.warning("Error loading mapped cubes: %s", e)
+            self.grid_surf = build_grid_from_meta(parse_cube_data(surf_file))
+            self.grid_prop = build_grid_from_meta(parse_cube_data(prop_file))
+        except _CUBE_ERRORS as e:
+            logger.warning("Error loading mapped cubes: %s", e)
             return False
+        flat_s = self.grid_surf.point_data["values"]
+        if len(flat_s) > 0:
+            self.data_surf_max = float(np.max(np.abs(flat_s)))
+        flat_p = self.grid_prop.point_data["values"]
+        if len(flat_p) > 0:
+            self.data_prop_range = (float(np.min(flat_p)), float(np.max(flat_p)))
+        return True
+
+    def _sampled_surface(self, iso_val):
+        """The iso_val surface of the density with the property sampled
+        onto it (point data "values"), or None when there is no surface."""
+        iso = self.grid_surf.contour([iso_val], scalars="values")
+        if iso.n_points == 0:
+            return None
+        mapped = iso.sample(self.grid_prop)
+        if mapped is None or mapped.n_points == 0:
+            return None
+        return mapped
 
     def get_mapped_range(self, iso_val):
-        """
-        Calculates the min/max of the property values on the isosurface.
-        Returns (min, max) or (-0.1, 0.1) if empty/error.
-        """
+        """(min, max) of the property on the isosurface; (-0.1, 0.1) when
+        there is none."""
         if not self.grid_surf or not self.grid_prop:
             return (-0.1, 0.1)
-
         try:
-            iso = self.grid_surf.contour([iso_val], scalars="values")
-            if iso.n_points == 0:
-                return (-0.1, 0.1)
-
-            mapped = iso.sample(self.grid_prop)
-            mvals = mapped.point_data.get(
-                "values", None
-            )  # sampled data remains 'values' generally
-
-            if mvals is not None and len(mvals) > 0:
-                return (float(mvals.min()), float(mvals.max()))
+            mapped = self._sampled_surface(iso_val)
+        except (ValueError, RuntimeError, TypeError) as exc:
+            logger.warning("mapped range unavailable: %s", exc)
             return (-0.1, 0.1)
-        except Exception:
+        mvals = None if mapped is None else mapped.point_data.get("values")
+        if mvals is None or len(mvals) == 0:
             return (-0.1, 0.1)
+        return (float(mvals.min()), float(mvals.max()))
 
     def update_mesh(self, iso_val, opacity, cmap="jet", clim=None):
         if not self.grid_surf or not self.grid_prop:
             return
-
+        self.clear_actors()
+        plotter = self.plotter
+        if plotter is None:
+            return
+        # Driven by the ESP mapping controls (Qt slots): log, never raise.
         try:
-            # Clean
-            self.clear_actors()
-
-            # Contour Surface
-            # The surface grid data is "values"
-            iso = self.grid_surf.contour([iso_val], scalars="values")
-            if iso.n_points == 0:
+            mapped = self._sampled_surface(iso_val)
+            if mapped is None:
                 return
-
-            # Sample Property
-            # The property grid data is ALSO "values" (from standard parser)
-            # rename property data to avoid conflict? No, separate grids.
-            # Sample: 'resample_to_image' or 'sample'
-            # grid_prop is a StructuredGrid. sample function expects DataSet.
-            mapped = iso.sample(self.grid_prop)
-
-            # Check sampling result
-            if mapped is None or mapped.n_points == 0:
-                return
-
-            # The sampled data will be in mapped.point_data["values"] (from prop grid)
-
-            if clim is None:
-                clim = self.data_prop_range
-
-            self.actor = self.plotter.add_mesh(
+            self.actor = plotter.add_mesh(
                 mapped,
                 scalars="values",
                 cmap=cmap,
-                clim=clim,
+                clim=self.data_prop_range if clim is None else clim,
                 smooth_shading=True,
                 opacity=opacity,
                 name="pyscf_mapped",
                 reset_camera=False,
             )
-
-            if self.plotter:
-                self.plotter.render()
-
-        except Exception as e:
-            logging.exception("Mapped update error: %s", e)
+            plotter.render()
+        except Exception:
+            logger.exception("mapped surface update failed")
 
     def clear_actors(self):
-        if getattr(self, "plotter", None) is None:
+        plotter = self.plotter
+        if plotter is None:
             return
-
         try:
             if self.actor:
-                self.plotter.remove_actor(self.actor)
+                plotter.remove_actor(self.actor)
                 self.actor = None
-            self.plotter.remove_actor("pyscf_mapped")
-            # Do NOT render here.
-            # self.plotter.render()
-        except Exception as _e:
-            logging.warning("[vis.py:406] silenced: %s", _e)
+            plotter.remove_actor("pyscf_mapped")
+        except _GONE as exc:
+            logger.debug("mapped actor removal skipped: %s", exc)
+        # No render here (see CubeVisualizer.clear_actors).

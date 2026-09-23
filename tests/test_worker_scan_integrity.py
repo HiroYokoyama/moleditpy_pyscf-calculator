@@ -74,14 +74,34 @@ class TestLoadScanCsv(unittest.TestCase):
         os.close(fd)
         with open(path, "w", newline="") as fh:
             fh.write(header + "\n")
-            for r in rows:
-                fh.write(",".join(str(x) for x in r) + "\n")
+            fh.writelines(",".join(str(x) for x in r) + "\n" for r in rows)
         self.addCleanup(os.remove, path)
         return path
 
     def _load(self, path):
         loader = self.mod.LoadWorker._load_scan_csv
         return loader(path)
+
+    def test_dihedral_is_unwrapped_onto_the_target_branch(self):
+        unwrap = self.mod._unwrap_angle
+        self.assertAlmostEqual(unwrap(-179.99, 180.0), 180.01)
+        self.assertAlmostEqual(unwrap(179.5, -180.0), -180.5)
+        self.assertAlmostEqual(unwrap(-170.0, 190.0), 190.0)
+        self.assertAlmostEqual(unwrap(60.2, 60.0), 60.2)
+
+    def test_scan_type_is_read_back_from_scan_info(self):
+        import json
+
+        d = tempfile.mkdtemp()
+        self.assertIsNone(self.mod.LoadWorker.load_scan_type(d))  # older result
+        with open(os.path.join(d, "scan_info.json"), "w") as fh:
+            json.dump({"type": "Dihedral", "atoms": [0, 1, 2, 3]}, fh)
+        self.assertEqual(self.mod.LoadWorker.load_scan_type(d), "Dihedral")
+
+    def test_step_is_an_int(self):
+        rows = self._load(self._write_csv([[3, 1.5, -76.4, "yes"]]))
+        self.assertEqual(rows[0]["step"], 3)
+        self.assertIsInstance(rows[0]["step"], int)
 
     def test_keys_are_lowercased_to_match_the_live_scan(self):
         rows = self._load(self._write_csv([[1, 1.5, -76.4, "yes"]]))

@@ -4,20 +4,22 @@ tests/test_worker_frequency_coverage.py
 Coverage for PySCFWorker.run() "Frequency" job type (worker.py ~735-887):
   - Successful Hessian + harmonic_analysis + thermo, real-valued and complex
     (imaginary) frequencies, JSON persistence
-  - Solvent-present skip path (no analytic/numeric fallback attempted)
+  - Solvent: solvent-aware analytic Hessian used, vacuum one skipped
+  - 'Hessian: Numerical' option via pyscf.tools.finite_diff
   - Hessian raising an exception -> logged, calculation continues
   - Freq JSON save failure -> warning logged, no crash
 """
 
-import os
-import sys
-import types
-import tempfile
-import unittest
 import importlib.util
 import json
-import numpy as np
+import os
+import sys
+import tempfile
+import types
+import unittest
 from unittest.mock import MagicMock, patch
+
+import numpy as np
 
 
 def _install_stubs(force=False):
@@ -88,6 +90,10 @@ class FakeMF:
         self.kernel_calls = []
         self._hessian_obj = MagicMock()
 
+    def ddCOSMO(self):
+        self.with_solvent = MagicMock()
+        return self
+
     def kernel(self, dm0=None):
         self.kernel_calls.append(dm0)
         self.e_tot = -1.117
@@ -95,6 +101,9 @@ class FakeMF:
 
     def Hessian(self):
         return self._hessian_obj
+
+    def nuc_grad_method(self):
+        return MagicMock()
 
 
 def _make_mock_mol():
@@ -201,7 +210,7 @@ class TestFrequencySuccess(unittest.TestCase):
         thermo_mock = _make_thermo_mock(
             [100.0, 200.0, 300.0], intensities=[1.0, 2.0, 3.0]
         )
-        w, results, out_dir = _run(_base_config(), FakeMF(), thermo_mock)
+        w, results, _out_dir = _run(_base_config(), FakeMF(), thermo_mock)
         w.finished_signal.emit.assert_called_once()
         self.assertIn("freq_data", results)
         self.assertEqual(results["freq_data"]["freqs"], [100.0, 200.0, 300.0])
@@ -209,7 +218,7 @@ class TestFrequencySuccess(unittest.TestCase):
 
     def test_json_persisted_to_out_dir(self):
         thermo_mock = _make_thermo_mock([100.0, 200.0])
-        w, results, out_dir = _run(_base_config(), FakeMF(), thermo_mock)
+        _w, _results, out_dir = _run(_base_config(), FakeMF(), thermo_mock)
         json_path = os.path.join(out_dir, "freq_analysis.json")
         self.assertTrue(os.path.isfile(json_path))
         with open(json_path) as f:
@@ -218,24 +227,24 @@ class TestFrequencySuccess(unittest.TestCase):
 
     def test_complex_imaginary_frequency_becomes_negative_real(self):
         thermo_mock = _make_thermo_mock([complex(0, 50.0), 100.0])
-        w, results, out_dir = _run(_base_config(), FakeMF(), thermo_mock)
+        _w, results, _out_dir = _run(_base_config(), FakeMF(), thermo_mock)
         self.assertEqual(results["freq_data"]["freqs"][0], -50.0)
 
     def test_complex_zero_imag_uses_real_part(self):
         thermo_mock = _make_thermo_mock([complex(120.0, 0.0)])
-        w, results, out_dir = _run(_base_config(), FakeMF(), thermo_mock)
+        _w, results, _out_dir = _run(_base_config(), FakeMF(), thermo_mock)
         self.assertEqual(results["freq_data"]["freqs"][0], 120.0)
 
     def test_scf_runs_when_not_converged_yet(self):
         thermo_mock = _make_thermo_mock([100.0])
         fake_mf = FakeMF(e_tot=None)
-        w, results, out_dir = _run(_base_config(), fake_mf, thermo_mock)
+        _w, _results, _out_dir = _run(_base_config(), fake_mf, thermo_mock)
         self.assertEqual(len(fake_mf.kernel_calls), 1)
 
     def test_not_converged_warning_logged(self):
         thermo_mock = _make_thermo_mock([100.0])
         fake_mf = FakeMF(converged=False)
-        w, results, out_dir = _run(_base_config(), fake_mf, thermo_mock)
+        w, _results, _out_dir = _run(_base_config(), fake_mf, thermo_mock)
         all_logs = " ".join(str(c) for c in w.log_signal.emit.call_args_list)
         self.assertIn("did not converge", all_logs)
 
@@ -243,7 +252,7 @@ class TestFrequencySuccess(unittest.TestCase):
 class TestFrequencySolventSkip(unittest.TestCase):
     def test_solvent_present_skips_frequency(self):
         thermo_mock = _make_thermo_mock([100.0])
-        w, results, out_dir = _run(
+        w, results, _out_dir = _run(
             _base_config(extra={"solvent": "Water"}), FakeMF(), thermo_mock
         )
         w.finished_signal.emit.assert_called_once()
@@ -253,11 +262,139 @@ class TestFrequencySolventSkip(unittest.TestCase):
         self.assertIn("Solvent Not Supported", all_logs)
 
 
+class _SolventHessian:
+    """Stands in for pyscf.solvent.hessian.pcm.ddCOSMOHessian."""
+
+    def kernel(self):
+        return np.zeros((2, 3, 2, 3))
+
+
+_SolventHessian.__module__ = "pyscf.solvent.hessian.pcm"
+
+
+class TestFrequencyWithSolventHessian(unittest.TestCase):
+    def test_solvent_aware_hessian_is_used(self):
+        thermo_mock = _make_thermo_mock([100.0])
+        fake_mf = FakeMF()
+        fake_mf._hessian_obj = _SolventHessian()
+        w, results, _out_dir = _run(
+            _base_config(extra={"solvent": "Water"}), fake_mf, thermo_mock
+        )
+        w.error_signal.emit.assert_not_called()
+        self.assertIn("freq_data", results)
+        all_logs = " ".join(str(c) for c in w.log_signal.emit.call_args_list)
+        self.assertNotIn("Solvent Not Supported", all_logs)
+
+
+class TestNumericalHessianOption(unittest.TestCase):
+    """'Hessian: Numerical' uses PySCF's own finite-difference Hessian."""
+
+    def _run_numeric(self, extra=None):
+        fd = types.ModuleType("pyscf.tools.finite_diff")
+        h_obj = MagicMock()
+        h_obj.kernel.return_value = np.zeros((2, 2, 3, 3))
+        fd.Hessian = MagicMock(return_value=h_obj)
+        tools = types.ModuleType("pyscf.tools")
+        tools.finite_diff = fd
+        fake_mf = FakeMF()
+        cfg = {"hessian": "Numerical (finite difference)"}
+        cfg.update(extra or {})
+        with patch.dict(
+            sys.modules, {"pyscf.tools": tools, "pyscf.tools.finite_diff": fd}
+        ):
+            w, results, _out_dir = _run(
+                _base_config(extra=cfg), fake_mf, _make_thermo_mock([100.0])
+            )
+        return w, results, fd, fake_mf
+
+    def test_numerical_choice_uses_finite_diff_not_analytic(self):
+        _w, results, fd, fake_mf = self._run_numeric()
+        fd.Hessian.assert_called_once()
+        fake_mf._hessian_obj.kernel.assert_not_called()
+        self.assertIn("freq_data", results)
+
+    def test_numerical_choice_runs_in_solvent(self):
+        w, results, _fd, _ = self._run_numeric({"solvent": "Water"})
+        self.assertIn("freq_data", results)
+        logs = " ".join(str(c) for c in w.log_signal.emit.call_args_list)
+        self.assertNotIn("Solvent Not Supported", logs)
+        self.assertIn("gradient evaluations", logs)
+
+    def test_analytic_is_the_default(self):
+        fake_mf = FakeMF()
+        _run(_base_config(), fake_mf, _make_thermo_mock([100.0]))
+        fake_mf._hessian_obj.kernel.assert_called_once()
+
+
+class _BrokenSolventHessian:
+    """PySCF 2.14's ddCOSMOHessian: solvent-typed, but kernel() fails."""
+
+    def kernel(self):
+        raise AttributeError("'ddCOSMO' object has no attribute 'surface'")
+
+
+_BrokenSolventHessian.__module__ = "pyscf.solvent.hessian.pcm"
+
+
+class TestBrokenSolventHessianSkipsCleanly(unittest.TestCase):
+    def test_failure_becomes_a_skip_pointing_to_numerical(self):
+        fake_mf = FakeMF()
+        fake_mf._hessian_obj = _BrokenSolventHessian()
+        w, results, _out_dir = _run(
+            _base_config(extra={"solvent": "Water"}),
+            fake_mf,
+            _make_thermo_mock([100.0]),
+        )
+        w.error_signal.emit.assert_not_called()
+        self.assertNotIn("freq_data", results)
+        logs = " ".join(str(c) for c in w.log_signal.emit.call_args_list)
+        self.assertIn("Hessian: Numerical", logs)
+        self.assertNotIn("Frequency analysis failed", logs)
+
+
+class TestImaginaryModeCheck(unittest.TestCase):
+    def _check(self, freqs, job):
+        w = _make_worker(_base_config(extra={"job_type": job}))
+        n = w._report_imaginary_modes(freqs, job)
+        return n, " ".join(str(c) for c in w.log_signal.emit.call_args_list)
+
+    def test_minimum_without_imaginary_modes(self):
+        n, logs = self._check([500.0, 1600.0, 3700.0], "Optimization + Frequency")
+        self.assertEqual(n, 0)
+        self.assertIn("consistent with a minimum", logs)
+
+    def test_minimum_with_an_imaginary_mode_is_flagged(self):
+        n, logs = self._check([-350.0, 1600.0], "Frequency")
+        self.assertEqual(n, 1)
+        self.assertIn("WARNING", logs)
+        self.assertIn("350.0i", logs)
+
+    def test_ts_needs_exactly_one(self):
+        n, logs = self._check([-900.0, 1200.0], "TS Optimization + Frequency")
+        self.assertIn("consistent with a transition state", logs)
+        _, logs = self._check([900.0, 1200.0], "TS Optimization + Frequency")
+        self.assertIn("WARNING", logs)
+        _n, logs = self._check([-900.0, -400.0], "TS Optimization + Frequency")
+        self.assertIn("WARNING", logs)
+
+    def test_small_imaginary_modes_are_noise(self):
+        n, logs = self._check([-8.0, 1600.0], "Frequency")
+        self.assertEqual(n, 0)
+        self.assertIn("consistent with a minimum", logs)
+        self.assertIn("numerical noise", logs)
+
+    def test_count_is_stored_with_the_frequencies(self):
+        _w, results, _ = _run(
+            _base_config(), FakeMF(), _make_thermo_mock([complex(0, 300.0), 100.0])
+        )
+        self.assertEqual(results["freq_data"]["n_imaginary"], 1)
+
+
 class TestFrequencyHessianFailure(unittest.TestCase):
     def test_hessian_kernel_exception_logged_not_fatal(self):
         fake_mf = FakeMF()
         fake_mf._hessian_obj.kernel.side_effect = RuntimeError("hessian blew up")
-        w, results, out_dir = _run(_base_config(), fake_mf)
+        w, results, _out_dir = _run(_base_config(), fake_mf)
         w.finished_signal.emit.assert_called_once()
         w.error_signal.emit.assert_not_called()
         all_logs = " ".join(str(c) for c in w.log_signal.emit.call_args_list)
@@ -269,7 +406,7 @@ class TestFrequencyJsonSaveFailure(unittest.TestCase):
     def test_json_dump_failure_logged_as_warning(self):
         thermo_mock = _make_thermo_mock([100.0])
         with patch.object(_mod.json, "dump", side_effect=OSError("disk full")):
-            w, results, out_dir = _run(_base_config(), FakeMF(), thermo_mock)
+            w, _results, _out_dir = _run(_base_config(), FakeMF(), thermo_mock)
         all_logs = " ".join(str(c) for c in w.log_signal.emit.call_args_list)
         self.assertIn("Failed to save frequency JSON", all_logs)
         w.finished_signal.emit.assert_called_once()

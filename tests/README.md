@@ -35,7 +35,6 @@ python -m pytest tests/ -k "TestSinglePointCompletion"
 | `test_plugin_integration.py` | 25 | PluginContext contract (stub + real) |
 | `test_worker_single_point.py` | ~20 | End-to-end single-point calculation |
 | `test_worker_pyscf_availability.py` | ~20 | Worker with/without PySCF |
-| `test_worker_numeric_hessian.py` | ~15 | Finite-difference Hessian |
 | `test_worker_property_worker.py` | ~15 | HOMO/LUMO detection, task loop |
 | `test_worker_capture_stdout.py` | ~20 | CaptureStdOut + StreamToSignal |
 | `test_worker_streams.py` | ~10 | StreamToSignal signal routing |
@@ -103,17 +102,6 @@ All PySCF mocked; uses a real temp directory so file writes succeed.
 | `TestMethodSelection` | RHF + `spin="1"` stays RHF; RHF + `spin="2"` auto-switches to UHF; `method="RKS"` dispatches `dft.RKS` |
 | `TestSolventSetup` | `solvent="Water"` uses `eps=78.2`, logs name; vacuum default leaves `ddCOSMO` uncalled |
 | `TestOuterExceptionHandler` | `mol.build()` raising plain `Exception` propagates to outer handler → `error_signal` |
-
----
-
-### `test_worker_numeric_hessian.py` — Finite-difference Hessian
-
-| Class | What it covers |
-|---|---|
-| `TestNumericHessianStop` | `_stop_requested=True` at entry → `InterruptedError`; log contains "stopped" |
-| `TestNumericHessianCompute` | Shape `(n,3,n,3)`; symmetry `H[i,j,k,l]==H[k,l,i,j]`; zero-gradient → zero Hessian; progress log per atom |
-| `TestNumericHessianFallback` | `as_scanner()` raises → manual fallback returns valid-shaped Hessian |
-| `TestNumericHessianAtomCoordsFallback` | `mol.atom_coords(unit='Bohr')` raises `TypeError` (older PySCF) → fallback `* 1.8897` still symmetric |
 
 ---
 

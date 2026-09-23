@@ -1,24 +1,25 @@
 import glob
 import math
 import os
+
+from PyQt6.QtCore import Qt
+from PyQt6.QtGui import QAction, QColor, QFont, QPainter, QPen
 from PyQt6.QtWidgets import (
+    QApplication,
+    QComboBox,
     QDialog,
-    QVBoxLayout,
+    QFileDialog,
     QHBoxLayout,
     QLabel,
-    QPushButton,
-    QComboBox,
-    QFileDialog,
-    QMessageBox,
     QMenu,
-    QApplication,
+    QMessageBox,
+    QPushButton,
     QToolTip,
+    QVBoxLayout,
 )
-from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QPainter, QPen, QColor, QFont, QAction
 
 try:
-    import nist
+    from pyscf.data import nist
 except ImportError:
     nist = None
 
@@ -232,10 +233,9 @@ class EnergyDiagramDialog(QDialog):
                         center_y = rect.center().y()
                         dist = abs(y_click - center_y)
 
-                        if rect.contains(point):
-                            if dist < min_dist:
-                                min_dist = dist
-                                best_hit = (index, label, spin_suffix)
+                        if rect.contains(point) and dist < min_dist:
+                            min_dist = dist
+                            best_hit = (index, label, spin_suffix)
 
             if best_hit:
                 # best_hit is (index, label, spin_suffix)
@@ -308,15 +308,12 @@ class EnergyDiagramDialog(QDialog):
                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             )
 
-            if reply == QMessageBox.StandardButton.Yes:
-                if hasattr(self.parent(), "generate_specific_orbital"):
-                    self.status_label.setText(f"Generating {label}...")
-
-                    # Force index-based request as per user requirement
-                    # "make sure to use index num to generate or find"
-
-                    # We pass the explicit index to guaranteed unambiguous generation
-                    self.parent().generate_specific_orbital(index, label, spin_suffix)
+            if reply == QMessageBox.StandardButton.Yes and hasattr(
+                self.parent(), "generate_specific_orbital"
+            ):
+                self.status_label.setText(f"Generating {label}...")
+                # by index: the one unambiguous way to name the orbital
+                self.parent().generate_specific_orbital(index, label, spin_suffix)
 
     def mouseMoveEvent(self, event):
         # Check if hovering over a clickable orbital level (when not dragging)
@@ -336,7 +333,7 @@ class EnergyDiagramDialog(QDialog):
                         idx_1b = index + 1
                         tip_text = f"Index: {idx_1b}"
                         if label:
-                            tip_text += f"\\n{label}"
+                            tip_text += f"\n{label}"
                         if spin_suffix:
                             tip_text += f" ({spin_suffix.replace('_', '')})"
 
@@ -434,7 +431,9 @@ class EnergyDiagramDialog(QDialog):
 
         # Reset Hit Zones
         self.hit_zones = []  # List of (QRect, index, label)
-        from PyQt6.QtCore import QRect  # noqa: PLC0415  # pylint: disable=import-outside-toplevel
+        from PyQt6.QtCore import (
+            QRect,  # pylint: disable=import-outside-toplevel
+        )
 
         w = self.width()
         h = self.height()
@@ -499,7 +498,7 @@ class EnergyDiagramDialog(QDialog):
                 step = 2 * magnitude
             else:
                 step = magnitude
-        except Exception:
+        except (ValueError, OverflowError):  # log10 of a zero/negative span
             step = 1.0
 
         if step <= 0:
@@ -595,10 +594,10 @@ class EnergyDiagramDialog(QDialog):
 
             # Title with Electron Count
             n_elec = sum(occs)
-            title_text = f"{title}\\n({n_elec:.0f}e)"
+            title_text = f"{title}\n({n_elec:.0f}e)"
 
             fm = painter.fontMetrics()
-            lines = title_text.split("\\n")
+            lines = title_text.split("\n")
             y_title_base = 20
 
             for line in lines:

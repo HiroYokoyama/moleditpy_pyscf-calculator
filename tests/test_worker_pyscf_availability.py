@@ -11,11 +11,11 @@ Tests that truly need the real pyscf library are decorated with
 so the full suite passes whether or not pyscf is present.
 """
 
+import importlib.util
 import os
 import sys
 import types
 import unittest
-import importlib.util
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -27,7 +27,7 @@ try:
     import importlib as _il
 
     _il.util.find_spec("pyscf")
-    import pyscf as _pyscf_real  # noqa: F401
+    import pyscf as _pyscf_real
 
     HAS_PYSCF = True
 except (ImportError, ValueError):
@@ -443,7 +443,7 @@ class TestWorkerWithRealPySCF(unittest.TestCase):
     """
 
     def test_pyscf_importable(self):
-        import pyscf  # noqa: F401
+        import pyscf
 
         self.assertIsNotNone(pyscf)
 

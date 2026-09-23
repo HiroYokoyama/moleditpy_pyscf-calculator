@@ -1,16 +1,18 @@
+import contextlib
 import csv
-import sys
-import os
+import ctypes
 import io
 import json
-import traceback
-import copy
-import numpy as np
+import logging
 import math
+import os
 import re
 import shutil
+import sys
+import traceback
+
+import numpy as np
 from PyQt6.QtCore import QThread, pyqtSignal
-import logging
 
 try:
     from rdkit import Chem
@@ -21,15 +23,117 @@ except ImportError:
 # We import pyscf inside the thread or check availability
 try:
     import pyscf
-    from pyscf import gto, scf, dft
-    from pyscf import solvent  # noqa: F401 # Ensure ddCOSMO mixin is available
+    from pyscf import (
+        dft,
+        gto,
+        scf,
+        solvent,  # noqa: F401 # Ensure ddCOSMO mixin is available
+    )
 except ImportError:
     pyscf = None
 
-_FINITE_DIFF_STEP = (
-    0.005  # Bohr, central-difference displacement for numeric derivatives
-)
+logger = logging.getLogger(__name__)
+
 _HC_EV_NM = 1239.84193  # hc in eV·nm, for excitation wavelength conversion
+# PySCF's own factor, so tables agree with its logs; CODATA 2018 fallback.
+try:
+    from pyscf.data.nist import HARTREE2EV as _HARTREE_TO_EV
+
+    _HARTREE_TO_EV = float(_HARTREE_TO_EV)
+except (ImportError, TypeError, ValueError):
+    _HARTREE_TO_EV = 27.211386245988
+
+
+# UI functional names PySCF/libxc does not know by that name.
+_XC_ALIASES = {
+    "m11": "hyb_mgga_x_m11,mgga_c_m11",
+}
+
+
+# Imaginary modes smaller than this (cm^-1) are treated as numerical noise.
+_IMAG_NOISE_CM = 20.0
+
+# Dispersion choices in the UI -> PySCF's mf.disp keyword (pyscf-dispersion).
+_DISPERSION = {
+    "None": None,
+    "D3(BJ)": "d3bj",
+    "D3(zero)": "d3zero",
+    "D4": "d4",
+}
+
+
+def _unwrap_angle(measured: float, target: float) -> float:
+    """measured +/- k*360 closest to target (degrees)."""
+    return target + ((measured - target + 180.0) % 360.0 - 180.0)
+
+
+def _as_list(value):
+    """Nested plain lists from numpy arrays / tuples (JSON- and Qt-safe)."""
+    if value is None:
+        return []
+    if hasattr(value, "tolist"):
+        return value.tolist()
+    if isinstance(value, (list, tuple)):
+        return [
+            _as_list(v) if hasattr(v, "tolist") or isinstance(v, (list, tuple)) else v
+            for v in value
+        ]
+    return value
+
+
+def classify_mo_data(mo_energy, mo_occ):
+    """(scf_type, mo_energy, mo_occ) with plain lists.
+
+    scf_type is what the viewers distinguish: "UHF" (two spin channels),
+    "ROKS" (restricted open shell -- PySCF writes one 1-D mo_occ of 0/1/2,
+    a SOMO carrying 1) or "RHF".
+    """
+    energy, occ = _as_list(mo_energy), _as_list(mo_occ)
+    is_uhf = (
+        isinstance(energy, list)
+        and len(energy) == 2
+        and all(isinstance(x, list) for x in energy)
+    )
+    if is_uhf:
+        return "UHF", energy, occ
+    flat = []
+    for o in occ if isinstance(occ, list) else []:
+        flat.extend(o if isinstance(o, list) else [o])
+    has_somo = any(isinstance(o, (int, float)) and 0.5 < o < 1.5 for o in flat)
+    return ("ROKS" if has_somo else "RHF"), energy, occ
+
+
+def _json_safe(obj):
+    """obj with numpy values turned into plain Python and NaN/inf -> None."""
+    if hasattr(obj, "tolist"):
+        obj = obj.tolist()
+    if isinstance(obj, dict):
+        return {k: _json_safe(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [_json_safe(v) for v in obj]
+    if isinstance(obj, float) and (math.isnan(obj) or math.isinf(obj)):
+        return None
+    if obj is None or isinstance(obj, (bool, int, float, str)):
+        return obj
+    return str(obj)
+
+
+def resolve_xc(functional: str) -> str:
+    """The xc string PySCF needs for a functional name shown in the UI."""
+    return _XC_ALIASES.get(str(functional).strip().lower(), functional)
+
+
+def _flush_c_stdio():
+    """fflush(NULL): C libraries buffer stdout when it is a file. Without
+    this, output still in those buffers when the descriptors are swapped
+    back reaches the terminal instead of pyscf.out."""
+    try:
+        if sys.platform == "win32":
+            ctypes.cdll.msvcrt.fflush(None)
+        else:
+            ctypes.CDLL(None).fflush(None)
+    except (OSError, AttributeError) as exc:
+        logger.debug("fflush unavailable: %s", exc)
 
 
 class CaptureStdOut:
@@ -43,20 +147,21 @@ class CaptureStdOut:
     def __enter__(self):
         sys.stdout.flush()
         sys.stderr.flush()
+        _flush_c_stdio()  # earlier C output belongs to the old target
         # Open log file
         self.log_file = open(self.filename, "a", buffering=1, encoding="utf-8")
 
         # Get FDs
+        # The real OS descriptors, even if sys.stdout is wrapped. __stdout__
+        # is None under pythonw and fileno() may be unsupported: use 1 / 2.
         try:
-            # Use __stdout__ to ensure we get the real OS FD, even if sys.stdout was MonkeyPatched/Wrapper
             self.original_stdout_fd = sys.__stdout__.fileno()
-        except Exception:
-            self.original_stdout_fd = 1  # Fallback to standard FD 1
-
+        except (AttributeError, OSError, ValueError):
+            self.original_stdout_fd = 1
         try:
             self.original_stderr_fd = sys.__stderr__.fileno()
-        except Exception:
-            self.original_stderr_fd = 2  # Fallback
+        except (AttributeError, OSError, ValueError):
+            self.original_stderr_fd = 2
 
         # Save Original FDs
         if self.original_stdout_fd is not None:
@@ -73,20 +178,12 @@ class CaptureStdOut:
         return self.log_file
 
     def __exit__(self, exc_type, exc_val, exc_tb):
-        # Flush — safe to swallow: stream may already be dead after thread kill
-        try:
-            sys.stdout.flush()
-        except Exception:
-            pass  # safe: stdout may be redirected or closed
-        try:
-            sys.stderr.flush()
-        except Exception:
-            pass  # safe: stderr may be redirected or closed
-        try:
-            if getattr(self, "log_file", None) is not None:
-                self.log_file.flush()
-        except Exception:
-            pass  # safe: log file may already be closed
+        # The streams may already be closed after a thread kill.
+        for stream in (sys.stdout, sys.stderr, getattr(self, "log_file", None)):
+            if stream is not None:
+                with contextlib.suppress(OSError, ValueError):
+                    stream.flush()
+        _flush_c_stdio()  # C output of this job still goes to the file
 
         # Restore stdout FD — each step is independently guarded so that
         # a partial failure (e.g. after QThread.terminate()) does not leave
@@ -94,16 +191,14 @@ class CaptureStdOut:
         if self.saved_stdout_fd is not None and self.original_stdout_fd is not None:
             try:
                 os.dup2(self.saved_stdout_fd, self.original_stdout_fd)
-            except Exception as _e:
-                logging.warning(
-                    "[worker.py] CaptureStdOut: failed to restore stdout FD: %s", _e
-                )
+            except OSError as _e:
+                logger.warning("CaptureStdOut: failed to restore stdout FD: %s", _e)
             finally:
                 try:
                     os.close(self.saved_stdout_fd)
-                except Exception as _e:
-                    logging.warning(
-                        "[worker.py] CaptureStdOut: failed to close saved stdout FD: %s",
+                except OSError as _e:
+                    logger.warning(
+                        "CaptureStdOut: failed to close saved stdout FD: %s",
                         _e,
                     )
                 self.saved_stdout_fd = None
@@ -111,25 +206,22 @@ class CaptureStdOut:
         if self.saved_stderr_fd is not None and self.original_stderr_fd is not None:
             try:
                 os.dup2(self.saved_stderr_fd, self.original_stderr_fd)
-            except Exception as _e:
-                logging.warning(
-                    "[worker.py] CaptureStdOut: failed to restore stderr FD: %s", _e
-                )
+            except OSError as _e:
+                logger.warning("CaptureStdOut: failed to restore stderr FD: %s", _e)
             finally:
                 try:
                     os.close(self.saved_stderr_fd)
-                except Exception as _e:
-                    logging.warning(
-                        "[worker.py] CaptureStdOut: failed to close saved stderr FD: %s",
+                except OSError as _e:
+                    logger.warning(
+                        "CaptureStdOut: failed to close saved stderr FD: %s",
                         _e,
                     )
                 self.saved_stderr_fd = None
 
         if getattr(self, "log_file", None) is not None:
-            try:
+            # may already be closed by the OS after terminate()
+            with contextlib.suppress(OSError, ValueError):
                 self.log_file.close()
-            except Exception:
-                pass  # safe: file may already be closed by OS after terminate()
             self.log_file = None
 
 
@@ -151,18 +243,15 @@ class StreamToSignal(io.TextIOBase):
 
         # Always try to write to target stream as fallback
         if self.target_stream:
-            try:
+            # the log file may be closed already during teardown
+            with contextlib.suppress(OSError, ValueError):
                 self.target_stream.write(text)
                 self.target_stream.flush()
-            except Exception:
-                pass
 
     def flush(self):
         if self.target_stream:
-            try:
+            with contextlib.suppress(OSError, ValueError):
                 self.target_stream.flush()
-            except Exception:
-                pass
 
     def close(self):
         # Mark as destroyed to stop signal emissions
@@ -181,11 +270,51 @@ class StreamToSignal(io.TextIOBase):
         return False
 
 
+@contextlib.contextmanager
+def redirected_output(worker, log_file):
+    """Route C-level and Python stdout/stderr into log_file and the worker's
+    log signal for the duration of a job; always restore them."""
+    capturer = CaptureStdOut(log_file)
+    f_log = capturer.__enter__()
+    saved = (sys.stdout, sys.stderr)
+    stream = StreamToSignal(worker.log_signal, target_stream=f_log)
+    worker._stream = stream  # the GUI may close() it before terminate()
+    sys.stdout = sys.stderr = stream
+    try:
+        yield stream
+    finally:
+        # Close before restoring: a late print() must not emit on a worker
+        # that is being torn down.
+        stream.close()
+        worker._stream = None
+        sys.stdout, sys.stderr = saved
+        capturer.__exit__(None, None, None)
+
+
+def _log_to_file(worker, text):
+    """Worker messages go to the GUI log *and* pyscf.out.
+
+    Emitting on log_signal alone reached only the GUI, so the job's own
+    summaries (method switch, SCF properties, TDDFT table, imaginary-mode
+    check, scan progress, ...) were missing from the log file."""
+    stream = getattr(worker, "_stream", None)
+    if stream is not None and not stream._destroyed:
+        stream.write(text)  # emits the signal and writes the file
+    else:
+        worker.log_signal.emit(text)
+
+
+class _FrequencySkipped(Exception):
+    """Frequency analysis deliberately not run (reported, not an error)."""
+
+
 class PySCFWorker(QThread):
     log_signal = pyqtSignal(str)
     finished_signal = pyqtSignal()
     error_signal = pyqtSignal(str)
     result_signal = pyqtSignal(dict)  # Pass back data like XYZ, Cube paths
+
+    _log = _log_to_file
 
     def __init__(self, xyz_str, config):
         super().__init__()
@@ -204,7 +333,7 @@ class PySCFWorker(QThread):
                 int(spin_str.split(" ")[0]) if " " in spin_str else int(spin_str)
             )
             return max(0, spin_mult - 1)
-        except Exception:
+        except (TypeError, ValueError):
             return 0
 
     def _resolve_solvent_eps(self, solvent_name: str) -> float:
@@ -235,7 +364,7 @@ class PySCFWorker(QThread):
                 pyscf_eps = dd_param.EPSILON
             lookup = solvent_name if solvent_name in pyscf_eps else solvent_name.lower()
             return pyscf_eps.get(lookup, 78.2)
-        except Exception:
+        except (ImportError, AttributeError, TypeError):
             return 78.2
 
     def _apply_solvent(self, mf, solvent_name: str):
@@ -249,14 +378,126 @@ class PySCFWorker(QThread):
         mf.max_cycle = self.config.get("max_cycle", 100)
         try:
             mf.conv_tol = float(self.config.get("conv_tol", "1e-9"))
-        except Exception as _e:
-            logging.warning("[worker.py] _apply_mf_settings silenced: %s", _e)
+        except (TypeError, ValueError):
+            logger.warning(
+                "conv_tol %r is not a number; keeping PySCF's default",
+                self.config.get("conv_tol"),
+            )
+
+    def _new_step_mf(self, mol, method_name, functional):
+        """A fresh, fully configured mf (solvent + SCF settings) for a scan point.
+
+        Scan points used to share a shallow copy of the job's mf, whose grids
+        and solvent objects reset() mutates in place.
+        """
+        mf = self._build_mf(mol, method_name, functional)
+        solvent_name = self.config.get("solvent", "None (Vacuum)")
+        if solvent_name and "None" not in solvent_name:
+            mf = self._apply_solvent(mf, solvent_name)
+        self._apply_mf_settings(mf)
+        return mf
+
+    def _wants_numerical_hessian(self) -> bool:
+        return str(self.config.get("hessian", "Analytic")).startswith("Numerical")
+
+    def _numerical_hessian_obj(self, mf, mol):
+        """PySCF's finite-difference Hessian (central differences of analytic
+        gradients, 6 N gradient evaluations). Returns the same (natm, natm,
+        3, 3) layout as the analytic one, and works wherever gradients do --
+        solvent models and functionals without an analytic Hessian included.
+        """
+        try:
+            from pyscf.tools import finite_diff
+        except ImportError as exc:
+            raise RuntimeError(
+                "Numerical Hessian needs pyscf.tools.finite_diff; please update PySCF."
+            ) from exc
+        self._log(
+            f"Numerical Hessian: {6 * mol.natm} gradient evaluations "
+            "(central finite differences)...\n"
+        )
+        return finite_diff.Hessian(mf.nuc_grad_method())
+
+    def _report_imaginary_modes(self, freqs, job_type):
+        """Count imaginary modes and say whether that fits the stationary
+        point the job was after: a minimum has none, a TS exactly one."""
+        imag = [f for f in freqs if f < -_IMAG_NOISE_CM]
+        small = [f for f in freqs if -_IMAG_NOISE_CM <= f < 0]
+        want_ts = "Transition State" in job_type or "TS Optimization" in job_type
+        expected = 1 if want_ts else 0
+        kind = "transition state" if want_ts else "minimum"
+        listing = ", ".join(f"{f:.1f}i" for f in (-x for x in imag))
+        if len(imag) == expected:
+            msg = f"Imaginary modes: {len(imag)} -- consistent with a {kind}"
+            if listing:
+                msg += f" ({listing} cm^-1)"
+            self._log(msg + ".\n")
+        else:
+            self._log(
+                f"WARNING: {len(imag)} imaginary mode(s) "
+                f"({listing or 'none'} cm^-1); a {kind} should have "
+                f"{expected}. This structure is not the intended stationary "
+                "point.\n"
+            )
+        if small:
+            self._log(
+                f"Note: {len(small)} small imaginary mode(s) below "
+                f"{_IMAG_NOISE_CM:.0f} cm^-1, usually numerical noise "
+                "(grid / convergence).\n"
+            )
+        return len(imag)
 
     @staticmethod
-    def _to_list(arr):
-        if arr is None:
-            return []
-        return arr.tolist() if hasattr(arr, "tolist") else list(arr)
+    def _scf_properties(mf):
+        """Dipole moment (Debye) and Mulliken charges of a finished SCF, or {}."""
+        try:
+            if mf.mo_coeff is None:
+                return {}
+            dip = np.asarray(mf.dip_moment(unit="Debye", verbose=0), dtype=float)
+            _, charges = mf.mulliken_pop(verbose=0)
+            mol = mf.mol
+            return {
+                "dipole_debye": dip.tolist(),
+                "dipole_total_debye": float(np.linalg.norm(dip)),
+                "mulliken_charges": np.asarray(charges, dtype=float).tolist(),
+                "atom_symbols": [mol.atom_symbol(i) for i in range(mol.natm)],
+            }
+        # optional extras: whatever PySCF raises must not lose the job's result
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("SCF properties unavailable: %s", exc)
+            return {}
+
+    def _report_scf_properties(self, props):
+        dx, dy, dz = props["dipole_debye"]
+        lines = [
+            "\n===== SCF Properties =====\n",
+            (
+                f"Dipole moment (Debye): X={dx:.4f} Y={dy:.4f} Z={dz:.4f}  "
+                f"Total={props['dipole_total_debye']:.4f}\n"
+            ),
+            "Mulliken charges:\n",
+        ]
+        for i, (sym, q) in enumerate(
+            zip(props["atom_symbols"], props["mulliken_charges"])
+        ):
+            lines.append(f"  {i + 1:>3} {sym:<3} {q:+.4f}\n")
+        self._log("".join(lines))
+        try:
+            with open(
+                os.path.join(self.out_dir, "properties.json"), "w", encoding="utf-8"
+            ) as fh:
+                json.dump(props, fh, indent=2)
+        except (OSError, TypeError, ValueError) as exc:
+            self._log(f"Warning: Failed to save properties.json: {exc}\n")
+
+    @staticmethod
+    def _is_solvent_hessian(h_obj):
+        """True when the Hessian object carries the solvent response
+        (e.g. pyscf.solvent.hessian.pcm.ddCOSMOHessian)."""
+        return any(
+            getattr(cls, "__module__", "").startswith("pyscf.solvent")
+            for cls in type(h_obj).__mro__
+        )
 
     def _broken_symmetry_guess(self, mf, mol):
         """A spin-asymmetric initial density matrix for unrestricted SCF.
@@ -278,15 +519,19 @@ class PySCFWorker(QThread):
         dm[1][ao_start:ao_end, ao_start:ao_end] = 0.0
         return dm
 
+    def _dispersion(self):
+        """PySCF `disp` keyword for the chosen correction, or None."""
+        return _DISPERSION.get(str(self.config.get("dispersion", "None")))
+
     def _build_mf(self, mol, method_name, functional):
         """Create a mean-field object for the given mol, method, and functional."""
         grid_level = self.config.get("grid_level", 3)
         if method_name == "RHF":
-            return scf.RHF(mol)
+            mf = scf.RHF(mol)
         elif method_name == "UHF":
-            return scf.UHF(mol)
+            mf = scf.UHF(mol)
         elif method_name == "ROHF":
-            return scf.ROHF(mol)
+            mf = scf.ROHF(mol)
         elif method_name == "RKS":
             mf = dft.RKS(mol)
         elif method_name == "UKS":
@@ -295,95 +540,41 @@ class PySCFWorker(QThread):
             mf = dft.ROKS(mol)
         else:
             raise ValueError(f"Unknown method: {method_name}")
-        mf.xc = functional
-        try:
-            mf.grids.level = grid_level
-            if grid_level >= 4:
-                mf.grids.prune = False
-        except Exception as _e:
-            logging.warning("[worker.py] _build_mf grid silenced: %s", _e)
+        if "KS" in method_name:
+            mf.xc = resolve_xc(functional)
+            try:
+                mf.grids.level = grid_level
+                if grid_level >= 4:
+                    mf.grids.prune = False
+            except AttributeError as _e:
+                logger.warning("grid settings not applied: %s", _e)
+        # Set at construction: PySCF caches the dispersion object on the mf.
+        disp = self._dispersion()
+        if disp:
+            mf.disp = disp
         return mf
 
-    def compute_numeric_hessian(self, mf, mol):
-        """
-        Manually compute Hessian via Finite Difference of Gradients.
-        Robust fallback for when Analytic Hessian fails (e.g. solvent surface issues).
-        """
-        self.log_signal.emit(
-            "  > Starting Finite Difference of Gradients (6 * N_atoms steps)...\n"
-        )
-
-        # Prepare Scanner
-        # g_scanner automatically handles re-building molecule and re-running SCF
+    def _check_dispersion_setup(self, method_name, functional):
+        """An error message when the dispersion choice cannot run, else None."""
+        if not self._dispersion():
+            return None
+        if "KS" in method_name and str(functional).lower().endswith("-v"):
+            return (
+                f"{functional} already contains VV10 dispersion; "
+                "set Dispersion to None."
+            )
         try:
-            g_scanner = mf.nuc_grad_method().as_scanner()
-        except Exception:
-            # Fallback if as_scanner fails: just use mf.nuc_grad_method() and manual loop
-            grad_method = mf.nuc_grad_method()
+            import pyscf.dispersion  # noqa: F401
+        except ImportError:
+            return (
+                "Dispersion corrections need the pyscf-dispersion package "
+                "(pip install pyscf-dispersion)."
+            )
+        return None
 
-            def g_scanner(m):
-                mf_scan = mf.copy()
-                mf_scan.reset(m)
-                # apply solvent if needed? Copies should preserve it.
-                e = mf_scan.kernel()
-                g = grad_method(mf_scan).kernel()
-                return e, g
-
-        n_atoms = mol.natm
-        h_dim = n_atoms * 3
-        hessian = np.zeros((h_dim, h_dim))
-
-        delta = _FINITE_DIFF_STEP
-
-        # Current geometry in Bohr (PySCF internal)
-        mol_calc = mol.copy()
-        try:
-            coords_bohr = mol_calc.atom_coords(unit="Bohr")
-        except TypeError:
-            # Older pyscf has no unit= kwarg; atom_coords() is Bohr already,
-            # so this must NOT scale by the Angstrom conversion.
-            coords_bohr = mol_calc.atom_coords()
-
-        step_count = 0
-
-        for i_atom in range(n_atoms):
-            # Cooperative stop check between atoms
-            if self._stop_requested:
-                self.log_signal.emit("Numeric Hessian stopped by user.\n")
-                raise InterruptedError("Numeric Hessian stopped by user.")
-            for i_cart in range(3):  # x, y, z
-                # Construct displaced geometries
-                r_orig = coords_bohr[i_atom, i_cart]
-
-                # Plus
-                coords_bohr[i_atom, i_cart] = r_orig + delta
-                mol_calc.set_geom_(coords_bohr, unit="Bohr")
-                _, g_plus = g_scanner(mol_calc)
-
-                # Minus
-                coords_bohr[i_atom, i_cart] = r_orig - delta
-                mol_calc.set_geom_(coords_bohr, unit="Bohr")
-                _, g_minus = g_scanner(mol_calc)
-
-                # Restore
-                coords_bohr[i_atom, i_cart] = r_orig
-
-                # Central Difference
-                row_idx = i_atom * 3 + i_cart
-                hess_row = (g_plus - g_minus) / (2 * delta)
-
-                hessian[row_idx, :] = hess_row.flatten()
-
-                step_count += 1
-                if step_count % 3 == 0:
-                    self.log_signal.emit(f"    Atom {i_atom + 1} done...\n")
-
-        # Reshape to (natm, 3, natm, 3)
-        hessian = hessian.reshape((n_atoms, 3, n_atoms, 3))
-        # Symmetrize
-        hessian = 0.5 * (hessian + hessian.transpose(2, 3, 0, 1))
-
-        return hessian
+    # ------------------------------------------------------------------
+    # Job driver
+    # ------------------------------------------------------------------
 
     def run(self):
         if pyscf is None:
@@ -391,763 +582,576 @@ class PySCFWorker(QThread):
             return
 
         try:
-            # Prepare Output Root Directory
-            root_dir = self.config.get("out_dir", None)
-            if not root_dir:
-                root_dir = os.path.join(
-                    os.path.dirname(os.path.abspath(__file__)), "output"
-                )
-
-            # Create Job Subdirectory (job_1, job_2...) within root
-            n = 1
-            while True:
-                out_dir = os.path.join(root_dir, f"job_{n}")
-                if not os.path.exists(out_dir):
-                    break
-                n += 1
-
-            os.makedirs(out_dir, exist_ok=True)
-            self.out_dir = out_dir
-
-            # Notify user of new location
-            # Note: signal might not be connected yet? No, it's defined.
-            # But GUI connection happens before start().
-
-            # Setup Logging (Standard Name)
-            log_file = os.path.join(out_dir, "pyscf.out")
-
-            # C-Level Redirection (CaptureStdOut)
-            capturer = CaptureStdOut(log_file)
-            f_log = capturer.__enter__()
-
-            # Python Redirection
-            original_stdout = sys.stdout
-            original_stderr = sys.stderr
-            stream = StreamToSignal(self.log_signal, target_stream=f_log)
-            self._stream = (
-                stream  # Exposed so GUI can call stream.close() before terminate()
-            )
-            sys.stdout = stream
-            sys.stderr = stream
-
-            # Configure Threads
-            n_threads = self.config.get("threads", 0)
-            if n_threads > 0:
-                pyscf.lib.num_threads(n_threads)
-
-            # Prepare Charge and Spin (Convert M -> 2S)
-            charge = self.config.get("charge", 0)
-            spin_2s = self._parse_spin_2s()
-
-            # Setup Molecule
-            try:
-                # Compatibility: PySCF atom= expects raw atoms, not XYZ file format with headers.
-                # Strip header if present.
-                raw_xyz = self.xyz_str.strip()
-                lines = raw_xyz.split("\n")
-                if len(lines) > 2 and lines[0].strip().isdigit():
-                    # Standard XYZ: Skip Count and Comment
-                    clean_atom_str = "\n".join(lines[2:])
-                else:
-                    clean_atom_str = raw_xyz
-
-                mol = gto.M(
-                    atom=clean_atom_str,
-                    basis=self.config.get("basis", "sto-3g"),
-                    charge=charge,
-                    spin=spin_2s,
-                    verbose=4,
-                    output=None,
-                    max_memory=self.config.get("memory", 4000),
-                )
-                mol.stdout = stream
-                mol.verbose = 4
-                mol.build()
-            except (RuntimeError, ValueError) as e_mol:
-                # Catch specific PySCF errors (e.g. Spin/Charge mismatch)
-                msg = str(e_mol)
-                self.error_signal.emit(
-                    f"Molecule Build Failed: {msg}\nCheck Charge and Multiplicity settings."
-                )
-                return
-
-            # Log Parallelism Info
-            try:
-                n_threads = pyscf.lib.num_threads()
-                self.log_signal.emit(
-                    f"PySCF running with {n_threads} OpenMP threads.\n"
-                )
-            except Exception as _e:
-                logging.warning("[worker.py] silenced: %s", _e)
-
-            # --- Parameters Setup ---
-            scan_params = self.config.get("scan_params", None)
-            # ------------------------
-
-            # Select Method
-            method_name = self.config.get("method", "RHF")
-            functional = self.config.get("functional", "b3lyp")
-
-            # Auto-adjust method for Open Shell if needed
-            if spin_2s != 0:
-                if method_name == "RHF":
-                    method_name = "UHF"
-                    self.log_signal.emit("Switching to UHF due to spin != 0.\n")
-                elif method_name == "RKS":
-                    method_name = "UKS"
-                    self.log_signal.emit("Switching to UKS due to spin != 0.\n")
-
-            # --- Solvent Setup ---
-            selected_solvent = self.config.get("solvent", "None (Vacuum)")
-            use_solvent = selected_solvent != "None (Vacuum)"
-            eps_value = 0.0
-            if use_solvent:
-                eps_value = self._resolve_solvent_eps(selected_solvent)
-                self.log_signal.emit(
-                    f"Solvent Model: ddCOSMO ({selected_solvent}) eps={eps_value}\n"
-                )
-            # ---------------------
-
-            inp_file = os.path.join(out_dir, "pyscf_input.py")
-            with open(inp_file, "w") as f:
-                f.write("# PySCF Input for MoleditPy PySCF Calculator plugin\n")
-                f.write(
-                    f"# Plugin Version: {self.config.get('plugin_version', '0.0.0')}\n"
-                )
-                f.write(f"# Job Type: {self.config.get('job_type')}\n")
-                f.write(f"# Method: {method_name}\n")
-                if "KS" in method_name:
-                    f.write(f"# Functional: {functional}\n")
-                f.write(f"# Basis: {self.config.get('basis')}\n")
-                f.write(f"# Charge: {charge}\n")
-                f.write(f"# Multiplicity: {spin_2s + 1}\n")
-                f.write(f"# Threads: {n_threads}\n")
-                f.write(f"# Memory: {self.config.get('memory')} MB\n")
-                if "TDDFT" in self.config.get("job_type", ""):
-                    f.write(f"# TDN States: {self.config.get('nstates')}\n")
-                f.write(f"# Max Cycle: {self.config.get('max_cycle')}\n")
-                f.write(f"# Conv Tol: {self.config.get('conv_tol')}\n")
-
-                if scan_params:
-                    f.write("# Scan Parameters:\n")
-                    for k, v in scan_params.items():
-                        f.write(f"#   {k}: {v}\n")
-
-                if use_solvent:
-                    f.write(f"# Solvent: {selected_solvent} (eps={eps_value})\n")
-
-                f.write("\n")
-                f.write("from pyscf import gto, scf, dft\n")
-                f.write(f"mol = gto.M(atom='''{self.xyz_str}''', \n")
-                f.write(f"    basis='{self.config.get('basis')}', \n")
-                f.write(f"    charge={charge}, \n")
-                f.write(f"    spin={spin_2s}, \n")
-                f.write("    verbose=4)\n")
-                f.write("mol.build()\n")
-
-                if "KS" in method_name:
-                    f.write(f"mf = dft.{method_name}(mol)\n")
-                    f.write(f"mf.xc = '{functional}'\n")
-                else:
-                    f.write(f"mf = scf.{method_name}(mol)\n")
-
-                f.write(f"mf.max_cycle = {self.config.get('max_cycle', 100)}\n")
-                try:
-                    tol = float(self.config.get("conv_tol", "1e-9"))
-                    f.write(f"mf.conv_tol = {tol}\n")
-                except Exception as _e:
-                    logging.warning("[worker.py] silenced: %s", _e)
-
-                if use_solvent:
-                    f.write("mf = mf.ddCOSMO()\n")
-                    f.write(f"mf.with_solvent.eps = {eps_value}\n")
-
-                f.write("mf.kernel()\n")
-
-                if "TDDFT" in self.config.get("job_type", ""):
-                    f.write("\n# TDDFT Calculation\n")
-                    f.write("from pyscf import tdscf\n")
-                    f.write(
-                        f"td = tdscf.TDDFT(mf) if 'KS' in '{method_name}' else tdscf.TDHF(mf)\n"
-                    )
-                    f.write(f"td.nstates = {self.config.get('nstates', 10)}\n")
-                    f.write("td.verbose = 4\n")
-                    f.write("td.kernel()\n")
-
-            mf = self._build_mf(mol, method_name, functional)
-
-            # Ensure Checkpoint is in the new job folder
-            chk_path = os.path.join(self.out_dir, "pyscf.chk")
-            mf.chkfile = chk_path
-            self._apply_mf_settings(mf)
-
-            # Explicitly set pyscf logger stream too for global usage
-            from pyscf import lib
-
-            lib.logger.TIMER_LEVEL = 0  # Reduces some noise, or keeps it standard
-            # Note: sys.stdout/stderr are already redirected to `stream` above.
-            # The original values are saved in `original_stdout`/`original_stderr`.
-            # Do NOT re-assign original_stdout here — that would corrupt the
-            # reference needed by the outer finally block to restore real stdout.
-
-            try:
-                # Prepare job type
-                job_type = self.config.get("job_type", "Energy")
-                results = {}
-
-                # --- SCAN DISPATCH ---
-                if "Scan" in job_type:
-                    scan_params = self.config.get("scan_params", None)
-                    if not scan_params:
-                        self.error_signal.emit("Scan parameters missing.")
-                        return
-
-                    if "Rigid" in job_type:
-                        self.run_rigid_scan(mol, mf, scan_params, results)
-                    elif "Relaxed" in job_type:
-                        # Relaxed scan uses constraint optimization at each step
-                        self.run_relaxed_scan(mol, mf, scan_params, results)
-
-                    # Ensure out_dir is included for history
-                    results["out_dir"] = self.out_dir
-
-                    self.result_signal.emit(results)
-                    self.finished_signal.emit()
-                    return
-
-                if "Optimization" in job_type:
-                    is_ts = (
-                        "Transition State" in job_type or "TS Optimization" in job_type
-                    )
-
-                    if is_ts:
-                        self.log_signal.emit(
-                            f"Starting Transition State Optimization using {method_name}...\n"
-                        )
-                    else:
-                        self.log_signal.emit(
-                            f"Starting Geometry Optimization using {method_name}...\n"
-                        )
-
-                    try:
-                        from pyscf.geomopt.geometric_solver import optimize
-
-                        # Prepare kwargs for optimize
-                        opt_params = {}
-                        if is_ts:
-                            opt_params["transition"] = True
-
-                        mol_eq = optimize(mf, **opt_params)
-
-                        # Convert optimized geometry to XYZ string (in Angstroms)
-                        coords = mol_eq.atom_coords(unit="Ang")
-                        symbols = [mol_eq.atom_symbol(i) for i in range(mol_eq.natm)]
-
-                        header_comment = (
-                            "Generated by PySCF TS Optimization"
-                            if is_ts
-                            else "Generated by PySCF Optimization"
-                        )
-                        xyz_lines = [f"{len(symbols)}", header_comment]
-                        for s, c in zip(symbols, coords):
-                            xyz_lines.append(f"{s} {c[0]:.6f} {c[1]:.6f} {c[2]:.6f}")
-
-                        results["optimized_xyz"] = "\n".join(xyz_lines)
-
-                        # Re-run single point on optimized geometry for properties
-                        mf = self._build_mf(mol_eq, method_name, functional)
-
-                        if use_solvent and not hasattr(mf, "with_solvent"):
-                            mf = self._apply_solvent(mf, selected_solvent)
-
-                        # Run Energy on optimized
-                        mf.chkfile = chk_path
-                        # mf.kernel() # Will be run by next steps or explicitly
-                        mol = mol_eq  # Update main mol ref for checkfile
-
-                    except ImportError:
-                        if is_ts:
-                            self.error_signal.emit(
-                                "Transition State optimization REQUIRES 'geometric' library. Please install it (pip install geometric)."
-                            )
-                            return
-
-                        self.log_signal.emit(
-                            "\nWARNING: geometric-lib not found. Trying internal optimizer (Berny)...\n"
-                        )
-                        try:
-                            from pyscf.geomopt.berny_solver import (
-                                optimize as optimize_berny,
-                            )
-
-                            mol_eq = optimize_berny(mf)
-
-                            # Convert optimized geometry to XYZ string (in Angstroms)
-                            coords = mol_eq.atom_coords(unit="Ang")
-                            symbols = [
-                                mol_eq.atom_symbol(i) for i in range(mol_eq.natm)
-                            ]
-                            xyz_lines = [
-                                f"{len(symbols)}",
-                                "Generated by PySCF Optimization (Berny)",
-                            ]
-                            for s, c in zip(symbols, coords):
-                                xyz_lines.append(
-                                    f"{s} {c[0]:.6f} {c[1]:.6f} {c[2]:.6f}"
-                                )
-                            results["optimized_xyz"] = "\n".join(xyz_lines)
-
-                            # Recalculate energy
-                            mf.chkfile = chk_path
-                            # mf.kernel()
-                            mol = mol_eq
-                        except ImportError:
-                            self.error_signal.emit(
-                                "Neither 'geometric' nor 'berny' optimizer found. Please install 'geometric' (pip install geometric)."
-                            )
-                            return
-
-                # Ensure Energy is calculated (if not done by Opt or if detached)
-                # Optimization updates mf but we need to ensure kernel is run for properties
-                if (
-                    "Optimization" in job_type
-                    or "Energy" in job_type
-                    or "Frequency" in job_type
-                ):
-                    if not mf.e_tot:
-                        self.log_signal.emit(
-                            f"Running partial energy calculation using {method_name}...\n"
-                        )
-
-                        should_break = self.config.get("break_symmetry", True)
-
-                        # Only a spin-restricted guess needs breaking. With
-                        # spin_2s > 0 the alpha and beta occupations already
-                        # differ, so there is no symmetry left to break.
-                        if (
-                            should_break
-                            and method_name in ["UHF", "UKS"]
-                            and spin_2s == 0
-                        ):
-                            try:
-                                dm0 = self._broken_symmetry_guess(mf, mol)
-                                self.log_signal.emit(
-                                    "Applying symmetry-broken initial guess "
-                                    "(beta density removed from atom 1)...\n"
-                                )
-                                mf.kernel(dm0=dm0)
-                            except Exception as e:
-                                self.log_signal.emit(
-                                    f"WARNING: Symmetry breaking failed ({str(e)}). Proceeding with standard initial guess.\n"
-                                )
-                                mf.kernel()
-                        else:
-                            mf.kernel()
-
-                if "Frequency" in job_type:
-                    self.log_signal.emit(
-                        f"Starting Frequency Analysis using {method_name}...\n"
-                    )
-
-                    # Ensure we have a converged SCF on the current molecule
-                    if not mf.e_tot:
-                        self.log_signal.emit("Running SCF for Frequency Analysis...\n")
-                        mf.kernel()
-
-                    if not mf.converged:
-                        self.log_signal.emit(
-                            "WARNING: SCF did not converge before Frequency Analysis. Results may be inaccurate.\n"
-                        )
-
-                    self.log_signal.emit("Calculating Hessian...\n")
-                    try:
-                        hessian = None
-
-                        # Pre-emptive Skip for Solvent
-                        # User explicitly requested NO Vacuum fallback and NO numerical fallback.
-                        if use_solvent or hasattr(mf, "with_solvent"):
-                            self.log_signal.emit(
-                                "NOTE: Frequency analysis is skipped for Solvent calculations (Not Supported).\n"
-                            )
-                            self.log_signal.emit(
-                                "      (Analytic Hessian unavailable; Vacuum approximation disabled by user request.)\n"
-                            )
-                            raise Exception(
-                                "Frequency Analysis Skipped (Solvent Not Supported)"
-                            )
-
-                        # Standard Calculation
-                        try:
-                            h_obj = mf.Hessian()
-                            hessian = h_obj.kernel()
-                        except (AttributeError, KeyError) as e:
-                            raise e
-
-                        from pyscf.hessian import thermo
-
-                        self.log_signal.emit("Performing Harmonic Analysis...\n")
-                        freq_res = thermo.harmonic_analysis(mol, hessian)
-
-                        # Calculate Thermo
-                        self.log_signal.emit(
-                            "Calculating Thermodynamic Properties...\n"
-                        )
-                        # Ensure temp/pressure are floats
-                        T = float(self.config.get("temperature", 298.15))
-                        P = float(self.config.get("pressure", 101325))
-                        t_data = thermo.thermo(
-                            mf, freq_res["freq_au"], temperature=T, pressure=P
-                        )
-
-                        # Store data for GUI Visualizer
-                        # Check for IR intensity (not always available in standard harmonic_analysis)
-                        intensities = freq_res.get("infra_red_intensity", None)
-
-                        # Process Frequencies: Handle imaginary (complex) values -> negative reals
-                        raw_freqs = freq_res["freq_wavenumber"]
-                        processed_freqs = []
-                        if hasattr(raw_freqs, "tolist"):
-                            raw_freqs = raw_freqs.tolist()
-
-                        for f in raw_freqs:
-                            if isinstance(f, complex):
-                                if f.imag != 0:
-                                    processed_freqs.append(-abs(f.imag))
-                                else:
-                                    processed_freqs.append(f.real)
-                            else:
-                                processed_freqs.append(float(f))
-
-                        results["freq_data"] = {
-                            "freqs": processed_freqs,
-                            "modes": freq_res["norm_mode"].tolist(),
-                            "intensities": intensities.tolist()
-                            if hasattr(intensities, "tolist")
-                            else intensities,
-                        }
-                        self.log_signal.emit("Frequency Analysis Completed.\n")
-
-                        # Store Thermo
-                        if t_data:
-                            # Robust conversion function for JSON serialization
-                            def make_json_safe(obj):
-                                if obj is None:
-                                    return None
-                                if isinstance(obj, (bool, int, str)):
-                                    return obj
-                                if isinstance(obj, float):
-                                    if math.isnan(obj) or math.isinf(obj):
-                                        return None
-                                    return obj
-                                if hasattr(obj, "tolist"):  # numpy array
-                                    obj = obj.tolist()
-                                if isinstance(obj, (list, tuple)):
-                                    return [make_json_safe(item) for item in obj]
-                                if isinstance(obj, dict):
-                                    return {
-                                        k: make_json_safe(v) for k, v in obj.items()
-                                    }
-                                # Fallback: convert to string
-                                return str(obj)
-
-                            results["thermo_data"] = make_json_safe(t_data)
-
-                        # Save freq_data and thermo_data to JSON file
-                        freq_json_path = os.path.join(
-                            self.out_dir, "freq_analysis.json"
-                        )
-                        try:
-                            # Custom JSON encoder to handle all edge cases
-                            class SafeEncoder(json.JSONEncoder):
-                                def default(self, obj):
-                                    if hasattr(obj, "tolist"):
-                                        return obj.tolist()
-                                    if isinstance(obj, (np.integer, np.floating)):
-                                        return obj.item()
-                                    if isinstance(obj, float):
-                                        if math.isnan(obj) or math.isinf(obj):
-                                            return None
-                                        return obj
-                                    if isinstance(obj, tuple):
-                                        return list(obj)
-                                    return str(obj)
-
-                            save_data = {}
-                            if "freq_data" in results:
-                                save_data["freq_data"] = results["freq_data"]
-                            if "thermo_data" in results:
-                                save_data["thermo_data"] = results["thermo_data"]
-
-                            with open(freq_json_path, "w") as f:
-                                json.dump(save_data, f, indent=2, cls=SafeEncoder)
-                            self.log_signal.emit(
-                                f"Frequency data saved to: {freq_json_path}\n"
-                            )
-                        except Exception as e_save:
-                            self.log_signal.emit(
-                                f"Warning: Failed to save frequency JSON: {e_save}\n"
-                            )
-                            self.log_signal.emit(traceback.format_exc())
-
-                    except Exception as e_freq:
-                        if "Skipped" in str(e_freq):
-                            self.log_signal.emit(f"Note: {e_freq}\n")
-                        else:
-                            self.log_signal.emit(
-                                f"Frequency analysis failed: {e_freq}\n{traceback.format_exc()}\n"
-                            )
-
-                if "TDDFT" in job_type:
-                    self.log_signal.emit("Starting TDDFT Calculation...\n")
-                    if not mf.e_tot:
-                        self.log_signal.emit("Running SCF for TDDFT...\n")
-                        mf.kernel()
-
-                    if not mf.converged:
-                        self.log_signal.emit(
-                            "WARNING: SCF did not converge before TDDFT. Results may be inaccurate.\n"
-                        )
-
-                    try:
-                        from pyscf import tdscf
-
-                        # Select TDDFT Method
-                        # For RHF/UHF -> TDHF
-                        # For RKS/UKS -> TDDFT (or TDA)
-
-                        td_obj = None
-
-                        # Simple dispatch based on MF class is usually safer if unsure
-                        # But explicit class usage allows TDA control if we add it later
-
-                        if "KS" in method_name:  # RKS, UKS or ROKS
-                            # Default to full TDDFT
-                            # Could use TDA if we add an option later: tdscf.TDA(mf)
-                            td_obj = tdscf.TDDFT(mf)
-                        else:  # HF
-                            td_obj = tdscf.TDHF(mf)
-
-                        nstates = int(self.config.get("nstates", 10))
-                        td_obj.nstates = nstates
-                        td_obj.verbose = 4
-                        # Redirect output? td_obj uses lib.logger which respects global stream we set?
-                        # Or explicitly set stdout
-                        try:
-                            td_obj.stdout = stream
-                        except Exception as _e:
-                            logging.warning("[worker.py] silenced: %s", _e)
-
-                        self.log_signal.emit(
-                            f"Calculating {nstates} Excited States...\n"
-                        )
-                        td_obj.kernel()
-
-                        self.log_signal.emit("\n===== TDDFT Results =====\n")
-                        self.log_signal.emit(
-                            f"{'State':<6} {'Energy (eV)':<12} {'Wavelen (nm)':<12} {'Osc. Str.':<10}\n"
-                        )
-                        self.log_signal.emit("-" * 45 + "\n")
-
-                        # Results Extraction
-                        # td_obj.e_tot are total energies of Excited States
-                        # Excitation Energy = E_exc_state - E_ground_state
-
-                        energies_exc = td_obj.e_tot
-                        # e_tot can be a list or numpy array
-                        if hasattr(energies_exc, "tolist"):
-                            energies_exc = energies_exc.tolist()
-                        elif isinstance(energies_exc, float):
-                            energies_exc = [energies_exc]
-
-                        # Oscillator Strengths
-                        try:
-                            oscs = td_obj.oscillator_strength()
-                            if hasattr(oscs, "tolist"):
-                                oscs = oscs.tolist()
-                            if isinstance(oscs, float):
-                                oscs = [oscs]
-                        except Exception:
-                            oscs = [0.0] * len(energies_exc)
-
-                        HARTREE_TO_EV = 27.2114
-                        e_ground = mf.e_tot
-
-                        tddft_list = []
-
-                        for i, e_exc_tot in enumerate(energies_exc):
-                            exc_energy_au = e_exc_tot - e_ground
-                            exc_ev = exc_energy_au * HARTREE_TO_EV
-
-                            if abs(exc_ev) > 1e-6:
-                                exc_nm = _HC_EV_NM / exc_ev
-                            else:
-                                exc_nm = float("inf")
-
-                            osc = oscs[i] if i < len(oscs) else 0.0
-
-                            self.log_signal.emit(
-                                f"{i + 1:<6} {exc_ev:<12.4f} {exc_nm:<12.2f} {osc:<10.4f}\n"
-                            )
-
-                            tddft_list.append(
-                                {
-                                    "state": i + 1,
-                                    "energy_total": e_exc_tot,
-                                    "excitation_energy_ev": exc_ev,
-                                    "wavelength_nm": exc_nm,
-                                    "oscillator_strength": osc,
-                                }
-                            )
-
-                        results["tddft_data"] = tddft_list
-                        self.log_signal.emit("-" * 45 + "\n")
-
-                        # --- Persist Results to Files ---
-                        # Save as text
-                        try:
-                            res_file = os.path.join(self.out_dir, "tddft_results.txt")
-                            with open(res_file, "w") as f:
-                                f.write(
-                                    f"{'State':<6} {'Energy (eV)':<12} {'Wavelen (nm)':<12} {'Osc. Str.':<10}\n"
-                                )
-                                f.write("-" * 45 + "\n")
-                                for item in tddft_list:
-                                    f.write(
-                                        f"{item['state']:<6} {item['excitation_energy_ev']:<12.4f} {item['wavelength_nm']:<12.2f} {item['oscillator_strength']:<10.4f}\n"
-                                    )
-                            self.log_signal.emit(
-                                f"TDDFT results saved to: {res_file}\n"
-                            )
-                        except Exception as e_save:
-                            self.log_signal.emit(
-                                f"Warning: Failed to save TDDFT text result: {e_save}\n"
-                            )
-
-                        # Save as JSON for reloading
-                        try:
-                            json_file = os.path.join(self.out_dir, "tddft_results.json")
-                            with open(json_file, "w") as f:
-                                json.dump({"tddft_data": tddft_list}, f, indent=2)
-                            self.log_signal.emit(
-                                f"TDDFT results saved to: {json_file}\n"
-                            )
-                        except Exception as e_json:
-                            self.log_signal.emit(
-                                f"Warning: Failed to save TDDFT JSON: {e_json}\n"
-                            )
-
-                    except Exception as e_td:
-                        self.log_signal.emit(
-                            f"TDDFT calculation failed: {e_td}\n{traceback.format_exc()}\n"
-                        )
-
-                if "Energy" == job_type:  # Only Energy
-                    # Already handled by top block but ensuring...
-                    if not mf.e_tot:
-                        mf.kernel()
-
-                # --- SAVE CHECKPOINT (ALWAYS) ---
-                # Checkpoint is already set to self.out_dir/pyscf.chk and written by mf.kernel()
-
-                chk_path = os.path.join(self.out_dir, "pyscf.chk")
-
-                results.update({"chkfile": chk_path, "out_dir": self.out_dir})
-
-                is_uhf = False
-                # Match LoadWorker's labels: restricted open-shell (ROHF/ROKS)
-                # is reported as "ROKS" since consumers only distinguish
-                # RHF / UHF / ROKS.
-                restricted_type = "ROKS" if method_name in ("ROHF", "ROKS") else "RHF"
-
-                # Defensive check for None
-                if mf.mo_energy is None or mf.mo_occ is None:
-                    self.log_signal.emit(
-                        "Warning: No MO energy/occupancy data found.\n"
-                    )
-                    results["mo_energy"] = []
-                    results["mo_occ"] = []
-                    results["scf_type"] = restricted_type
-                else:
-                    if isinstance(mf.mo_energy, tuple):
-                        is_uhf = True
-                    elif isinstance(mf.mo_energy, list) and len(mf.mo_energy) == 2:
-                        # Check content types?
-                        if hasattr(mf.mo_energy[0], "__len__"):
-                            is_uhf = True
-                    elif hasattr(mf.mo_energy, "ndim") and mf.mo_energy.ndim == 2:
-                        is_uhf = True
-
-                    try:
-                        if is_uhf:
-                            if isinstance(mf.mo_energy, tuple):
-                                e_a, e_b = mf.mo_energy
-                                o_a, o_b = mf.mo_occ
-                            else:
-                                e_a = mf.mo_energy[0]
-                                e_b = mf.mo_energy[1] if len(mf.mo_energy) > 1 else []
-                                o_a = mf.mo_occ[0]
-                                o_b = mf.mo_occ[1] if len(mf.mo_occ) > 1 else []
-
-                            results["mo_energy"] = [
-                                self._to_list(e_a),
-                                self._to_list(e_b),
-                            ]
-                            results["mo_occ"] = [self._to_list(o_a), self._to_list(o_b)]
-                            results["scf_type"] = "UHF"
-                        else:
-                            results["mo_energy"] = self._to_list(mf.mo_energy)
-                            results["mo_occ"] = self._to_list(mf.mo_occ)
-                            results["scf_type"] = restricted_type
-                    except Exception as e_process:
-                        self.log_signal.emit(f"Error processing MO data: {e_process}\n")
-                        results["mo_energy"] = []
-                        results["mo_occ"] = []
-
-                self.log_signal.emit(f"Checkpoint saved to: {chk_path}\n")
-
-                results["cube_files"] = []
-                self.result_signal.emit(results)
-                self.finished_signal.emit()
-
-            except Exception as e:
-                traceback.print_exc()
-                # Do not emit error_signal for user-initiated stops — the signal
-                # is already disconnected, but emitting an InterruptedError as an
-                # error dialog would be confusing/wrong.
-                if not self._stop_requested:
-                    self.error_signal.emit(str(e))
-                else:
-                    logging.info("[worker.py] Calculation stopped by user: %s", e)
-            finally:
-                # CRITICAL: Close/destroy the StreamToSignal BEFORE restoring streams.
-                # This prevents delayed print() calls from trying to emit signals
-                # after Worker cleanup, which causes segmentation faults.
-                if "stream" in locals() and hasattr(stream, "close"):
-                    try:
-                        stream.close()  # Marks _destroyed = True
-                    except Exception as _e:
-                        logging.warning("[worker.py] silenced stream.close: %s", _e)
-                self._stream = None  # Release GUI-facing reference
-
-        except Exception as e:
+            self.out_dir = self._make_job_dir()
+            log_file = os.path.join(self.out_dir, "pyscf.out")
+            with redirected_output(self, log_file) as stream:
+                self._run_job(stream)
+        except Exception as e:  # noqa: BLE001 -- thread boundary: report, never raise
             self.error_signal.emit(str(e) + "\n" + traceback.format_exc())
 
-        finally:
-            # Restore Python streams (Crucial for preventing threads crashing on reuse)
-            if "original_stdout" in locals():
-                sys.stdout = original_stdout
-            if "original_stderr" in locals():
-                sys.stderr = original_stderr
+    def _make_job_dir(self):
+        """A fresh job_<n> directory under the configured output root."""
+        root_dir = self.config.get("out_dir") or os.path.join(
+            os.path.dirname(os.path.abspath(__file__)), "output"
+        )
+        n = 1
+        while os.path.exists(os.path.join(root_dir, f"job_{n}")):
+            n += 1
+        out_dir = os.path.join(root_dir, f"job_{n}")
+        os.makedirs(out_dir, exist_ok=True)
+        return out_dir
 
-            # Restore C-Level FDs
-            if "capturer" in locals():
-                try:
-                    capturer.__exit__(None, None, None)
-                except Exception as _e:
-                    logging.warning("[worker.py] silenced: %s", _e)
+    def _run_job(self, stream):
+        n_threads = self.config.get("threads", 0)
+        if n_threads > 0:
+            pyscf.lib.num_threads(n_threads)
+
+        built = self._build_molecule(stream)
+        if built is None:
+            return
+        mol, clean_atom_str = built
+
+        try:
+            self._log(f"PySCF running with {pyscf.lib.num_threads()} OpenMP threads.\n")
+        except Exception as _e:  # noqa: BLE001 -- informational only
+            logger.warning("thread count unavailable: %s", _e)
+
+        method_name = self._resolve_method()
+        functional = self.config.get("functional", "b3lyp")
+        # The scans rebuild mf per point and must use the same (possibly
+        # open-shell-switched) method as the rest of the job.
+        self._method_name = method_name
+
+        disp_error = self._check_dispersion_setup(method_name, functional)
+        if disp_error:
+            self.error_signal.emit(disp_error)
+            return
+        if self._dispersion():
+            self._log(f"Dispersion correction: {self.config.get('dispersion')}\n")
+
+        solvent = self.config.get("solvent", "None (Vacuum)")
+        use_solvent = solvent != "None (Vacuum)"
+        eps_value = self._resolve_solvent_eps(solvent) if use_solvent else 0.0
+        if use_solvent:
+            self._log(f"Solvent Model: ddCOSMO ({solvent}) eps={eps_value}\n")
+
+        self._write_input_script(
+            clean_atom_str, method_name, functional, mol, n_threads, eps_value
+        )
+
+        chk_path = os.path.join(self.out_dir, "pyscf.chk")
+        mf = self._new_job_mf(mol, method_name, functional, chk_path)
+
+        from pyscf import lib
+
+        lib.logger.TIMER_LEVEL = 0
+
+        job_type = self.config.get("job_type", "Energy")
+        try:
+            if "Scan" in job_type:
+                self._run_scan_job(mol, mf, job_type)
+                return
+
+            results = {}
+            if "Optimization" in job_type:
+                mol = self._optimize(mf, job_type, method_name, results)
+                if mol is None:
+                    return
+                # The optimizers drive a scanner copy and leave `mf` at the
+                # starting geometry: the properties SCF needs a fresh mf.
+                mf = self._new_job_mf(mol, method_name, functional, chk_path)
+
+            if any(k in job_type for k in ("Optimization", "Energy", "Frequency")):
+                self._run_scf(mf, mol, method_name)
+            if "Frequency" in job_type:
+                self._run_frequency(mf, mol, job_type, method_name, results)
+            if "TDDFT" in job_type:
+                self._run_tddft(mf, method_name, stream, results)
+
+            self._finish(mf, chk_path, results)
+
+        except Exception as e:  # noqa: BLE001 -- thread boundary: report, never raise
+            traceback.print_exc()
+            # A user stop has already disconnected the signals; an
+            # InterruptedError dialog would be wrong.
+            if not self._stop_requested:
+                self.error_signal.emit(str(e))
+            else:
+                logger.info("Calculation stopped by user: %s", e)
+
+    def _build_molecule(self, stream):
+        """(mol, header-stripped atom block), or None after reporting."""
+        # PySCF's atom= takes raw atom lines, not an XYZ file's header.
+        lines = self.xyz_str.strip().split("\n")
+        if len(lines) > 2 and lines[0].strip().isdigit():
+            clean_atom_str = "\n".join(lines[2:])
+        else:
+            clean_atom_str = self.xyz_str.strip()
+        try:
+            mol = gto.M(
+                atom=clean_atom_str,
+                basis=self.config.get("basis", "sto-3g"),
+                charge=self.config.get("charge", 0),
+                spin=self._parse_spin_2s(),
+                verbose=4,
+                output=None,
+                max_memory=self.config.get("memory", 4000),
+                # Point-group symmetry. PySCF keeps the input frame, so
+                # cubes and modes still line up with the editor geometry.
+                symmetry=bool(self.config.get("symmetry", False)),
+            )
+            mol.stdout = stream
+            mol.verbose = 4
+            mol.build()
+        except (RuntimeError, ValueError) as e_mol:
+            # e.g. a charge / multiplicity that the electron count forbids
+            self.error_signal.emit(
+                f"Molecule Build Failed: {e_mol}\nCheck Charge and Multiplicity settings."
+            )
+            return None
+        if mol.symmetry:
+            self._log(f"Point-group symmetry: {mol.topgroup} (using {mol.groupname})\n")
+        return mol, clean_atom_str
+
+    def _resolve_method(self):
+        """The configured method, switched to UHF/UKS for an open shell."""
+        method_name = self.config.get("method", "RHF")
+        if self._parse_spin_2s() != 0:
+            if method_name == "RHF":
+                self._log("Switching to UHF due to spin != 0.\n")
+                return "UHF"
+            if method_name == "RKS":
+                self._log("Switching to UKS due to spin != 0.\n")
+                return "UKS"
+        return method_name
+
+    def _new_job_mf(self, mol, method_name, functional, chk_path):
+        """The job's mean-field object: solvent, SCF settings, checkpoint.
+        Every job type starts from it (the optimizer included)."""
+        mf = self._new_step_mf(mol, method_name, functional)
+        mf.chkfile = chk_path
+        return mf
+
+    def _write_input_script(
+        self, clean_atom_str, method_name, functional, mol, n_threads, eps_value
+    ):
+        """pyscf_input.py: a standalone script that reproduces the SCF."""
+        cfg = self.config
+        job_type = cfg.get("job_type", "")
+        spin_2s = self._parse_spin_2s()
+        solvent = cfg.get("solvent", "None (Vacuum)")
+        header = [
+            "# PySCF Input for MoleditPy PySCF Calculator plugin",
+            f"# Plugin Version: {cfg.get('plugin_version', '0.0.0')}",
+            f"# Job Type: {cfg.get('job_type')}",
+            f"# Method: {method_name}",
+        ]
+        if "KS" in method_name:
+            header.append(f"# Functional: {functional}")
+        header += [
+            f"# Basis: {cfg.get('basis')}",
+            f"# Charge: {cfg.get('charge', 0)}",
+            f"# Multiplicity: {spin_2s + 1}",
+            f"# Threads: {n_threads}",
+            f"# Memory: {cfg.get('memory')} MB",
+        ]
+        if "TDDFT" in job_type:
+            header.append(f"# TDN States: {cfg.get('nstates')}")
+        header += [
+            f"# Max Cycle: {cfg.get('max_cycle')}",
+            f"# Conv Tol: {cfg.get('conv_tol')}",
+        ]
+        if cfg.get("scan_params"):
+            header.append("# Scan Parameters:")
+            header += [f"#   {k}: {v}" for k, v in cfg["scan_params"].items()]
+        if solvent != "None (Vacuum)":
+            header.append(f"# Solvent: {solvent} (eps={eps_value})")
+
+        body = [
+            "",
+            f"from pyscf import gto, {'dft' if 'KS' in method_name else 'scf'}",
+            f"mol = gto.M(atom='''{clean_atom_str}''', ",
+            f"    basis='{cfg.get('basis')}', ",
+            f"    charge={cfg.get('charge', 0)}, ",
+            f"    spin={spin_2s}, ",
+            f"    max_memory={cfg.get('memory', 4000)}, ",
+        ]
+        if cfg.get("symmetry", False):
+            body.append("    symmetry=True, ")
+        body.append("    verbose=4)")
+        if "KS" in method_name:
+            grid_level = cfg.get("grid_level", 3)
+            body += [
+                f"mf = dft.{method_name}(mol)",
+                f"mf.xc = '{resolve_xc(functional)}'",
+                f"mf.grids.level = {grid_level}",
+            ]
+            if grid_level >= 4:
+                body.append("mf.grids.prune = False")
+        else:
+            body.append(f"mf = scf.{method_name}(mol)")
+        if self._dispersion():
+            body.append(f"mf.disp = '{self._dispersion()}'")
+        body.append(f"mf.max_cycle = {cfg.get('max_cycle', 100)}")
+        try:
+            body.append(f"mf.conv_tol = {float(cfg.get('conv_tol', '1e-9'))}")
+        except (TypeError, ValueError):
+            logger.warning("conv_tol %r is not a number", cfg.get("conv_tol"))
+        if solvent != "None (Vacuum)":
+            body += ["mf = mf.ddCOSMO()", f"mf.with_solvent.eps = {eps_value}"]
+        body.append("mf.kernel()")
+        if "TDDFT" in job_type:
+            body += [
+                "",
+                "# TDDFT Calculation",
+                "from pyscf import tdscf",
+                f"td = tdscf.TDDFT(mf) if 'KS' in '{method_name}' else tdscf.TDHF(mf)",
+                f"td.nstates = {cfg.get('nstates', 10)}",
+                "td.verbose = 4",
+                "td.kernel()",
+            ]
+        with open(
+            os.path.join(self.out_dir, "pyscf_input.py"), "w", encoding="utf-8"
+        ) as f:
+            f.write("\n".join(header + body) + "\n")
+
+    def _run_scan_job(self, mol, mf, job_type):
+        scan_params = self.config.get("scan_params")
+        if not scan_params:
+            self.error_signal.emit("Scan parameters missing.")
+            return
+        results = {}
+        if "Rigid" in job_type:
+            self.run_rigid_scan(mol, mf, scan_params, results)
+        elif "Relaxed" in job_type:
+            self.run_relaxed_scan(mol, mf, scan_params, results)
+
+        results["out_dir"] = self.out_dir
+        # What was scanned, so the profile plot can label its axis (also
+        # after a reload).
+        results["scan_type"] = scan_params.get("type", "Coordinate")
+        try:
+            with open(
+                os.path.join(self.out_dir, "scan_info.json"), "w", encoding="utf-8"
+            ) as fh:
+                json.dump(scan_params, fh, indent=2)
+        except OSError as e_info:
+            logger.warning("scan_info.json not written: %s", e_info)
+
+        self.result_signal.emit(results)
+        self.finished_signal.emit()
+
+    def _optimize(self, mf, job_type, method_name, results):
+        """Optimise (TS or minimum): the optimised mol, or None after reporting."""
+        is_ts = "Transition State" in job_type or "TS Optimization" in job_type
+        kind = "Transition State Optimization" if is_ts else "Geometry Optimization"
+        self._log(f"Starting {kind} using {method_name}...\n")
+
+        try:
+            from pyscf.geomopt.geometric_solver import optimize
+
+            mol_eq = optimize(mf, **({"transition": True} if is_ts else {}))
+            header = (
+                "Generated by PySCF TS Optimization"
+                if is_ts
+                else "Generated by PySCF Optimization"
+            )
+        except ImportError:
+            if is_ts:
+                self.error_signal.emit(
+                    "Transition State optimization REQUIRES 'geometric' library. Please install it (pip install geometric)."
+                )
+                return None
+            self._log(
+                "\nWARNING: geometric-lib not found. Trying internal optimizer (Berny)...\n"
+            )
+            try:
+                from pyscf.geomopt.berny_solver import optimize as optimize_berny
+
+                mol_eq = optimize_berny(mf)
+                header = "Generated by PySCF Optimization (Berny)"
+            except ImportError:
+                self.error_signal.emit(
+                    "Neither 'geometric' nor 'berny' optimizer found. Please install 'geometric' (pip install geometric)."
+                )
+                return None
+
+        coords = mol_eq.atom_coords(unit="Ang")
+        xyz_lines = [f"{mol_eq.natm}", header]
+        for i, c in enumerate(coords):
+            xyz_lines.append(
+                f"{mol_eq.atom_symbol(i)} {c[0]:.6f} {c[1]:.6f} {c[2]:.6f}"
+            )
+        results["optimized_xyz"] = "\n".join(xyz_lines)
+        return mol_eq
+
+    def _run_scf(self, mf, mol, method_name):
+        """The job's SCF (skipped if already run), broken-symmetry guess
+        for a closed-shell UHF/UKS when asked, convergence warning."""
+        if mf.e_tot:
+            return
+        self._log(f"Running partial energy calculation using {method_name}...\n")
+        # Only a spin-restricted guess needs breaking. With 2S > 0 the alpha
+        # and beta occupations already differ.
+        if (
+            self.config.get("break_symmetry", True)
+            and method_name in ("UHF", "UKS")
+            and self._parse_spin_2s() == 0
+        ):
+            try:
+                dm0 = self._broken_symmetry_guess(mf, mol)
+            except Exception as e:  # noqa: BLE001 -- fall back to the standard guess
+                self._log(
+                    f"WARNING: Symmetry breaking failed ({e}). Proceeding with standard initial guess.\n"
+                )
+                mf.kernel()
+            else:
+                self._log(
+                    "Applying symmetry-broken initial guess "
+                    "(beta density removed from atom 1)...\n"
+                )
+                mf.kernel(dm0=dm0)
+        else:
+            mf.kernel()
+
+        # Energy / Optimization jobs used to report an unconverged SCF
+        # energy without a word.
+        if not getattr(mf, "converged", True):
+            self._log(
+                f"WARNING: SCF did not converge within {mf.max_cycle} cycles; "
+                "the energy and orbitals are not reliable.\n"
+            )
+
+    def _hessian(self, mf, mol):
+        """Analytic or (by choice) finite-difference Hessian. Raises
+        _FrequencySkipped when a solvated job has no usable solvent Hessian."""
+        if self._wants_numerical_hessian():
+            return self._numerical_hessian_obj(mf, mol).kernel()
+        h_obj = mf.Hessian()
+        if not (self._use_solvent() or hasattr(mf, "with_solvent")):
+            return h_obj.kernel()
+        # Only a Hessian carrying the solvent response is acceptable --
+        # never vacuum frequencies for a solvated structure. PySCF 2.14 has
+        # one for PCM, but its ddCOSMO class fails inside kernel(), so it is
+        # tried and a failure becomes a clean skip.
+        if self._is_solvent_hessian(h_obj):
+            try:
+                return h_obj.kernel()
+            except Exception as e_sh:  # noqa: BLE001 -- any failure means "unavailable"
+                logger.info("analytic solvent Hessian failed: %s", e_sh)
+        self._log(
+            "NOTE: Frequency analysis is skipped: no working analytic Hessian "
+            "for this solvent model in this PySCF. Choose 'Hessian: Numerical' "
+            "to compute it by finite differences.\n"
+        )
+        raise _FrequencySkipped("Frequency Analysis Skipped (Solvent Not Supported)")
+
+    def _use_solvent(self):
+        return self.config.get("solvent", "None (Vacuum)") != "None (Vacuum)"
+
+    def _run_frequency(self, mf, mol, job_type, method_name, results):
+        self._log(f"Starting Frequency Analysis using {method_name}...\n")
+        if not mf.e_tot:
+            self._log("Running SCF for Frequency Analysis...\n")
+            mf.kernel()
+        if not mf.converged:
+            self._log(
+                "WARNING: SCF did not converge before Frequency Analysis. Results may be inaccurate.\n"
+            )
+
+        self._log("Calculating Hessian...\n")
+        try:
+            hessian = self._hessian(mf, mol)
+
+            from pyscf.hessian import thermo
+
+            self._log("Performing Harmonic Analysis...\n")
+            freq_res = thermo.harmonic_analysis(mol, hessian)
+
+            self._log("Calculating Thermodynamic Properties...\n")
+            t_data = thermo.thermo(
+                mf,
+                freq_res["freq_au"],
+                temperature=float(self.config.get("temperature", 298.15)),
+                pressure=float(self.config.get("pressure", 101325)),
+            )
+
+            # Imaginary frequencies come back complex: store them as negative
+            freqs = []
+            raw = freq_res["freq_wavenumber"]
+            for f in raw.tolist() if hasattr(raw, "tolist") else raw:
+                if isinstance(f, complex):
+                    freqs.append(-abs(f.imag) if f.imag != 0 else f.real)
+                else:
+                    freqs.append(float(f))
+
+            intensities = freq_res.get("infra_red_intensity")
+            results["freq_data"] = {
+                "freqs": freqs,
+                "modes": freq_res["norm_mode"].tolist(),
+                "intensities": _as_list(intensities)
+                if intensities is not None
+                else None,
+                "n_imaginary": self._report_imaginary_modes(freqs, job_type),
+            }
+            self._log("Frequency Analysis Completed.\n")
+            if t_data:
+                results["thermo_data"] = _json_safe(t_data)
+
+            freq_json_path = os.path.join(self.out_dir, "freq_analysis.json")
+            save_data = {
+                k: results[k] for k in ("freq_data", "thermo_data") if k in results
+            }
+            try:
+                with open(freq_json_path, "w", encoding="utf-8") as f:
+                    json.dump(_json_safe(save_data), f, indent=2)
+                self._log(f"Frequency data saved to: {freq_json_path}\n")
+            except (OSError, TypeError, ValueError) as e_save:
+                self._log(f"Warning: Failed to save frequency JSON: {e_save}\n")
+
+        except _FrequencySkipped as e_skip:
+            self._log(f"Note: {e_skip}\n")
+        except Exception as e_freq:  # noqa: BLE001 -- a failed Hessian must not lose the SCF result
+            self._log(
+                f"Frequency analysis failed: {e_freq}\n{traceback.format_exc()}\n"
+            )
+            if not self._wants_numerical_hessian() and isinstance(
+                e_freq, (NotImplementedError, AttributeError)
+            ):
+                self._log(
+                    "HINT: no analytic Hessian for this method; "
+                    "choose 'Hessian: Numerical' and rerun.\n"
+                )
+
+    def _run_tddft(self, mf, method_name, stream, results):
+        self._log("Starting TDDFT Calculation...\n")
+        if not mf.e_tot:
+            self._log("Running SCF for TDDFT...\n")
+            mf.kernel()
+        if not mf.converged:
+            self._log(
+                "WARNING: SCF did not converge before TDDFT. Results may be inaccurate.\n"
+            )
+
+        try:
+            from pyscf import tdscf
+
+            # TDDFT for KS references (RKS/UKS/ROKS), TDHF for HF ones
+            td_obj = tdscf.TDDFT(mf) if "KS" in method_name else tdscf.TDHF(mf)
+            nstates = int(self.config.get("nstates", 10))
+            td_obj.nstates = nstates
+            td_obj.verbose = 4
+            td_obj.stdout = stream
+
+            self._log(f"Calculating {nstates} Excited States...\n")
+            td_obj.kernel()
+
+            tddft_list = self._tddft_rows(td_obj, mf.e_tot)
+            results["tddft_data"] = tddft_list
+            self._save_tddft(tddft_list)
+        except Exception as e_td:  # noqa: BLE001 -- a failed TDDFT must not lose the SCF result
+            self._log(f"TDDFT calculation failed: {e_td}\n{traceback.format_exc()}\n")
+
+    _TDDFT_HEADER = (
+        f"{'State':<6} {'Energy (eV)':<12} {'Wavelen (nm)':<12} {'Osc. Str.':<10}"
+    )
+
+    def _tddft_rows(self, td_obj, e_ground):
+        """Per-state rows (logged as a table): eV, nm, oscillator strength."""
+        energies_exc = _as_list(td_obj.e_tot)
+        if isinstance(energies_exc, float):
+            energies_exc = [energies_exc]
+        try:
+            oscs = _as_list(td_obj.oscillator_strength())
+            if isinstance(oscs, float):
+                oscs = [oscs]
+        except Exception:  # noqa: BLE001 -- oscillator strengths are optional
+            oscs = [0.0] * len(energies_exc)
+
+        # td.e holds the excitation energies directly; fall back to
+        # differencing total energies only without it.
+        exc_au = getattr(td_obj, "e", None)
+        if exc_au is None or np.ndim(exc_au) != 1:
+            exc_au = [e - e_ground for e in energies_exc]
+        exc_au = [float(x) for x in exc_au]
+
+        td_conv = getattr(td_obj, "converged", None)
+        if td_conv is not None and not np.all(td_conv):
+            self._log(
+                "WARNING: not all excited states converged; "
+                "treat the affected states with caution.\n"
+            )
+
+        self._log("\n===== TDDFT Results =====\n")
+        self._log(self._TDDFT_HEADER + "\n" + "-" * 45 + "\n")
+        rows = []
+        for i, e_exc_tot in enumerate(energies_exc):
+            exc_ev = exc_au[i] * _HARTREE_TO_EV
+            exc_nm = _HC_EV_NM / exc_ev if abs(exc_ev) > 1e-6 else float("inf")
+            osc = oscs[i] if i < len(oscs) else 0.0
+            self._log(f"{i + 1:<6} {exc_ev:<12.4f} {exc_nm:<12.2f} {osc:<10.4f}\n")
+            rows.append(
+                {
+                    "state": i + 1,
+                    "energy_total": e_exc_tot,
+                    "excitation_energy_ev": exc_ev,
+                    "wavelength_nm": exc_nm,
+                    "oscillator_strength": osc,
+                }
+            )
+        self._log("-" * 45 + "\n")
+        return rows
+
+    def _save_tddft(self, rows):
+        """tddft_results.txt (table) and tddft_results.json (for reloading)."""
+        res_file = os.path.join(self.out_dir, "tddft_results.txt")
+        try:
+            with open(res_file, "w", encoding="utf-8") as f:
+                f.write(self._TDDFT_HEADER + "\n" + "-" * 45 + "\n")
+                f.writelines(
+                    f"{r['state']:<6} {r['excitation_energy_ev']:<12.4f} "
+                    f"{r['wavelength_nm']:<12.2f} {r['oscillator_strength']:<10.4f}\n"
+                    for r in rows
+                )
+            self._log(f"TDDFT results saved to: {res_file}\n")
+        except OSError as e_save:
+            self._log(f"Warning: Failed to save TDDFT text result: {e_save}\n")
+
+        json_file = os.path.join(self.out_dir, "tddft_results.json")
+        try:
+            with open(json_file, "w", encoding="utf-8") as f:
+                json.dump({"tddft_data": rows}, f, indent=2)
+            self._log(f"TDDFT results saved to: {json_file}\n")
+        except (OSError, TypeError, ValueError) as e_json:
+            self._log(f"Warning: Failed to save TDDFT JSON: {e_json}\n")
+
+    def _finish(self, mf, chk_path, results):
+        """SCF properties, MO data and the checkpoint path; emit the result."""
+        scf_props = self._scf_properties(mf)
+        if scf_props:
+            results.update(scf_props)
+            self._report_scf_properties(scf_props)
+
+        if mf.mo_energy is None or mf.mo_occ is None:
+            self._log("Warning: No MO energy/occupancy data found.\n")
+        # Same classification LoadWorker applies to the checkpoint.
+        scf_type, mo_energy, mo_occ = classify_mo_data(mf.mo_energy, mf.mo_occ)
+        results.update(
+            {
+                "mo_energy": mo_energy,
+                "mo_occ": mo_occ,
+                "scf_type": scf_type,
+                "chkfile": chk_path,
+                "out_dir": self.out_dir,
+                "cube_files": [],
+            }
+        )
+        self._log(f"Checkpoint saved to: {chk_path}\n")
+        self.result_signal.emit(results)
+        self.finished_signal.emit()
 
     def run_rigid_scan(self, mol, mf, params, results):
-        self.log_signal.emit("\n===== Rigid Surface Scan =====\n")
+        self._log("\n===== Rigid Surface Scan =====\n")
 
         # Parse Params
         stype = params["type"]
@@ -1173,11 +1177,11 @@ class PySCFWorker(QThread):
 
             rdDetermineBonds.DetermineConnectivity(rw_mol)
         except ImportError:
-            self.log_signal.emit(
+            self._log(
                 "Warning: rdDetermineBonds not found. Group rotation might fail.\n"
             )
-        except Exception as e:
-            self.log_signal.emit(f"Warning deriving connectivity: {e}\n")
+        except (ValueError, RuntimeError) as e:
+            self._log(f"Warning deriving connectivity: {e}\n")
 
         # 2. Force-add bonds specifically needed for the scan metric
         # (in case DetermineConnectivity missed them due to bond stretching)
@@ -1200,16 +1204,14 @@ class PySCFWorker(QThread):
         # Initialize Ring Info (Critical for rdMolTransforms)
         try:
             Chem.SanitizeMol(rw_mol)
-        except Exception as e:
+        except (ValueError, RuntimeError) as e:
             # If sanitization fails (e.g. valence), try to just compute rings
-            self.log_signal.emit(
-                f"Sanitization warning: {e}. Attempting partial update.\n"
-            )
+            self._log(f"Sanitization warning: {e}. Attempting partial update.\n")
             try:
                 rw_mol.UpdatePropertyCache(strict=False)
                 Chem.GetSymmSSSR(rw_mol)
-            except Exception as _e:
-                logging.warning("[worker.py] silenced: %s", _e)
+            except (ValueError, RuntimeError) as _e:
+                logger.warning("ring perception failed: %s", _e)
 
         # Use the explicit connectivity molecule
         rd_mol = rw_mol
@@ -1222,12 +1224,16 @@ class PySCFWorker(QThread):
 
         csv_lines = ["Step,Value,Energy,Converged"]
 
+        method_name = getattr(self, "_method_name", self.config.get("method", "RHF"))
+        functional = self.config.get("functional", "b3lyp")
+        dm_prev = None  # density of the last converged point
+
         for i, val in enumerate(scan_values):
             # Cooperative stop check — avoids force-kill between steps
             if self._stop_requested:
-                self.log_signal.emit(f"Rigid scan stopped by user after {i} step(s).\n")
+                self._log(f"Rigid scan stopped by user after {i} step(s).\n")
                 break
-            self.log_signal.emit(f"Step {i + 1}/{steps}: {stype} = {val:.4f} ... ")
+            self._log(f"Step {i + 1}/{steps}: {stype} = {val:.4f} ... ")
 
             # 1. Modify Geometry using RDKit
             # Note: RDKit uses Degrees for angles
@@ -1240,8 +1246,8 @@ class PySCFWorker(QThread):
                     rdMolTransforms.SetDihedralDeg(
                         conf, atoms[0], atoms[1], atoms[2], atoms[3], val
                     )
-            except Exception as e:
-                self.log_signal.emit(f"Geometry set failed: {e}\n")
+            except (ValueError, RuntimeError) as e:  # e.g. a bond inside a ring
+                self._log(f"Geometry set failed: {e}\n")
                 continue
 
             # 2. Rebuild PySCF Mol
@@ -1262,50 +1268,32 @@ class PySCFWorker(QThread):
                 charge=mol.charge,
                 spin=mol.spin,
                 verbose=0,
+                max_memory=self.config.get("memory", 4000),
             )
             mol_step.build()
 
-            # 3. Singleton Energy
-            mf_step = copy.copy(mf)
-
-            # Ensure solvent is preserved in copy or re-applied
-            # If mf is already solvated, copy usually keeps it, but safe to check.
-            # Actually, `copy.copy(mf)` works for standard objects but let's be robust.
-            # If the user selected solvent, we can force re-application or rely on copy.
-            # However, for ddCOSMO, a shallow copy might be tricky with C-level objects.
-            # It is safer to rebuild or re-wrap if we are doing a fresh build.
-            # But here we are just resetting.
-
-            # IMPORTANT: For Scan, we use copy.copy(mf). If mf has ddCOSMO applied,
-            # its class is already modified (e.g. RKS with ddCOSMO).
-            # So reset() should respect it.
-
-            # BUT: checking `run_relaxed_scan` below recreates MF from scratch.
-            # So we should be consistent.
-
-            # Let's add explicit solvent check for Rigid Scan anyway to be safe.
-            selected_solvent = self.config.get("solvent", "None")
-            if selected_solvent and "None" not in selected_solvent:
-                if not hasattr(mf_step, "with_solvent"):
-                    mf_step = self._apply_solvent(mf_step, selected_solvent)
-
-            # Save Checkpoint for this step (User Requested)
-            step_chk = os.path.join(self.out_dir, f"scan_step_{i + 1}.chk")
-            mf_step.chkfile = step_chk
-
-            mf_step.reset(mol_step)
+            # 3. Single-point energy on a fresh mf, seeded from the last
+            # converged neighbour so the whole profile stays on one SCF
+            # solution instead of each point picking its own from minao.
+            mf_step = self._new_step_mf(mol_step, method_name, functional)
+            mf_step.chkfile = os.path.join(self.out_dir, f"scan_step_{i + 1}.chk")
             mf_step.verbose = 0
 
-            mf_step.kernel()
+            mf_step.kernel(dm0=dm_prev)
             e_tot = mf_step.e_tot
 
             # An unconverged point can sit many kcal/mol off and would
             # otherwise enter the profile looking like a real barrier.
             converged = bool(getattr(mf_step, "converged", True))
             if converged:
-                self.log_signal.emit(f"E = {e_tot:.6f} Ha\n")
+                # only a seed for the next point: any failure means "no seed"
+                try:
+                    dm_prev = mf_step.make_rdm1()
+                except Exception:  # noqa: BLE001
+                    dm_prev = None
+                self._log(f"E = {e_tot:.6f} Ha\n")
             else:
-                self.log_signal.emit(f"E = {e_tot:.6f} Ha  ** SCF NOT CONVERGED **\n")
+                self._log(f"E = {e_tot:.6f} Ha  ** SCF NOT CONVERGED **\n")
 
             scan_results.append(
                 {
@@ -1330,7 +1318,7 @@ class PySCFWorker(QThread):
         csv_path = os.path.join(self.out_dir, "scan_results.csv")
         with open(csv_path, "w") as f:
             f.write("\n".join(csv_lines))
-        self.log_signal.emit(f"Scan results saved to {csv_path}\n")
+        self._log(f"Scan results saved to {csv_path}\n")
 
         # Save Trajectory XYZ
         traj_path = os.path.join(self.out_dir, "scan_trajectory.xyz")
@@ -1338,9 +1326,7 @@ class PySCFWorker(QThread):
             f.write("\n".join(trajectory))
 
     def run_relaxed_scan(self, mol, mf, params, results):
-        self.log_signal.emit(
-            "\n===== Relaxed Surface Scan (Constrained Optimization) =====\n"
-        )
+        self._log("\n===== Relaxed Surface Scan (Constrained Optimization) =====\n")
 
         stype = params["type"]
         atoms = [int(a) for a in params["atoms"]]
@@ -1352,10 +1338,10 @@ class PySCFWorker(QThread):
 
         scan_results = []
         trajectory = []
-        csv_lines = ["Step,Value,Energy"]
+        csv_lines = ["Step,Value,Energy,Converged"]
 
         # Store method info for reconstruction
-        method_name = self.config.get("method", "RHF")
+        method_name = getattr(self, "_method_name", self.config.get("method", "RHF"))
         functional = self.config.get("functional", "b3lyp")
         basis = self.config.get("basis", "sto-3g")
         charge = self.config.get("charge", 0)
@@ -1378,21 +1364,15 @@ class PySCFWorker(QThread):
 
         # Ensure initial molecule is converged so we have a good starting checkpoint for Step 0
         if not mf.e_tot:
-            self.log_signal.emit(
-                "Ensuring initial SCF convergence before scanning...\n"
-            )
+            self._log("Ensuring initial SCF convergence before scanning...\n")
             mf.kernel()
 
         for i, val in enumerate(scan_values):
             # Cooperative stop check
             if self._stop_requested:
-                self.log_signal.emit(
-                    f"Relaxed scan stopped by user after {i} step(s).\n"
-                )
+                self._log(f"Relaxed scan stopped by user after {i} step(s).\n")
                 break
-            self.log_signal.emit(
-                f"\nStep {i + 1}/{steps}: Constrained {stype} = {val:.4f}\n"
-            )
+            self._log(f"\nStep {i + 1}/{steps}: Constrained {stype} = {val:.4f}\n")
 
             # 1. Create Constraints File for geometric
             # geometric format:
@@ -1418,7 +1398,7 @@ class PySCFWorker(QThread):
             with open(const_file, "w") as f:
                 f.write(const_str)
 
-            self.log_signal.emit(f"  Constraint: {g_type} {atom_str} = {val:.6f}\n")
+            self._log(f"  Constraint: {g_type} {atom_str} = {val:.6f}\n")
 
             # 2. Build molecule from current geometry
             try:
@@ -1440,12 +1420,7 @@ class PySCFWorker(QThread):
                 )
 
                 # 3. Create new mean field object for this step
-                step_mf = self._build_mf(step_mol, method_name, functional)
-
-                selected_solvent = self.config.get("solvent", "None")
-                if selected_solvent and "None" not in selected_solvent:
-                    if not hasattr(step_mf, "with_solvent"):
-                        step_mf = self._apply_solvent(step_mf, selected_solvent)
+                step_mf = self._new_step_mf(step_mol, method_name, functional)
 
                 # Set checkpoint
                 step_chk = os.path.join(self.out_dir, f"scan_step_{i}.chk")
@@ -1467,41 +1442,34 @@ class PySCFWorker(QThread):
                     if src_chk:
                         shutil.copyfile(src_chk, step_chk)
                         step_mf.init_guess = "chkfile"
-                        # self.log_signal.emit(f"  > Seeding guess from {os.path.basename(src_chk)}\n")
-                except Exception as e_seed:
-                    self.log_signal.emit(
-                        f"  Warning: Failed to seed initial guess: {e_seed}\n"
-                    )
+                        # self._log(f"  > Seeding guess from {os.path.basename(src_chk)}\n")
+                except (OSError, shutil.Error) as e_seed:
+                    self._log(f"  Warning: Failed to seed initial guess: {e_seed}\n")
                 # --------------------------------------------------------
-
-                self._apply_mf_settings(step_mf)
 
                 mol_eq = optimize(step_mf, constraints=const_file)
 
                 # Force an explicit SCF calculation on the final optimized structure
                 # to ensure the energy is 100% accurate and matches the mol_eq coordinates.
-                self.log_signal.emit(
-                    "  Calculating final energy for optimized structure...\n"
-                )
+                self._log("  Calculating final energy for optimized structure...\n")
                 step_converged = True
                 try:
-                    step_mf.mol = mol_eq
+                    # reset(), not `.mol =`: the DFT grids and the solvent
+                    # cavity are only rebuilt for the new geometry by reset().
+                    step_mf.reset(mol_eq)
                     e_tot = step_mf.kernel()
                     step_converged = bool(getattr(step_mf, "converged", True))
-                    self.log_signal.emit(
-                        f"  ✓ Final optimized energy: {e_tot:.8f} Ha\n"
-                    )
-                except Exception as e:
-                    self.log_signal.emit(
-                        f"  ⚠ Failed final SCF, attempting fallback... {e}\n"
-                    )
+                    self._log(f"  ✓ Final optimized energy: {e_tot:.8f} Ha\n")
+                # a failed point is reported and dropped, never fatal to the scan
+                except Exception as e:  # noqa: BLE001
+                    self._log(f"  ⚠ Failed final SCF, attempting fallback... {e}\n")
                     step_converged = False
                     if hasattr(step_mf, "e_tot") and step_mf.e_tot is not None:
                         e_tot = step_mf.e_tot
                     else:
                         # Recording 0.0 Ha put a ~76 Hartree spike in the
                         # energy profile that reads as a real barrier.
-                        self.log_signal.emit(
+                        self._log(
                             "  ⚠ No usable energy for this point; dropping it "
                             "from the scan.\n"
                         )
@@ -1549,22 +1517,22 @@ class PySCFWorker(QThread):
                         temp_mol.AddConformer(conf)
 
                         # Calculate dihedral using RDKit
-                        actual_val = rdMolTransforms.GetDihedralDeg(
+                        measured = rdMolTransforms.GetDihedralDeg(
                             temp_mol.GetConformer(),
                             atoms[0],
                             atoms[1],
                             atoms[2],
                             atoms[3],
                         )
-                except Exception as e:
-                    self.log_signal.emit(
-                        f"  Warning: Could not measure actual value: {e}\n"
-                    )
+                        # RDKit reports (-180, 180]; put it on the branch of
+                        # the target, or a 180 deg point comes back as -180
+                        # and jumps to the other end of the profile.
+                        actual_val = _unwrap_angle(measured, val)
+                except (IndexError, ValueError, RuntimeError) as e:
+                    self._log(f"  Warning: Could not measure actual value: {e}\n")
 
                 if abs(actual_val - val) > 0.01:  # Log if difference is significant
-                    self.log_signal.emit(
-                        f"  Target: {val:.4f}, Actual: {actual_val:.4f}\n"
-                    )
+                    self._log(f"  Target: {val:.4f}, Actual: {actual_val:.4f}\n")
 
                 xyz_lines = [
                     f"{len(current_symbols)}",
@@ -1577,11 +1545,9 @@ class PySCFWorker(QThread):
                 trajectory.append(xyz_frame)
 
                 if step_converged:
-                    self.log_signal.emit(f"  ✓ Converged: E = {e_tot:.8f} Ha\n")
+                    self._log(f"  ✓ Converged: E = {e_tot:.8f} Ha\n")
                 else:
-                    self.log_signal.emit(
-                        f"  ** SCF NOT CONVERGED **: E = {e_tot:.8f} Ha\n"
-                    )
+                    self._log(f"  ** SCF NOT CONVERGED **: E = {e_tot:.8f} Ha\n")
 
                 scan_results.append(
                     {
@@ -1591,11 +1557,15 @@ class PySCFWorker(QThread):
                         "converged": step_converged,
                     }
                 )
-                csv_lines.append(f"{i + 1},{actual_val:.6f},{e_tot:.8f}")
+                csv_lines.append(
+                    f"{i + 1},{actual_val:.6f},{e_tot:.8f},"
+                    f"{'yes' if step_converged else 'NO'}"
+                )
 
-            except Exception as e:
-                self.log_signal.emit(f"  ✗ Optimization step {i + 1} failed: {e}\n")
-                self.log_signal.emit(traceback.format_exc())
+            # geomeTRIC / PySCF can fail in many ways; report and stop the scan
+            except Exception as e:  # noqa: BLE001
+                self._log(f"  ✗ Optimization step {i + 1} failed: {e}\n")
+                self._log(traceback.format_exc())
                 # Break scan on failure
                 break
 
@@ -1607,31 +1577,29 @@ class PySCFWorker(QThread):
         csv_path = os.path.join(self.out_dir, "scan_results.csv")
         with open(csv_path, "w") as f:
             f.write("\n".join(csv_lines))
-        self.log_signal.emit(f"\nScan results saved to {csv_path}\n")
+        self._log(f"\nScan results saved to {csv_path}\n")
 
         # Save Trajectory XYZ
         traj_path = os.path.join(self.out_dir, "scan_trajectory.xyz")
         with open(traj_path, "w") as f:
             f.write("\n".join(trajectory))
-        self.log_signal.emit(f"Scan trajectory saved to {traj_path}\n")
+        self._log(f"Scan trajectory saved to {traj_path}\n")
 
 
 class PropertyWorker(QThread):
     log_signal = pyqtSignal(str)
     finished_signal = pyqtSignal()
     error_signal = pyqtSignal(str)
-    result_signal = pyqtSignal(dict)  # { "type": "mo"|"esp", "files": [...] }
+    result_signal = pyqtSignal(dict)  # {"files": [cube paths]}
+
+    _log = _log_to_file
 
     def __init__(self, chkfile, tasks, out_dir):
-        """
-        tasks: list of dicts, e.g. [{"type": "mo", "indices": [HOMO, LUMO]}, {"type": "esp"}]
-        indices can be relative strings "HOMO", "HOMO-1" or integers.
-        """
+        """tasks: "ESP", "SpinDensity" or orbital strings ("HOMO", "LUMO+1",
+        "MO 15", "#14", ...; see orbital_index)."""
         super().__init__()
         self.chkfile = chkfile
-        self.tasks = (
-            tasks  # expecting list of orbital names like "HOMO", "LUMO+1" etc. or "ESP"
-        )
+        self.tasks = tasks
         self.out_dir = out_dir
         self._stop_requested = False
         self._stream = None
@@ -1646,6 +1614,31 @@ class PropertyWorker(QThread):
     def _unpack_uhf_coeff(mo_coeff, mo_occ):
         return mo_coeff[0], mo_coeff[1], mo_occ[0], mo_occ[1]
 
+    @classmethod
+    def _spin_density_matrices(cls, mo_coeff, mo_occ):
+        """(dm_alpha, dm_beta) for UHF, ROHF/ROKS and RHF checkpoints.
+
+        PySCF stores a restricted open-shell mo_occ as one 1-D array of
+        0/1/2 values: a SOMO is alpha-only, a doubly occupied MO is both.
+        """
+        from pyscf.scf import hf, uhf
+
+        if cls._is_uhf_coeff(mo_coeff):
+            c_a, c_b, o_a, o_b = cls._unpack_uhf_coeff(mo_coeff, mo_occ)
+            dm_ab = uhf.make_rdm1((c_a, c_b), (o_a, o_b))
+            return dm_ab[0], dm_ab[1]
+        occ = np.asarray(mo_occ, dtype=float)
+        if occ.ndim == 2:
+            return hf.make_rdm1(mo_coeff, occ[0]), hf.make_rdm1(mo_coeff, occ[1])
+        occ_a = (occ > 0.5).astype(float)
+        occ_b = (occ > 1.5).astype(float)
+        return hf.make_rdm1(mo_coeff, occ_a), hf.make_rdm1(mo_coeff, occ_b)
+
+    @staticmethod
+    def _is_open_shell_occ(mo_occ):
+        occ = np.asarray(mo_occ, dtype=float)
+        return occ.ndim == 2 or bool(np.any((occ > 0.5) & (occ < 1.5)))
+
     @staticmethod
     def _find_homo_lumo_1d(occs, threshold=0.1):
         homo_idx = -1
@@ -1654,334 +1647,151 @@ class PropertyWorker(QThread):
                 homo_idx = i
         return homo_idx, homo_idx + 1
 
+    @staticmethod
+    def orbital_index(task, homo_idx, lumo_idx):
+        """0-based MO index for a task string (spin suffix already removed):
+        "HOMO", "LUMO+1", "HOMO-2", "MO 15" / "15" (1-based), "#14"
+        (0-based) or "MO 15_HOMO-1" (1-based, label informational)."""
+        m = re.search(r"MO\s+(\d+)_([A-Za-z0-9+-]+)", task)
+        if m:
+            return int(m.group(1)) - 1
+        for name, base in (("HOMO", homo_idx), ("LUMO", lumo_idx)):
+            if name in task:
+                if "+" in task:
+                    return base + int(task.split("+")[1])
+                if "-" in task:
+                    return base - int(task.split("-")[1])
+                return base
+        if "MO" in task or task.isdigit() or task.startswith("#"):
+            digits = re.sub(r"\D", "", task)
+            if digits:
+                return int(digits) if task.startswith("#") else int(digits) - 1
+        raise ValueError(f"Unknown task format: {task}")
+
+    @staticmethod
+    def relative_label(idx, homo_idx, lumo_idx):
+        if idx <= homo_idx:
+            diff = homo_idx - idx
+            return "HOMO" if diff == 0 else f"HOMO-{diff}"
+        if idx >= lumo_idx:
+            diff = idx - lumo_idx
+            return "LUMO" if diff == 0 else f"LUMO+{diff}"
+        return f"MO_{idx}"
+
     def run(self):
         if pyscf is None:
             self.error_signal.emit("PySCF not found.")
             return
 
         try:
-            # Load SCF from checkpoint
-            from pyscf import lib, scf, tools
-
-            # Setup logging for this worker too
             log_file = os.path.join(self.out_dir, "pyscf.out")
-
-            # C-Level Redirection
-            capturer = CaptureStdOut(log_file)
-            f_log = capturer.__enter__()
-
-            # Python Redirection
-            original_stdout = sys.stdout
-            original_stderr = sys.stderr
-            stream = StreamToSignal(self.log_signal, target_stream=f_log)
-            self._stream = stream
-            sys.stdout = stream
-            sys.stderr = stream
-
-            # We need to reload the molecule and SCF object
-            mol = lib.chkfile.load_mol(self.chkfile)
-            mol.output = None  # Ensure no StreamToSignal assignment causing stat errors
-            mol.stdout = stream  # Capture PySCF specifics
-            mol.verbose = 4
-
-            # Read SCF data
-            scf_data = scf.chkfile.load(self.chkfile, "scf")
-            mo_coeff = scf_data["mo_coeff"]
-            mo_occ = scf_data["mo_occ"]
-
-            # Determine HOMO/LUMO indices
-            homo_idx = -1
-            lumo_idx = -1
-
-            # Robust HOMO/LUMO initialization for RHF/UHF/ROHF
-            # Use threshold 0.1 to avoid numerical precision issues (e.g., 1e-12)
-            occ_threshold = 0.1
-
-            try:
-                occs = (
-                    mo_occ[0]
-                    if isinstance(mo_occ, tuple)
-                    or (hasattr(mo_occ, "ndim") and mo_occ.ndim == 2)
-                    else mo_occ
-                )
-                homo_idx, lumo_idx = self._find_homo_lumo_1d(occs, occ_threshold)
-            except Exception as e:
-                self.log_signal.emit(f"Warning: Failed to auto-detect HOMO/LUMO: {e}\n")
-
-            results = {"files": []}
-
-            for task in self.tasks:
-                if self._stop_requested:
-                    self.log_signal.emit("Property generation stopped by user.\n")
-                    break
-                from .utils import get_unique_path  # noqa: PLC0415 — deferred to keep relative import out of module-level test context
-
-                if task == "ESP":
-                    # Generate Unique Paths
-                    f_esp_base = os.path.join(self.out_dir, "esp.cube")
-                    f_esp = get_unique_path(f_esp_base)
-
-                    f_dens_base = os.path.join(self.out_dir, "density.cube")
-                    f_dens = get_unique_path(f_dens_base)
-
-                    # For ESP we need density matrix
-                    # Handle both RHF (array) and UHF (tuple)
-
-                    if self._is_uhf_coeff(mo_coeff):
-                        # UHF case
-                        from pyscf.scf import uhf
-
-                        c_a, c_b, o_a, o_b = self._unpack_uhf_coeff(mo_coeff, mo_occ)
-                        dm_ab = uhf.make_rdm1((c_a, c_b), (o_a, o_b))
-                        dm = dm_ab[0] + dm_ab[1]  # Total density for MEP
-                    else:
-                        # RHF case
-                        dm = scf.hf.make_rdm1(mo_coeff, mo_occ)
-
-                    self.log_signal.emit(
-                        f"Generating ESP ({os.path.basename(f_esp)})...\n"
-                    )
-                    tools.cubegen.mep(mol, f_esp, dm)
-
-                    self.log_signal.emit(
-                        f"Generating Density ({os.path.basename(f_dens)})...\n"
-                    )
-                    tools.cubegen.density(mol, f_dens, dm)
-
-                    results["files"].append(f_esp)
-                    results["files"].append(f_dens)
-
-                elif task == "SpinDensity":
-                    # Check unrestricted
-                    if self._is_uhf_coeff(mo_coeff):
-                        from pyscf.scf import uhf
-
-                        c_a, c_b, o_a, o_b = self._unpack_uhf_coeff(mo_coeff, mo_occ)
-                        dm_ab = uhf.make_rdm1((c_a, c_b), (o_a, o_b))
-                        # Spin Density = Alpha - Beta
-                        spin_dens = dm_ab[0] - dm_ab[1]
-
-                        f_spin_base = os.path.join(self.out_dir, "spin_density.cube")
-                        f_spin = get_unique_path(f_spin_base)
-
-                        self.log_signal.emit(
-                            f"Generating Spin Density ({os.path.basename(f_spin)})...\n"
-                        )
-                        tools.cubegen.density(mol, f_spin, spin_dens)
-                        results["files"].append(f_spin)
-
-                    # --- Added: ROKS/ROHF Support ---
-                    # ROKS mo_occ is often (2, N) (Alpha/Beta occupancy)
-                    elif isinstance(mo_occ, np.ndarray) and mo_occ.ndim == 2:
-                        # ROKS case: mo_coeff is (N,N), but mo_occ is (2, N)
-                        from pyscf import scf
-
-                        # Generate density from orbital coeffs and Alpha/Beta occupancies
-                        dm_a = scf.hf.make_rdm1(mo_coeff, mo_occ[0])
-                        dm_b = scf.hf.make_rdm1(mo_coeff, mo_occ[1])
-
-                        spin_dens = dm_a - dm_b
-
-                        f_spin_base = os.path.join(self.out_dir, "spin_density.cube")
-                        f_spin = get_unique_path(f_spin_base)
-
-                        self.log_signal.emit(
-                            f"Generating Spin Density (ROKS) ({os.path.basename(f_spin)})...\n"
-                        )
-                        tools.cubegen.density(mol, f_spin, spin_dens)
-                        results["files"].append(f_spin)
-                    # ---------------------------
-                    else:
-                        self.log_signal.emit(
-                            "Skipping Spin Density (Not an open-shell calculation or format unknown).\n"
-                        )
-
-                elif isinstance(task, str):
-                    # Parse offset or absolute index
-                    idx = -1
-                    spin_suffix = ""
-                    target_coeff = mo_coeff
-
-                    # Detect Spin Request in label (internal convention)
-                    # "15_HOMO_A" ? NO, task string is likely "HOMO" or "#5"
-                    # But if we want to differentiate Alpha/Beta, the GUI must pass it.
-                    # Currently strict GUI implementation doesn't pass suffix yet.
-                    # But we can try to guess or handle it if we add it to the call.
-
-                    # Assume task might be "HOMO_A" or "HOMO_B" logic?
-                    # Or we just assume Alpha for now unless specified?
-
-                    is_uhf = self._is_uhf_coeff(mo_coeff)
-
-                    # Standard logic: if UHF, we need to know A or B.
-                    # If not specified, maybe generate both? Or just Alpha?
-                    # Let's check if task has specific format.
-
-                    # NOTE: EnergyDiagramDialog generates "MO <n>" or "HOMO".
-                    # We need to support "MO <n> A" or simple mapping.
-                    # Let's look at the label logic in GUI later.
-                    # For now, handle existing logic + suffix if present.
-
-                    use_beta = False
-                    if "_B" in task or "Beta" in task:
-                        use_beta = True
-                        task = task.replace("_B", "").replace("Beta", "").strip()
-                        spin_suffix = "_B"
-                    elif "_A" in task or "Alpha" in task:
-                        task = task.replace("_A", "").replace("Alpha", "").strip()
-                        spin_suffix = "_A"
-                    elif is_uhf:
-                        # Default to Alpha if UHF but not specified?
-                        # Or maybe A is default suffix
-                        spin_suffix = "_A"
-
-                    if is_uhf:
-                        c_a, c_b, o_a, o_b = self._unpack_uhf_coeff(mo_coeff, mo_occ)
-                        if use_beta:
-                            target_coeff = c_b
-                            target_occ = o_b
-                        else:
-                            target_coeff = c_a
-                            target_occ = o_a
-                        homo_idx, lumo_idx = self._find_homo_lumo_1d(
-                            target_occ, occ_threshold
-                        )
-                    else:
-                        target_coeff = mo_coeff
-                        # homo_idx already calc for RHF
-
-                    try:
-                        # Improved Task Parsing for "MO <idx>_<Label>" format
-                        # Explicit regex for "MO <index>_<Label>" (e.g. MO 15_HOMO)
-                        mo_lbl_match = re.search(r"MO\s+(\d+)_([A-Za-z0-9+-]+)", task)
-                        clean_lbl = "MO"  # Default
-
-                        if mo_lbl_match:
-                            # e.g. "MO 15_HOMO" -> idx=14, lbl="HOMO"
-                            idx = (
-                                int(mo_lbl_match.group(1)) - 1
-                            )  # Convert 1-based to 0-based
-                            clean_lbl = mo_lbl_match.group(2)
-
-                        # Case 1: Relative to HOMO/LUMO (Legacy/Manual)
-                        elif "HOMO" in task:
-                            base = homo_idx
-                            clean_lbl = "HOMO"
-                            if "+" in task:
-                                offset = int(task.split("+")[1])
-                                idx = base + offset
-                                clean_lbl = f"HOMO+{offset}"
-                            elif "-" in task:
-                                offset = int(task.split("-")[1])
-                                idx = base - offset
-                                clean_lbl = f"HOMO-{offset}"
-                            else:
-                                idx = base
-                        elif "LUMO" in task:
-                            base = lumo_idx
-                            clean_lbl = "LUMO"
-                            if "+" in task:
-                                offset = int(task.split("+")[1])
-                                idx = base + offset
-                                clean_lbl = f"LUMO+{offset}"
-                            elif "-" in task:
-                                offset = int(task.split("-")[1])
-                                idx = base - offset
-                                clean_lbl = f"LUMO-{offset}"
-                            else:
-                                idx = base
-
-                        # Case 2: Explicit "MO <n>" or just numbers
-                        elif "MO" in task or task.isdigit() or task.startswith("#"):
-                            # "MO 15", "15", "#15", "#15_HOMO", etc.
-                            # Robust digit extraction using Regex
-                            # This handles "11SO" bug by ignoring all non-digits
-                            clean_task = re.sub(
-                                r"\D", "", task
-                            )  # \D matches non-digits
-                            if clean_task:
-                                val = int(clean_task)
-                                if task.startswith("#"):
-                                    idx = val  # Internal 0-based index
-                                else:
-                                    idx = val - 1  # User 1-based index (MO 1 = Index 0)
-                            else:
-                                raise ValueError(f"Unknown task format: {task}")
-                        else:
-                            pass  # ... same error handling ...
-
-                    except Exception as e:
-                        self.log_signal.emit(f"Error parsing orbital: {task} ({e})\n")
-                        continue
-
-                    if idx < 0 or idx >= target_coeff.shape[1]:
-                        self.log_signal.emit(
-                            f"Orbital index {idx} out of bounds for {task}\n"
-                        )
-                        continue
-
-                    clean_lbl = f"MO_{idx}"  # Default fallback
-                    if idx <= homo_idx:
-                        diff = homo_idx - idx
-                        clean_lbl = "HOMO" if diff == 0 else f"HOMO-{diff}"
-                    elif idx >= lumo_idx:
-                        diff = idx - lumo_idx
-                        clean_lbl = "LUMO" if diff == 0 else f"LUMO+{diff}"
-
-                    rel_label = clean_lbl
-
-                    prefix_idx = idx + 1  # 1-based for user-facing filename
-                    if is_uhf:
-                        s_char = "a" if "_A" in spin_suffix else "b"
-                        fname = f"{prefix_idx:03d}{s_char}_{rel_label}.cube"
-                    else:
-                        fname = f"{prefix_idx:03d}_{rel_label}.cube"
-
-                    # Sanitization: Ensure safe filenames but keep readable
-                    # fname = fname.replace(" ", "") # User requested spaces in name
-                    f_path_base = os.path.join(self.out_dir, fname)
-
-                    f_path = get_unique_path(f_path_base)
-
-                    if getattr(self, "_stop_requested", False):
-                        break
-
-                    self.log_signal.emit(
-                        f"Generating {os.path.basename(f_path)} (Index {idx}{spin_suffix})...\n"
-                    )
-                    tools.cubegen.orbital(mol, f_path, target_coeff[:, idx])
-                    results["files"].append(f_path)
-
-            self.result_signal.emit(results)
-            self.finished_signal.emit()
-
-        except Exception as e:
-            if not getattr(self, "_stop_requested", False):
+            with redirected_output(self, log_file) as stream:
+                results = self._generate(stream)
+                self.result_signal.emit(results)
+                self.finished_signal.emit()
+        except Exception as e:  # noqa: BLE001 -- thread boundary: report, never raise
+            if not self._stop_requested:
                 self.error_signal.emit(str(e) + "\n" + traceback.format_exc())
             else:
-                logging.info("[worker.py] PropertyWorker stopped by user: %s", e)
+                logger.info("PropertyWorker stopped by user: %s", e)
 
-        finally:
-            if getattr(self, "_stream", None) is not None and hasattr(
-                self._stream, "close"
-            ):
-                try:
-                    self._stream.close()
-                except Exception:
-                    pass
-            self._stream = None
+    def _generate(self, stream):
+        from pyscf import lib, scf, tools
 
-            if "original_stdout" in locals():
-                sys.stdout = original_stdout
-            if "original_stderr" in locals():
-                sys.stderr = original_stderr
+        mol = lib.chkfile.load_mol(self.chkfile)
+        mol.output = None
+        mol.stdout = stream
+        mol.verbose = 4
 
-            # Restore C-Level FDs
-            if "capturer" in locals():
-                try:
-                    capturer.__exit__(None, None, None)
-                except Exception:
-                    pass
+        scf_data = scf.chkfile.load(self.chkfile, "scf")
+        mo_coeff = scf_data["mo_coeff"]
+        mo_occ = scf_data["mo_occ"]
+
+        files = []
+        for task in self.tasks:
+            if self._stop_requested:
+                self._log("Property generation stopped by user.\n")
+                break
+            if task == "ESP":
+                files += self._make_esp(tools, mol, mo_coeff, mo_occ)
+            elif task == "SpinDensity":
+                files += self._make_spin_density(tools, mol, mo_coeff, mo_occ)
+            elif isinstance(task, str):
+                files += self._make_orbital(tools, mol, mo_coeff, mo_occ, task)
+        return {"files": files}
+
+    @staticmethod
+    def _unique_path(path):
+        # deferred: the tests load worker.py outside its package
+        from .utils import get_unique_path
+
+        return get_unique_path(path)
+
+    def _make_esp(self, tools, mol, mo_coeff, mo_occ):
+        f_esp = self._unique_path(os.path.join(self.out_dir, "esp.cube"))
+        f_dens = self._unique_path(os.path.join(self.out_dir, "density.cube"))
+        # Total density for the MEP, for RHF / UHF / ROHF alike
+        dm_a, dm_b = self._spin_density_matrices(mo_coeff, mo_occ)
+        dm = dm_a + dm_b
+        self._log(f"Generating ESP ({os.path.basename(f_esp)})...\n")
+        tools.cubegen.mep(mol, f_esp, dm)
+        self._log(f"Generating Density ({os.path.basename(f_dens)})...\n")
+        tools.cubegen.density(mol, f_dens, dm)
+        return [f_esp, f_dens]
+
+    def _make_spin_density(self, tools, mol, mo_coeff, mo_occ):
+        if not (self._is_uhf_coeff(mo_coeff) or self._is_open_shell_occ(mo_occ)):
+            self._log(
+                "Skipping Spin Density (Not an open-shell calculation or format unknown).\n"
+            )
+            return []
+        dm_a, dm_b = self._spin_density_matrices(mo_coeff, mo_occ)
+        f_spin = self._unique_path(os.path.join(self.out_dir, "spin_density.cube"))
+        self._log(f"Generating Spin Density ({os.path.basename(f_spin)})...\n")
+        tools.cubegen.density(mol, f_spin, dm_a - dm_b)
+        return [f_spin]
+
+    def _make_orbital(self, tools, mol, mo_coeff, mo_occ, task):
+        """Cube of one MO. Task forms: see orbital_index(), each with an
+        optional "_A" / "_B" spin suffix (UHF; alpha by default)."""
+        is_uhf = self._is_uhf_coeff(mo_coeff)
+        use_beta = "_B" in task or "Beta" in task
+        if use_beta:
+            task = task.replace("_B", "").replace("Beta", "").strip()
+            spin_suffix = "_B"
+        elif "_A" in task or "Alpha" in task:
+            task = task.replace("_A", "").replace("Alpha", "").strip()
+            spin_suffix = "_A"
+        else:
+            spin_suffix = "_A" if is_uhf else ""
+
+        if is_uhf:
+            channel = 1 if use_beta else 0
+            coeff, occ = mo_coeff[channel], mo_occ[channel]
+        else:
+            coeff = mo_coeff
+            # a 2-D (alpha, beta) occupation: HOMO/LUMO follow alpha
+            occ = mo_occ[0] if np.ndim(mo_occ) == 2 else mo_occ
+        homo_idx, lumo_idx = self._find_homo_lumo_1d(occ, 0.1)
+
+        try:
+            idx = self.orbital_index(task, homo_idx, lumo_idx)
+        except (ValueError, IndexError) as e:
+            self._log(f"Error parsing orbital: {task} ({e})\n")
+            return []
+        if idx < 0 or idx >= coeff.shape[1]:
+            self._log(f"Orbital index {idx} out of bounds for {task}\n")
+            return []
+
+        label = self.relative_label(idx, homo_idx, lumo_idx)
+        spin_char = ("b" if use_beta else "a") if is_uhf else ""
+        fname = f"{idx + 1:03d}{spin_char}_{label}.cube"  # 1-based in the name
+        f_path = self._unique_path(os.path.join(self.out_dir, fname))
+        self._log(
+            f"Generating {os.path.basename(f_path)} (Index {idx}{spin_suffix})...\n"
+        )
+        tools.cubegen.orbital(mol, f_path, coeff[:, idx])
+        return [f_path]
 
 
 class LoadWorker(QThread):
@@ -1992,6 +1802,18 @@ class LoadWorker(QThread):
         super().__init__()
         self.chkfile = chkfile
         self._stop_requested = False
+
+    @staticmethod
+    def load_scan_type(result_dir):
+        """Scanned coordinate type ("Dist" / "Angle" / "Dihedral") recorded
+        in scan_info.json, or None for older results."""
+        try:
+            with open(
+                os.path.join(result_dir, "scan_info.json"), encoding="utf-8"
+            ) as fh:
+                return json.load(fh).get("type")
+        except (OSError, ValueError, AttributeError):
+            return None
 
     @staticmethod
     def _load_scan_csv(path):
@@ -2012,12 +1834,83 @@ class LoadWorker(QThread):
                     if key == "converged":
                         item[key] = str(v).strip().lower() in ("yes", "true", "1")
                         continue
+                    if key == "step":
+                        try:
+                            item[key] = int(float(v))
+                            continue
+                        except (TypeError, ValueError):
+                            pass
                     try:
                         item[key] = float(v)
                     except (TypeError, ValueError):
                         item[key] = v
                 scan_res.append(item)
         return scan_res
+
+    # Auxiliary result files next to the checkpoint.
+    _AUX_FILES = (
+        "scan_results.csv",
+        "tddft_results.json",
+        "freq_analysis.json",
+        "properties.json",
+    )
+
+    def _load_checkpoint(self, lib, scf):
+        """MO data and geometry from pyscf.chk, or None if stopped."""
+        mol = lib.chkfile.load_mol(self.chkfile)
+        if self._stop_requested:
+            return None
+        scf_data = scf.chkfile.load(self.chkfile, "scf")
+        scf_type, mo_energy, mo_occ = classify_mo_data(
+            scf_data.get("mo_energy"), scf_data.get("mo_occ")
+        )
+        coords = mol.atom_coords(unit="Ang")
+        xyz_lines = [f"{mol.natm}", "Loaded from Checkpoint"]
+        for i, c in enumerate(coords):
+            xyz_lines.append(f"{mol.atom_symbol(i)} {c[0]:.6f} {c[1]:.6f} {c[2]:.6f}")
+        return {
+            "mo_energy": mo_energy,
+            "mo_occ": mo_occ,
+            "scf_type": scf_type,
+            "loaded_xyz": "\n".join(xyz_lines),
+            "chkfile": self.chkfile,
+        }
+
+    @staticmethod
+    def _read_json(path):
+        with open(path, "r", encoding="utf-8") as f:
+            return json.load(f)
+
+    def _load_aux_files(self, base_dir, results):
+        """Merge scan / TDDFT / frequency / property files into results.
+        A damaged file is logged and skipped, never fatal."""
+        loaders = {
+            "scan_results.csv": lambda p: {
+                "scan_results": self._load_scan_csv(p),
+                "scan_type": self.load_scan_type(base_dir),
+            },
+            "tddft_results.json": lambda p: {
+                k: v for k, v in self._read_json(p).items() if k == "tddft_data"
+            },
+            # the viewer reads freq_data["freqs"]: unpack the file's two keys
+            "freq_analysis.json": lambda p: {
+                k: v
+                for k, v in self._read_json(p).items()
+                if k in ("freq_data", "thermo_data")
+            },
+            "properties.json": self._read_json,
+        }
+        for name, loader in loaders.items():
+            path = os.path.join(base_dir, name)
+            if not os.path.exists(path):
+                continue
+            try:
+                results.update(loader(path))
+            except (OSError, ValueError, KeyError, TypeError, csv.Error) as exc:
+                logger.warning("LoadWorker: failed to load %s: %s", name, exc)
+        traj = os.path.join(base_dir, "scan_trajectory.xyz")
+        if os.path.exists(traj):
+            results["scan_trajectory_path"] = traj
 
     def run(self):
         if pyscf is None:
@@ -2027,230 +1920,25 @@ class LoadWorker(QThread):
         try:
             from pyscf import lib, scf
 
-            results = {"out_dir": os.path.dirname(self.chkfile)}
             base_dir = os.path.dirname(self.chkfile)
-
-            # Check if this is a scan/tddft/freq-only folder (no checkpoint needed)
-            has_scan = os.path.exists(os.path.join(base_dir, "scan_results.csv"))
-            has_tddft = os.path.exists(os.path.join(base_dir, "tddft_results.json"))
-            has_freq = os.path.exists(os.path.join(base_dir, "freq_analysis.json"))
-
-            # If only auxiliary data exists (no checkpoint), load it and return
-            if (has_scan or has_tddft or has_freq) and not os.path.exists(self.chkfile):
-                # Load scan data
-                if has_scan:
-                    try:
-                        scan_csv = os.path.join(base_dir, "scan_results.csv")
-                        results["scan_results"] = self._load_scan_csv(scan_csv)
-                        scan_traj = os.path.join(base_dir, "scan_trajectory.xyz")
-                        if os.path.exists(scan_traj):
-                            results["scan_trajectory_path"] = scan_traj
-                    except Exception as e:
-                        logging.warning(
-                            "[worker.py] LoadWorker: failed to load scan: %s", e
-                        )
-
-                # Load TDDFT data
-                if has_tddft:
-                    try:
-                        with open(
-                            os.path.join(base_dir, "tddft_results.json"), "r"
-                        ) as f:
-                            tddft_data = json.load(f)
-                            if "tddft_data" in tddft_data:
-                                results["tddft_data"] = tddft_data["tddft_data"]
-                    except Exception as e:
-                        logging.warning(
-                            "[worker.py] LoadWorker: failed to load TDDFT: %s", e
-                        )
-
-                # Load frequency data
-                if has_freq:
-                    try:
-                        with open(
-                            os.path.join(base_dir, "freq_analysis.json"), "r"
-                        ) as f:
-                            freq_data = json.load(f)
-                            results["freq_data"] = freq_data
-                    except Exception as e:
-                        logging.warning(
-                            "[worker.py] LoadWorker: failed to load freq: %s", e
-                        )
-
-                if self._stop_requested:
+            results = {"out_dir": base_dir}
+            has_aux = any(
+                os.path.exists(os.path.join(base_dir, n)) for n in self._AUX_FILES
+            )
+            # A scan / TDDFT / frequency folder may have no checkpoint; with
+            # neither, loading the checkpoint raises the error the user sees.
+            if os.path.exists(self.chkfile) or not has_aux:
+                chk = self._load_checkpoint(lib, scf)
+                if chk is None:
                     return
-                self.finished_signal.emit(results)
-                return
-
-            # Original checkpoint loading logic
-            # Load Molecule
-            mol = lib.chkfile.load_mol(self.chkfile)
-            if self._stop_requested:
-                return
-
-            # Load SCF Data
-            scf_data = scf.chkfile.load(self.chkfile, "scf")
-            mo_energy = scf_data.get("mo_energy", None)
-            mo_occ = scf_data.get("mo_occ", None)
-
-            # Identify Type (Enhanced: UHF, RHF, ROKS, ROHF)
-            scf_type = "RHF"
-
-            # Step 1: Check for Unrestricted (UHF/UKS)
-            is_uhf = False
-            if isinstance(mo_energy, tuple):
-                is_uhf = True
-            elif (
-                isinstance(mo_energy, list)
-                and len(mo_energy) == 2
-                and isinstance(mo_energy[0], (list, np.ndarray))
-            ):
-                is_uhf = True
-            elif isinstance(mo_energy, np.ndarray) and mo_energy.ndim == 2:
-                is_uhf = True
-
-            # Step 2: Check for Restricted Open-shell (ROKS/ROHF)
-            # ROKS has 2D mo_occ: shape (2, N) for Alpha/Beta occupancies
-            # and contains partial occupancy (values near 1.0)
-            if not is_uhf:  # Only check if not already identified as UHF
-                try:
-                    if isinstance(mo_occ, np.ndarray) and mo_occ.ndim == 2:
-                        # Check for partial occupancy (SOMO signature: occ ≈ 1.0)
-                        has_partial_occ = False
-                        for occ_val in mo_occ.flatten():
-                            if 0.5 < occ_val < 1.5:  # Near 1.0 (SOMO)
-                                has_partial_occ = True
-                                break
-                        if has_partial_occ:
-                            scf_type = "ROKS"
-                    elif isinstance(mo_occ, list):
-                        # Handle list of lists case
-                        if len(mo_occ) == 2 and all(
-                            isinstance(x, (list, np.ndarray)) for x in mo_occ
-                        ):
-                            has_partial_occ = False
-                            for sublist in mo_occ:
-                                for occ_val in (
-                                    sublist
-                                    if isinstance(sublist, list)
-                                    else sublist.tolist()
-                                ):
-                                    if 0.5 < occ_val < 1.5:
-                                        has_partial_occ = True
-                                        break
-                                if has_partial_occ:
-                                    break
-                            if has_partial_occ:
-                                scf_type = "ROKS"
-                except Exception as _e:
-                    # If ROKS detection fails, default to RHF (safe fallback)
-                    logging.warning("[worker.py] PySCF ROKS detection silenced: %s", _e)
-
-            if is_uhf:
-                scf_type = "UHF"
-                # Convert to lists for JSON/Qt safety
-                try:
-                    if isinstance(mo_energy, tuple):
-                        mo_energy = [
-                            e.tolist() if hasattr(e, "tolist") else list(e)
-                            for e in mo_energy
-                        ]
-                        mo_occ = [
-                            o.tolist() if hasattr(o, "tolist") else list(o)
-                            for o in mo_occ
-                        ]
-                    else:
-                        # Numpy 2D case
-                        if hasattr(mo_energy, "tolist"):
-                            mo_energy = mo_energy.tolist()
-                        if hasattr(mo_occ, "tolist"):
-                            mo_occ = mo_occ.tolist()
-                except Exception as _e:
-                    logging.warning(
-                        "[worker.py] Array conversion failed on UHF: %s", _e
-                    )
-            else:
-                # RHF/ROKS Case
-                try:
-                    if hasattr(mo_energy, "tolist"):
-                        mo_energy = mo_energy.tolist()
-                    if hasattr(mo_occ, "tolist"):
-                        mo_occ = mo_occ.tolist()
-                except Exception as _e:
-                    logging.warning(
-                        "[worker.py] Array conversion failed on RHF/ROKS: %s", _e
-                    )
-
-            # Attempt to extract optimized XYZ if present (or just current geometry)
-            coords = mol.atom_coords(unit="Ang")
-            symbols = [mol.atom_symbol(i) for i in range(mol.natm)]
-
-            xyz_lines = [f"{len(symbols)}", "Loaded from Checkpoint"]
-            for s, c in zip(symbols, coords):
-                xyz_lines.append(f"{s} {c[0]:.6f} {c[1]:.6f} {c[2]:.6f}")
-
-            optimized_xyz = "\n".join(xyz_lines)
-
-            results = {
-                "mo_energy": mo_energy,
-                "mo_occ": mo_occ,
-                "scf_type": scf_type,
-                "loaded_xyz": optimized_xyz,
-                "chkfile": self.chkfile,
-                "out_dir": os.path.dirname(self.chkfile),
-            }
-
-            # --- Load Post-Process Data (Freq/Thermo) ---
-            base_dir = os.path.dirname(self.chkfile)
-            freq_file = os.path.join(base_dir, "freq_analysis.json")
-
-            if os.path.exists(freq_file):
-                try:
-                    with open(freq_file, "r") as f:
-                        data = json.load(f)
-                        # Extract and merge
-                        if "freq_data" in data:
-                            results["freq_data"] = data["freq_data"]
-                        if "thermo_data" in data:
-                            results["thermo_data"] = data["thermo_data"]
-                except Exception as e_json:
-                    logging.warning(
-                        "[worker.py] LoadWorker: failed to load freq json: %s", e_json
-                    )
-
-            # --- Load Scan Data ---
-            scan_csv = os.path.join(base_dir, "scan_results.csv")
-            if os.path.exists(scan_csv):
-                try:
-                    results["scan_results"] = self._load_scan_csv(scan_csv)
-                except Exception as e_scan:
-                    logging.warning(
-                        "[worker.py] LoadWorker: failed to load scan csv: %s", e_scan
-                    )
-
-            scan_traj = os.path.join(base_dir, "scan_trajectory.xyz")
-            if os.path.exists(scan_traj):
-                # Just pass the path, viewer can read it on demand or we read valid frames
-                results["scan_trajectory_path"] = scan_traj
-
-            # --- Load TDDFT Data ---
-            tddft_file = os.path.join(base_dir, "tddft_results.json")
-            if os.path.exists(tddft_file):
-                try:
-                    with open(tddft_file, "r") as f:
-                        tddft_data = json.load(f)
-                        if "tddft_data" in tddft_data:
-                            results["tddft_data"] = tddft_data["tddft_data"]
-                except Exception as e_tddft:
-                    logging.warning(
-                        "[worker.py] LoadWorker: failed to load TDDFT json: %s", e_tddft
-                    )
+                results.update(chk)
+            self._load_aux_files(base_dir, results)
 
             if self._stop_requested:
                 return
             self.finished_signal.emit(results)
 
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 -- thread boundary: report, never raise
             if self._stop_requested:
                 return
             self.error_signal.emit(str(e) + "\n" + traceback.format_exc())

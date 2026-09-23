@@ -6,11 +6,11 @@ Covers lines 54-76: new dialog creation, raise/activate existing, replace
 hidden dialog, and RuntimeError recovery when the C++ object was deleted.
 """
 
+import importlib.util
 import os
 import sys
 import types
 import unittest
-import importlib.util
 from unittest.mock import MagicMock
 
 

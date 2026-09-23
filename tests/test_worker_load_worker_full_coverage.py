@@ -9,15 +9,16 @@ covers RHF/UHF/ROKS type detection from a loaded checkpoint, the post-process
 merge of freq/scan/tddft side files, and the two stop_requested checkpoints.
 """
 
+import importlib.util
 import json
 import os
 import sys
+import tempfile
 import types
 import unittest
-import tempfile
-import importlib.util
-import numpy as np
 from unittest.mock import MagicMock
+
+import numpy as np
 
 
 def _install_stubs(force=False):
@@ -121,7 +122,7 @@ class TestCheckpointScfTypeDetection(unittest.TestCase):
         beta_e = np.array([-0.8, 0.4])
         alpha_o = np.array([1.0, 0.0])
         beta_o = np.array([1.0, 0.0])
-        lw, results = _run_load(chkfile, (alpha_e, beta_e), (alpha_o, beta_o))
+        _lw, results = _run_load(chkfile, (alpha_e, beta_e), (alpha_o, beta_o))
         self.assertEqual(results["scf_type"], "UHF")
         self.assertIsInstance(results["mo_energy"], list)
         self.assertEqual(len(results["mo_energy"]), 2)
@@ -132,21 +133,39 @@ class TestCheckpointScfTypeDetection(unittest.TestCase):
         chkfile = os.path.join(tempfile.mkdtemp(), "pyscf.chk")
         mo_e = [np.array([-1.0, 0.2]), np.array([-0.8, 0.4])]
         mo_o = [np.array([1.0, 0.0]), np.array([1.0, 0.0])]
-        lw, results = _run_load(chkfile, mo_e, mo_o)
+        _lw, results = _run_load(chkfile, mo_e, mo_o)
         self.assertEqual(results["scf_type"], "UHF")
 
     def test_roks_2d_mo_occ_partial_occupancy(self):
         chkfile = os.path.join(tempfile.mkdtemp(), "pyscf.chk")
         mo_e = np.array([-1.0, -0.5, 0.2])
         mo_o = np.array([[2.0, 1.0, 0.0], [2.0, 0.0, 0.0]])
-        lw, results = _run_load(chkfile, mo_e, mo_o)
+        _lw, results = _run_load(chkfile, mo_e, mo_o)
+        self.assertEqual(results["scf_type"], "ROKS")
+
+    def test_properties_json_is_merged_into_the_result(self):
+        import json as _json
+
+        chkfile = os.path.join(tempfile.mkdtemp(), "pyscf.chk")
+        with open(os.path.join(os.path.dirname(chkfile), "properties.json"), "w") as f:
+            _json.dump({"dipole_total_debye": 2.1, "mulliken_charges": [0.1]}, f)
+        _lw, results = _run_load(chkfile, np.array([-1.0, 0.2]), np.array([2.0, 0.0]))
+        self.assertEqual(results["dipole_total_debye"], 2.1)
+        self.assertEqual(results["mulliken_charges"], [0.1])
+
+    def test_rohf_1d_mo_occ_as_pyscf_writes_it(self):
+        """PySCF stores ROHF/ROKS occupations as ONE 1-D array of 0/1/2."""
+        chkfile = os.path.join(tempfile.mkdtemp(), "pyscf.chk")
+        mo_e = np.array([-1.0, -0.5, 0.2])
+        mo_o = np.array([2.0, 1.0, 0.0])
+        _lw, results = _run_load(chkfile, mo_e, mo_o)
         self.assertEqual(results["scf_type"], "ROKS")
 
     def test_roks_list_of_lists_partial_occupancy(self):
         chkfile = os.path.join(tempfile.mkdtemp(), "pyscf.chk")
         mo_e = np.array([-1.0, -0.5, 0.2])
         mo_o = [[2.0, 1.0, 0.0], [2.0, 0.0, 0.0]]
-        lw, results = _run_load(chkfile, mo_e, mo_o)
+        _lw, results = _run_load(chkfile, mo_e, mo_o)
         self.assertEqual(results["scf_type"], "ROKS")
 
     def test_no_partial_occupancy_stays_rhf(self):
@@ -154,7 +173,7 @@ class TestCheckpointScfTypeDetection(unittest.TestCase):
         chkfile = os.path.join(tempfile.mkdtemp(), "pyscf.chk")
         mo_e = np.array([-1.0, -0.5, 0.2])
         mo_o = np.array([[2.0, 2.0, 0.0], [2.0, 2.0, 0.0]])
-        lw, results = _run_load(chkfile, mo_e, mo_o)
+        _lw, results = _run_load(chkfile, mo_e, mo_o)
         self.assertEqual(results["scf_type"], "RHF")
 
 
@@ -183,7 +202,7 @@ class TestCheckpointPostProcessMerge(unittest.TestCase):
 
         mo_e = np.array([-1.0, -0.5])
         mo_o = np.array([2.0, 0.0])
-        lw, results = _run_load(chkfile, mo_e, mo_o)
+        _lw, results = _run_load(chkfile, mo_e, mo_o)
 
         self.assertIn("freq_data", results)
         self.assertIn("thermo_data", results)

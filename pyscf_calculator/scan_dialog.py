@@ -1,17 +1,20 @@
+import logging
+
+from PyQt6.QtCore import QTimer, pyqtSignal
 from PyQt6.QtWidgets import (
     QDialog,
-    QVBoxLayout,
+    QFormLayout,
+    QGroupBox,
     QHBoxLayout,
     QLabel,
     QLineEdit,
-    QPushButton,
     QMessageBox,
-    QGroupBox,
-    QFormLayout,
+    QPushButton,
+    QVBoxLayout,
 )
-from PyQt6.QtCore import QTimer, pyqtSignal
 from rdkit.Chem import rdMolTransforms
-import logging
+
+logger = logging.getLogger(__name__)
 
 
 class ScanDialog(QDialog):
@@ -50,8 +53,8 @@ class ScanDialog(QDialog):
                             )
                         if e3d and hasattr(e3d, "update_3d_selection_display"):
                             e3d.update_3d_selection_display()
-                except Exception as _e:
-                    logging.warning("[scan_dialog.py:45] silenced: %s", _e)
+                except (AttributeError, RuntimeError) as _e:
+                    logger.warning("cleanup skipped: %s", _e)
 
             # Update UI state first (calculates current value)
             self.update_ui_state()
@@ -83,8 +86,8 @@ class ScanDialog(QDialog):
                         self.mw.init_manager, "measurement_action"
                     ):
                         self.mw.init_manager.measurement_action.setChecked(True)
-        except Exception as e:
-            logging.warning("Failed to activate selection mode: %s", e)
+        except (AttributeError, RuntimeError) as e:
+            logger.warning("Failed to activate selection mode: %s", e)
 
     def init_ui(self):
         layout = QVBoxLayout(self)
@@ -232,9 +235,11 @@ class ScanDialog(QDialog):
             self.edit_start.setText(f"{val:.3f}")
             # Auto-fill End if empty? Maybe not, leave it to user
 
-        except Exception as e:
+        # runs from the selection QTimer: an escaping exception aborts the
+        # host app (PyQt6); RDKit / host-state errors of any kind are shown
+        except Exception as e:  # noqa: BLE001
             self.lbl_current.setText("Error calc value")
-            logging.warning("ScanDialog Calc Error: %s", e)
+            logger.warning("ScanDialog Calc Error: %s", e)
 
     def accept_scan(self):
         try:
@@ -264,8 +269,8 @@ class ScanDialog(QDialog):
                         self.mw.init_manager, "measurement_action"
                     ):
                         self.mw.init_manager.measurement_action.setChecked(False)
-            except Exception as _e:
-                logging.warning("[scan_dialog.py:237] silenced: %s", _e)
+            except (AttributeError, RuntimeError) as _e:
+                logger.warning("cleanup skipped: %s", _e)
 
             self.accept()
 
@@ -291,6 +296,6 @@ class ScanDialog(QDialog):
                     self.mw.init_manager.measurement_action.setChecked(
                         self.was_measurement_active
                     )
-        except Exception as _e:
-            logging.warning("[scan_dialog.py:253] silenced: %s", _e)
+        except (AttributeError, RuntimeError) as _e:
+            logger.warning("cleanup skipped: %s", _e)
         super().closeEvent(event)

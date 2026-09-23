@@ -10,11 +10,11 @@ Not covered here: update_ui_state()/accept_scan() happy paths already
 exercised by tests/test_scan_dialog.py (not duplicated).
 """
 
+import importlib.util
 import os
 import sys
 import types
 import unittest
-import importlib.util
 from unittest.mock import MagicMock, patch
 
 
@@ -241,7 +241,7 @@ class TestAutoUpdateSelection(unittest.TestCase):
         mw = MagicMock()
         e3d = MagicMock()
         e3d.selected_atoms_for_measurement = [3, 1, "bad", 2]
-        e3d.selected_atoms_3d = {9, 9, 9}
+        e3d.selected_atoms_3d = {9}
         mw.edit_3d_manager = e3d
         dlg.mw = mw
         with patch.object(dlg, "update_ui_state") as mock_update:

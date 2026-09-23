@@ -1,17 +1,22 @@
 PLUGIN_NAME = "PySCF Calculator"
-PLUGIN_VERSION = "3.3.3"
+PLUGIN_VERSION = "4.0.0"
 PLUGIN_AUTHOR = "HiroYokoyama"
 PLUGIN_DESCRIPTION = (
     "Perform PySCF quantum chemistry calculations directly in MoleditPy. "
-    "Features: Single Point Energy (RHF/UHF/DFT), Geometry Optimization (Geometric/Berny), "
-    "Frequency Analysis, and interactive 3D visualization of Molecular Orbitals (HOMO/LUMO) "
-    "and Electrostatic Potential (ESP) mapped on Density surfaces."
+    "Features: Single Point Energy, Geometry and Transition State Optimization, "
+    "Frequency Analysis with thermochemistry, TDDFT, Rigid/Relaxed Surface Scans, "
+    "implicit solvent and dispersion corrections, and interactive 3D visualization "
+    "of Molecular Orbitals, Spin Density and Electrostatic Potential (ESP)."
 )
 PLUGIN_DEPENDENCIES = ["pyscf", "geometric", "numpy"]
+# Extra features only. pyscf-dispersion (D3/D4) is deliberately not listed:
+# it has no Apple Silicon wheel, and the one pip falls back to there (1.0.0)
+# breaks `import pyscf` -- see README.
+PLUGIN_OPTIONAL_DEPENDENCIES = ["pyberny"]
 PLUGIN_SUPPORTED_MOLEDITPY_VERSION = ">=4.0.0, <5.0.0"
 PLUGIN_SUPPORTED_OS = ["macOS", "Linux", "WSL"]  # pyscf has no native Windows support
 
-from .gui import PySCFDialog  # noqa: E402
+from .gui import PySCFDialog
 
 # Global settings state (persisted in project file)
 PLUGIN_SETTINGS = {}

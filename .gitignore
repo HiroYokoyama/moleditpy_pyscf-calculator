@@ -17,3 +17,6 @@ htmlcov/
 **/*.xyz
 **/*.trj
 tmp/
+
+# real-PySCF test fixtures are genuine plugin output
+!tests_real/data/**/*.xyz

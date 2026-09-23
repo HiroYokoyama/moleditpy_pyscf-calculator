@@ -28,14 +28,14 @@ test_freq_vis_spectrum.py, plus:
     driven deterministically.
 """
 
+import importlib.util
 import os
 import sys
 import types
 import unittest
-import importlib.util
-import numpy as np
 from unittest.mock import MagicMock, patch
 
+import numpy as np
 
 # ---------------------------------------------------------------------------
 # Stubs
@@ -566,7 +566,7 @@ class TestShowSpectrum(unittest.TestCase):
         with patch.object(_mod, "SpectrumDialog") as dlg_cls:
             instance = dlg_cls.return_value
             fv.show_spectrum()
-            args, kwargs = dlg_cls.call_args
+            args, _kwargs = dlg_cls.call_args
             self.assertEqual(args[0], [1000.0, 2000.0])
             self.assertEqual(args[1], [1.0, 0.0])
             instance.exec.assert_called_once()
@@ -801,7 +801,7 @@ class TestSaveAsGifFullPath(unittest.TestCase):
         return fv, plotter
 
     def test_success_path_saves_gif(self):
-        fv, plotter = self._fv_ready()
+        fv, _plotter = self._fv_ready()
         gif_path = os.path.join(
             os.environ.get("TEMP", "."), "freq_vis_coverage_test.gif"
         )
@@ -816,7 +816,7 @@ class TestSaveAsGifFullPath(unittest.TestCase):
         info_m.assert_called_once()
 
     def test_success_path_appends_gif_extension(self):
-        fv, plotter = self._fv_ready()
+        fv, _plotter = self._fv_ready()
         gif_path = os.path.join(
             os.environ.get("TEMP", "."), "freq_vis_coverage_test_noext"
         )
@@ -848,7 +848,7 @@ class TestSaveAsGifFullPath(unittest.TestCase):
         crit_m.assert_called_once()
 
     def test_was_playing_toggled_back_on_after_export(self):
-        fv, plotter = self._fv_ready()
+        fv, _plotter = self._fv_ready()
         fv.is_playing = True
         gif_path = os.path.join(os.environ.get("TEMP", "."), "freq_vis_resume.gif")
         with (

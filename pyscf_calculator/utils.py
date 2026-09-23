@@ -1,6 +1,9 @@
-import os
-from rdkit import Chem
 import logging
+import os
+
+from rdkit import Chem
+
+logger = logging.getLogger(__name__)
 
 
 def get_unique_path(path):
@@ -17,6 +20,25 @@ def get_unique_path(path):
         if not os.path.exists(new_path):
             return new_path
         n += 1
+
+
+def read_xyz_frames(path):
+    """The frames of a multi-frame XYZ file, each as an XYZ block string.
+    Parsing stops at the first line that does not start a frame."""
+    with open(path, encoding="utf-8") as f:
+        lines = f.read().splitlines()
+    frames, idx = [], 0
+    while idx < len(lines):
+        head = lines[idx].strip()
+        if not head:
+            idx += 1
+            continue
+        if not head.isdigit():
+            break
+        n_atoms = int(head)
+        frames.append("\n".join(lines[idx : idx + n_atoms + 2]))
+        idx += n_atoms + 2
+    return frames
 
 
 def rdkit_to_xyz(mol):
@@ -75,19 +97,30 @@ def update_molecule_from_xyz(context, xyz_content, mark_modified=True):
             new_mol = Chem.MolFromXYZBlock(raw_xyz)
 
     if new_mol:
+        # The XYZ carries no charge; take it from the molecule being replaced
+        # (same atoms). With charge=0 an ion either fails bond-order
+        # assignment or comes back as a spurious neutral radical.
+        charge = 0
+        try:
+            old_mol = context.current_molecule
+            if old_mol is not None and old_mol.GetNumAtoms() == new_mol.GetNumAtoms():
+                charge = int(Chem.GetFormalCharge(old_mol))
+        except (AttributeError, RuntimeError, TypeError, ValueError) as _e:
+            logger.warning("Could not read the current molecule's charge: %s", _e)
+
         # determine bond and bond order by rdkit
         try:
             from rdkit.Chem import rdDetermineBonds
 
             rdDetermineBonds.DetermineConnectivity(new_mol)
-            rdDetermineBonds.DetermineBondOrders(
-                new_mol, charge=0
-            )  # Assuming neutral or use context?
+            rdDetermineBonds.DetermineBondOrders(new_mol, charge=charge)
         except ImportError:
             # Fallback for older RDKit?
             pass
-        except Exception as e:
-            logging.warning("Could not determine bonds: %s", e)
+        # bond orders are optional: whatever RDKit raises, keep the
+        # connectivity-only molecule
+        except Exception as e:  # noqa: BLE001
+            logger.warning("Could not determine bonds: %s", e)
 
         # Preserve Dirty State if requested NOT to mark modified
         mw = context.get_main_window()
@@ -99,8 +132,8 @@ def update_molecule_from_xyz(context, xyz_content, mark_modified=True):
             if sm:
                 try:
                     was_dirty = getattr(sm, "has_unsaved_changes", False)
-                except Exception as _e:
-                    logging.warning(
+                except (AttributeError, RuntimeError, TypeError) as _e:
+                    logger.warning(
                         "Failed to check dirty state in StateManager: %s", _e
                     )
 
@@ -115,7 +148,7 @@ def update_molecule_from_xyz(context, xyz_content, mark_modified=True):
                         sm.has_unsaved_changes = was_dirty
                     if hasattr(sm, "update_window_title"):
                         sm.update_window_title()
-                except Exception as _e:
-                    logging.warning(
+                except (AttributeError, RuntimeError, TypeError) as _e:
+                    logger.warning(
                         "Failed to restore dirty state in StateManager: %s", _e
                     )

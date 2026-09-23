@@ -14,11 +14,11 @@ setup_ui/__init__, which need a live QApplication) and manually populate
 just the attributes each method under test touches.
 """
 
+import importlib.util
 import os
 import sys
 import types
 import unittest
-import importlib.util
 from unittest.mock import MagicMock, patch
 
 

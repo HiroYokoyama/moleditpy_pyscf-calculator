@@ -11,11 +11,11 @@ Not covered here: the "happy path" run_calculation() config-building already
 exercised by tests/test_calc_tab.py (not duplicated).
 """
 
+import importlib.util
 import os
 import sys
 import types
 import unittest
-import importlib.util
 from unittest.mock import MagicMock, patch
 
 
@@ -111,6 +111,7 @@ def _install_stubs():
         "QComboBox",
         "QPushButton",
         "QSpinBox",
+        "QDoubleSpinBox",
         "QCheckBox",
         "QGroupBox",
         "QFormLayout",
@@ -199,6 +200,14 @@ class _BaseTabTest(unittest.TestCase):
         self.tab.charge_input = MagicMock()
         self.tab.spin_input = MagicMock()
         self.tab.nstates_input = MagicMock()
+        self.tab.hessian_combo = MagicMock()
+        self.tab.lbl_hessian = MagicMock()
+        self.tab.dispersion_combo = MagicMock()
+        self.tab.dispersion_combo.currentText.return_value = "None"
+        self.tab.spin_temperature = MagicMock()
+        self.tab.spin_temperature.value.return_value = 298.15
+        self.tab.spin_pressure = MagicMock()
+        self.tab.spin_pressure.value.return_value = 1.0
         self.tab.lbl_nstates = MagicMock()
         self.tab.out_dir_edit = MagicMock()
         self.tab.btn_scan_config = MagicMock()
@@ -268,6 +277,20 @@ class TestUpdateOptions(_BaseTabTest):
         self.tab.update_options()
         self.tab.lbl_nstates.setVisible.assert_called_with(False)
         self.tab.nstates_input.setVisible.assert_called_with(False)
+
+    def test_hessian_choice_shown_only_for_frequency_jobs(self):
+        self.tab.method_combo.currentText.return_value = "RKS"
+        for job, shown in (
+            ("Frequency", True),
+            ("Optimization + Frequency", True),
+            ("TS Optimization + Frequency", True),
+            ("Energy", False),
+            ("TDDFT", False),
+        ):
+            self.tab.job_type_combo.currentText.return_value = job
+            self.tab.update_options()
+            self.tab.hessian_combo.setVisible.assert_called_with(shown)
+            self.tab.lbl_hessian.setVisible.assert_called_with(shown)
 
 
 class TestAutoDetectChargeSpin(_BaseTabTest):
@@ -668,16 +691,66 @@ class TestStopCalculation(_BaseTabTest):
         self.tab.stop_calculation()
         self.tab.log.assert_not_called()
 
-    def test_stream_close_exception_silenced(self):
+    def test_stream_is_closed(self):
         worker = MagicMock()
         worker.isRunning.return_value = True
         worker._stream = MagicMock()
-        worker._stream.close.side_effect = RuntimeError("boom")
+        # StreamToSignal.close() only sets a flag and cannot raise
         worker.wait.return_value = True
         self.tab.worker = worker
         self.tab.log = MagicMock()
         self.tab.stop_calculation()  # must not raise
+        worker._stream.close.assert_called_once()
         worker.finished.connect.assert_called_with(self.tab._on_worker_stopped)
+
+    def test_stop_works_with_a_real_qthread_signal_set(self):
+        """PyQt6's QThread has started/finished only. Connecting the
+        nonexistent `terminated` signal raised AttributeError, so Stop (and
+        closing the dialog mid-job) failed with a real worker."""
+
+        class _Sig:
+            def __init__(self):
+                self.slots = []
+
+            def connect(self, slot):
+                self.slots.append(slot)
+
+            def disconnect(self):
+                self.slots.clear()
+
+        class _Worker:  # exactly the attributes a PyQt6 QThread worker has
+            def __init__(self):
+                self.finished = _Sig()
+                self.started = _Sig()
+                for name in (
+                    "log_signal",
+                    "finished_signal",
+                    "error_signal",
+                    "result_signal",
+                ):
+                    setattr(self, name, _Sig())
+                self._stream = None
+                self._stop_requested = False
+                self._running = True
+
+            def isRunning(self):
+                return self._running
+
+            def wait(self, _ms):
+                self._running = False  # stops cooperatively
+                return True
+
+            def terminate(self):
+                self._running = False
+
+        worker = _Worker()
+        self.tab.worker = worker
+        self.tab.log = MagicMock()
+        self.tab.cleanup_ui_state = MagicMock()
+        self.tab.stop_calculation()
+        self.assertTrue(worker._stop_requested)
+        self.assertIsNone(self.tab.worker)  # cleaned up once the thread ended
+        self.tab.cleanup_ui_state.assert_called_once()
 
     def test_disconnect_exception_silenced(self):
         worker = MagicMock()

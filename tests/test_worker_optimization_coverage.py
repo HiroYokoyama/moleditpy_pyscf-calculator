@@ -10,15 +10,16 @@ Coverage for PySCFWorker.run() "Optimization" job type dispatch and the
   - break_symmetry=False skip path
 """
 
+import builtins
+import importlib.util
 import os
 import sys
-import types
-import builtins
 import tempfile
+import types
 import unittest
-import importlib.util
-import numpy as np
 from unittest.mock import MagicMock, patch
+
+import numpy as np
 
 
 def _install_stubs(force=False):
@@ -212,16 +213,19 @@ def _run(config, fake_mf, block_imports=None):
     gto_mock.M.return_value = mock_mol
     _mod.gto = gto_mock
 
+    # A list hands out one fake per _build_mf call (pre- vs post-optimization).
+    mf_kw = (
+        {"side_effect": list(fake_mf)}
+        if isinstance(fake_mf, list)
+        else {"return_value": fake_mf}
+    )
     scf_mock = MagicMock()
-    scf_mock.RHF.return_value = fake_mf
-    scf_mock.UHF.return_value = fake_mf
-    scf_mock.ROHF.return_value = fake_mf
-    _mod.scf = scf_mock
-
     dft_mock = MagicMock()
-    dft_mock.RKS.return_value = fake_mf
-    dft_mock.UKS.return_value = fake_mf
-    dft_mock.ROKS.return_value = fake_mf
+    for ctor in (scf_mock.RHF, scf_mock.UHF, scf_mock.ROHF):
+        ctor.configure_mock(**mf_kw)
+    for ctor in (dft_mock.RKS, dft_mock.UKS, dft_mock.ROKS):
+        ctor.configure_mock(**mf_kw)
+    _mod.scf = scf_mock
     _mod.dft = dft_mock
 
     w = _make_worker(config)
@@ -277,7 +281,7 @@ class TestGeometricOptimizationSuccess(unittest.TestCase):
 class TestOptimizationImportErrors(unittest.TestCase):
     def test_ts_geometric_missing_emits_error_no_berny(self):
         """TS optimization requires geometric; berny fallback is NOT attempted."""
-        w, results = _run(
+        w, _results = _run(
             _base_config(job_type="Transition State Optimization"),
             FakeMF(),
             block_imports=["pyscf.geomopt.geometric_solver"],
@@ -301,7 +305,7 @@ class TestOptimizationImportErrors(unittest.TestCase):
         self.assertIn("geometric-lib not found", all_logs)
 
     def test_both_optimizers_missing_emits_error(self):
-        w, results = _run(
+        w, _results = _run(
             _base_config(),
             FakeMF(),
             block_imports=[
@@ -323,9 +327,137 @@ class TestOptimizationImportErrors(unittest.TestCase):
 class TestEnsureEnergyKernelCall(unittest.TestCase):
     def test_energy_job_type_calls_kernel_when_falsy(self):
         fake_mf = FakeMF(e_tot=None)
-        w, results = _run(_base_config(job_type="Energy", method="RHF"), fake_mf)
+        w, _results = _run(_base_config(job_type="Energy", method="RHF"), fake_mf)
         w.finished_signal.emit.assert_called_once()
         self.assertEqual(len(fake_mf.kernel_calls), 1)
+
+
+# ===========================================================================
+# 2b. The properties SCF runs at the optimized geometry, with user settings
+# ===========================================================================
+
+
+class TestPostOptimizationMF(unittest.TestCase):
+    def _check(self, block_imports, solver):
+        mol_eq = _make_mol_eq()
+        _install_geomopt(solver, mol_eq)
+        first, second = FakeMF(), FakeMF()
+        w, _ = _run(
+            _base_config(extra={"max_cycle": 321, "conv_tol": "1e-7"}),
+            [first, second],
+            block_imports=block_imports,
+        )
+        w.error_signal.emit.assert_not_called()
+        # the final SCF ran on a fresh mf built at mol_eq ...
+        self.assertIs(_mod.scf.RHF.call_args_list[-1][0][0], mol_eq)
+        self.assertEqual(len(second.kernel_calls), 1)
+        self.assertEqual(first.kernel_calls, [])
+        # ... carrying the user's SCF settings
+        self.assertEqual(second.max_cycle, 321)
+        self.assertEqual(second.conv_tol, 1e-7)
+        self.assertTrue(second.chkfile.endswith("pyscf.chk"))
+
+    def test_geometric(self):
+        self._check(None, "geometric_solver")
+
+    def test_berny_fallback(self):
+        """Berny used to leave mf on the starting geometry."""
+        self._check(["pyscf.geomopt.geometric_solver"], "berny_solver")
+
+
+# ===========================================================================
+# 3a. Dispersion correction
+# ===========================================================================
+
+
+class TestDispersion(unittest.TestCase):
+    def _run_disp(self, choice, functional="b3lyp", method="RKS", have_pkg=True):
+        fake_mf = FakeMF(e_tot=None)
+        mods = {"pyscf.dispersion": MagicMock()} if have_pkg else {}
+        with patch.dict(sys.modules, mods):
+            if not have_pkg:
+                sys.modules.pop("pyscf.dispersion", None)
+            w, _ = _run(
+                _base_config(
+                    job_type="Energy",
+                    method=method,
+                    extra={"dispersion": choice, "functional": functional},
+                ),
+                fake_mf,
+            )
+        return w, fake_mf
+
+    def test_choice_reaches_the_mean_field_object(self):
+        for choice, key in (("D3(BJ)", "d3bj"), ("D3(zero)", "d3zero"), ("D4", "d4")):
+            w, mf = self._run_disp(choice)
+            w.error_signal.emit.assert_not_called()
+            self.assertEqual(mf.disp, key)
+
+    def test_hf_takes_dispersion_too(self):
+        _w, mf = self._run_disp("D3(BJ)", method="RHF")
+        self.assertEqual(mf.disp, "d3bj")
+
+    def test_none_leaves_mf_untouched(self):
+        _w, mf = self._run_disp("None")
+        self.assertFalse(hasattr(mf, "disp"))
+
+    def test_vv10_functional_refuses_double_counting(self):
+        w, _mf = self._run_disp("D3(BJ)", functional="wb97x-v")
+        w.error_signal.emit.assert_called_once()
+        self.assertIn("VV10", w.error_signal.emit.call_args[0][0])
+
+    def test_missing_package_is_a_clear_error(self):
+        w, _mf = self._run_disp("D4", have_pkg=False)
+        w.error_signal.emit.assert_called_once()
+        self.assertIn("pyscf-dispersion", w.error_signal.emit.call_args[0][0])
+
+
+# ===========================================================================
+# 3b. Solvent reaches the mean-field object of every non-scan job
+# ===========================================================================
+
+
+class TestUnconvergedScfWarning(unittest.TestCase):
+    def test_energy_job_warns(self):
+        fake_mf = FakeMF(e_tot=None, converged=False)
+        w, _ = _run(_base_config(job_type="Energy"), fake_mf)
+        logs = " ".join(str(c) for c in w.log_signal.emit.call_args_list)
+        self.assertIn("SCF did not converge within 100 cycles", logs)
+
+    def test_converged_job_is_quiet(self):
+        w, _ = _run(_base_config(job_type="Energy"), FakeMF(e_tot=None))
+        logs = " ".join(str(c) for c in w.log_signal.emit.call_args_list)
+        self.assertNotIn("did not converge", logs)
+
+
+class TestSolventApplied(unittest.TestCase):
+    """The first mf used to be built without ddCOSMO, so Energy / TDDFT /
+    Optimization ran in vacuum while the log announced a solvent."""
+
+    def test_energy_job_is_solvated(self):
+        fake_mf = FakeMF(e_tot=None)
+        w, _ = _run(
+            _base_config(job_type="Energy", extra={"solvent": "Water"}), fake_mf
+        )
+        w.error_signal.emit.assert_not_called()
+        self.assertTrue(hasattr(fake_mf, "with_solvent"))
+        self.assertEqual(fake_mf.with_solvent.eps, 78.2)
+
+    def test_optimizer_receives_solvated_mf(self):
+        mol_eq = _make_mol_eq()
+        opt = _install_geomopt("geometric_solver", mol_eq)
+        fake_mf = FakeMF()
+        _run(_base_config(extra={"solvent": "Toluene"}), fake_mf)
+        mf_passed = opt.call_args[0][0]
+        self.assertTrue(hasattr(mf_passed, "with_solvent"))
+
+    def test_vacuum_job_is_not_solvated(self):
+        fake_mf = FakeMF(e_tot=None)
+        _run(
+            _base_config(job_type="Energy", extra={"solvent": "None (Vacuum)"}),
+            fake_mf,
+        )
+        self.assertFalse(hasattr(fake_mf, "with_solvent"))
 
 
 # ===========================================================================
@@ -341,7 +473,7 @@ class TestSymmetryBreaking(unittest.TestCase):
 
     def test_uhf_symmetry_breaking_success(self):
         fake_mf = FakeMF(e_tot=None)
-        w, results = _run(
+        w, _results = _run(
             _base_config(job_type="Energy", method="UHF", extra={"spin": "1"}),
             fake_mf,
         )
@@ -363,7 +495,7 @@ class TestSymmetryBreaking(unittest.TestCase):
 
     def test_uks_symmetry_breaking_success(self):
         fake_mf = FakeMF(e_tot=None)
-        w, results = _run(
+        w, _results = _run(
             _base_config(
                 job_type="Energy",
                 method="UKS",
@@ -388,7 +520,7 @@ class TestSymmetryBreaking(unittest.TestCase):
     def test_symmetry_breaking_exception_falls_back(self):
         fake_mf = FakeMF(e_tot=None)
         fake_mf.get_init_guess_raises = True
-        w, results = _run(
+        w, _results = _run(
             _base_config(job_type="Energy", method="UHF", extra={"spin": "1"}),
             fake_mf,
         )
@@ -400,7 +532,7 @@ class TestSymmetryBreaking(unittest.TestCase):
 
     def test_break_symmetry_false_skips_mixing(self):
         fake_mf = FakeMF(e_tot=None)
-        w, results = _run(
+        w, _results = _run(
             _base_config(
                 job_type="Energy",
                 method="UHF",

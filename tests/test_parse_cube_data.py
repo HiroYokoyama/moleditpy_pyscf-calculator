@@ -6,15 +6,14 @@ No Qt or PySCF needed.  pyvista and PyQt6 are mocked at module level so the
 vis module can be imported headlessly.
 """
 
+import importlib.util
 import os
 import sys
-import types
-import textwrap
 import tempfile
+import textwrap
+import types
 import unittest
-import importlib.util
 from unittest.mock import MagicMock
-
 
 # ---------------------------------------------------------------------------
 # Stubs: pyvista, PyQt6.QtGui, PyQt6.QtCore  (all used at module level in vis.py)

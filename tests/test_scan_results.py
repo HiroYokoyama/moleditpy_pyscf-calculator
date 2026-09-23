@@ -3,12 +3,12 @@ tests/test_scan_results.py
 Unit tests for the scan_results plotting and data conversion.
 """
 
+import importlib.util
 import os
 import sys
 import types
 import unittest
-import importlib.util
-from unittest.mock import MagicMock, patch, mock_open
+from unittest.mock import MagicMock, mock_open, patch
 
 
 def _load_module_direct(relpath, module_name):
@@ -226,7 +226,9 @@ class TestScanResults(unittest.TestCase):
             if orig_msg is not None:
                 sr_mod.QMessageBox.information = orig_msg
 
-        mock_file.assert_called_with("/fake/path.csv", "w", newline="")
+        mock_file.assert_called_with(
+            "/fake/path.csv", "w", newline="", encoding="utf-8"
+        )
         handle = mock_file()
         handle.write.assert_any_call("step,value,energy\r\n")
         handle.write.assert_any_call("0,1.0,-76.0\r\n")
@@ -281,7 +283,7 @@ class TestCreateBaseMoleculeMarksModified(unittest.TestCase):
         dialog = ScanResultDialog.__new__(ScanResultDialog)
         dialog.trajectory = ["2\ncomment\nH 0.0 0.0 0.0\nH 0.0 0.0 1.0"]
         dialog.context = None
-        with patch.object(sr_mod.logging, "exception") as mock_log:
+        with patch.object(sr_mod.logger, "exception") as mock_log:
             dialog.create_base_molecule()
             mock_log.assert_not_called()
 

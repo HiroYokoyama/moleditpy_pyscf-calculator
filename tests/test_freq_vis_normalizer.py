@@ -12,14 +12,14 @@ Coverage targets (freq_vis.py):
   - SpectrumWidget.set_params() (559-565)
 """
 
+import importlib.util
 import os
 import sys
 import types
 import unittest
-import importlib.util
-import numpy as np
 from unittest.mock import MagicMock, patch
 
+import numpy as np
 
 # ---------------------------------------------------------------------------
 # Qt stubs — force-install to avoid interference from other test files

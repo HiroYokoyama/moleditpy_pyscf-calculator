@@ -20,14 +20,14 @@ Coverage targets (freq_vis.py):
   - set_params() forwarding (lines 559-565)
 """
 
+import importlib.util
 import os
 import sys
 import types
 import unittest
-import importlib.util
-import numpy as np
 from unittest.mock import MagicMock
 
+import numpy as np
 
 # ---------------------------------------------------------------------------
 # Qt stubs — must be installed before freq_vis.py is loaded
