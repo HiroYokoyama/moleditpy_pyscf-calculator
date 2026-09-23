@@ -365,6 +365,53 @@ class TestPostOptimizationMF(unittest.TestCase):
 
 
 # ===========================================================================
+# 3a. Dispersion correction
+# ===========================================================================
+
+
+class TestDispersion(unittest.TestCase):
+    def _run_disp(self, choice, functional="b3lyp", method="RKS", have_pkg=True):
+        fake_mf = FakeMF(e_tot=None)
+        mods = {"pyscf.dispersion": MagicMock()} if have_pkg else {}
+        with patch.dict(sys.modules, mods):
+            if not have_pkg:
+                sys.modules.pop("pyscf.dispersion", None)
+            w, _ = _run(
+                _base_config(
+                    job_type="Energy",
+                    method=method,
+                    extra={"dispersion": choice, "functional": functional},
+                ),
+                fake_mf,
+            )
+        return w, fake_mf
+
+    def test_choice_reaches_the_mean_field_object(self):
+        for choice, key in (("D3(BJ)", "d3bj"), ("D3(zero)", "d3zero"), ("D4", "d4")):
+            w, mf = self._run_disp(choice)
+            w.error_signal.emit.assert_not_called()
+            self.assertEqual(mf.disp, key)
+
+    def test_hf_takes_dispersion_too(self):
+        w, mf = self._run_disp("D3(BJ)", method="RHF")
+        self.assertEqual(mf.disp, "d3bj")
+
+    def test_none_leaves_mf_untouched(self):
+        w, mf = self._run_disp("None")
+        self.assertFalse(hasattr(mf, "disp"))
+
+    def test_vv10_functional_refuses_double_counting(self):
+        w, mf = self._run_disp("D3(BJ)", functional="wb97x-v")
+        w.error_signal.emit.assert_called_once()
+        self.assertIn("VV10", w.error_signal.emit.call_args[0][0])
+
+    def test_missing_package_is_a_clear_error(self):
+        w, mf = self._run_disp("D4", have_pkg=False)
+        w.error_signal.emit.assert_called_once()
+        self.assertIn("pyscf-dispersion", w.error_signal.emit.call_args[0][0])
+
+
+# ===========================================================================
 # 3b. Solvent reaches the mean-field object of every non-scan job
 # ===========================================================================
 

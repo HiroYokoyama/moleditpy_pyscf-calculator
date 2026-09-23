@@ -99,6 +99,7 @@ def _install_stubs():
         "QComboBox",
         "QPushButton",
         "QSpinBox",
+        "QDoubleSpinBox",
         "QCheckBox",
         "QGroupBox",
         "QFormLayout",
@@ -154,6 +155,12 @@ class TestCalcTabConfig(unittest.TestCase):
         self.tab.nstates_input = MagicMock()
         self.tab.hessian_combo = MagicMock()
         self.tab.lbl_hessian = MagicMock()
+        self.tab.dispersion_combo = MagicMock()
+        self.tab.dispersion_combo.currentText.return_value = "None"
+        self.tab.spin_temperature = MagicMock()
+        self.tab.spin_temperature.value.return_value = 298.15
+        self.tab.spin_pressure = MagicMock()
+        self.tab.spin_pressure.value.return_value = 1.0
         self.tab.out_dir_edit = MagicMock()
 
         self.tab.spin_memory = MagicMock()
@@ -241,6 +248,15 @@ class TestCalcTabConfig(unittest.TestCase):
         )
         config = self._run_calc_and_get_config()
         self.assertEqual(config["hessian"], "Numerical (finite difference)")
+
+    def test_build_config_carries_dispersion_and_conditions(self):
+        self.tab.dispersion_combo.currentText.return_value = "D4"
+        self.tab.spin_temperature.value.return_value = 350.0
+        self.tab.spin_pressure.value.return_value = 2.0
+        config = self._run_calc_and_get_config()
+        self.assertEqual(config["dispersion"], "D4")
+        self.assertEqual(config["temperature"], 350.0)
+        self.assertEqual(config["pressure"], 2.0 * 101325.0)  # atm -> Pa
 
     def test_build_config_solvent(self):
         config = self._run_calc_and_get_config(solvent="water")

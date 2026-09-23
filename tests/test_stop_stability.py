@@ -106,6 +106,7 @@ def _install_stubs():
         "QComboBox",
         "QPushButton",
         "QSpinBox",
+        "QDoubleSpinBox",
         "QCheckBox",
         "QGroupBox",
         "QFormLayout",

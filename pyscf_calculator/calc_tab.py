@@ -9,6 +9,7 @@ from PyQt6.QtWidgets import (
     QComboBox,
     QPushButton,
     QSpinBox,
+    QDoubleSpinBox,
     QCheckBox,
     QGroupBox,
     QFormLayout,
@@ -103,6 +104,27 @@ class CalcTab(QWidget):
         self.lbl_hessian.setVisible(False)
         self.hessian_combo.setVisible(False)
         form_layout.addRow(self.lbl_hessian, self.hessian_combo)
+
+        # Thermochemistry conditions (Frequency jobs)
+        self.lbl_temperature = QLabel("Temperature (K):")
+        self.spin_temperature = QDoubleSpinBox()
+        self.spin_temperature.setRange(0.1, 5000.0)
+        self.spin_temperature.setDecimals(2)
+        self.spin_temperature.setValue(298.15)
+        self.lbl_pressure = QLabel("Pressure (atm):")
+        self.spin_pressure = QDoubleSpinBox()
+        self.spin_pressure.setRange(0.001, 1000.0)
+        self.spin_pressure.setDecimals(3)
+        self.spin_pressure.setValue(1.0)
+        for w in (
+            self.lbl_temperature,
+            self.spin_temperature,
+            self.lbl_pressure,
+            self.spin_pressure,
+        ):
+            w.setVisible(False)
+        form_layout.addRow(self.lbl_temperature, self.spin_temperature)
+        form_layout.addRow(self.lbl_pressure, self.spin_pressure)
 
         self.method_combo = QComboBox()
         self.method_combo.addItems(["RKS", "RHF", "UKS", "UHF", "ROKS", "ROHF"])
@@ -208,6 +230,15 @@ class CalcTab(QWidget):
             ]
         )
         form_layout.addRow("Solvent:", self.solvent_combo)
+
+        # Empirical dispersion (pyscf-dispersion package)
+        self.dispersion_combo = QComboBox()
+        self.dispersion_combo.addItems(["None", "D3(BJ)", "D3(zero)", "D4"])
+        self.dispersion_combo.setToolTip(
+            "Grimme dispersion correction (needs: pip install pyscf-dispersion).\n"
+            "Not with wb97x-v / wb97m-v, which already include VV10."
+        )
+        form_layout.addRow("Dispersion:", self.dispersion_combo)
 
         self.charge_input = QComboBox()
         self.charge_input.addItems([str(i) for i in range(-5, 6)])
@@ -383,6 +414,9 @@ class CalcTab(QWidget):
             has_freq = "Frequency" in job
             self.lbl_hessian.setVisible(has_freq)
             self.hessian_combo.setVisible(has_freq)
+            for w in ("lbl_temperature", "spin_temperature", "lbl_pressure", "spin_pressure"):
+                if getattr(self, w, None) is not None:
+                    getattr(self, w).setVisible(has_freq)
 
     def auto_detect_charge_spin(self):
         if not self.context or not self.context.current_molecule:
@@ -621,6 +655,9 @@ class CalcTab(QWidget):
             "spin": self.get_spin_value(),
             "nstates": self.nstates_input.value(),
             "hessian": self.hessian_combo.currentText(),
+            "dispersion": self.dispersion_combo.currentText(),
+            "temperature": self.spin_temperature.value(),
+            "pressure": self.spin_pressure.value() * 101325.0,  # atm -> Pa
             "threads": self.spin_threads.value(),
             "memory": self.spin_memory.value(),
             "symmetry": self.check_symmetry.isChecked(),

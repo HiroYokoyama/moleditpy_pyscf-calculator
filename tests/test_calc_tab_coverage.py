@@ -111,6 +111,7 @@ def _install_stubs():
         "QComboBox",
         "QPushButton",
         "QSpinBox",
+        "QDoubleSpinBox",
         "QCheckBox",
         "QGroupBox",
         "QFormLayout",
@@ -201,6 +202,12 @@ class _BaseTabTest(unittest.TestCase):
         self.tab.nstates_input = MagicMock()
         self.tab.hessian_combo = MagicMock()
         self.tab.lbl_hessian = MagicMock()
+        self.tab.dispersion_combo = MagicMock()
+        self.tab.dispersion_combo.currentText.return_value = "None"
+        self.tab.spin_temperature = MagicMock()
+        self.tab.spin_temperature.value.return_value = 298.15
+        self.tab.spin_pressure = MagicMock()
+        self.tab.spin_pressure.value.return_value = 1.0
         self.tab.lbl_nstates = MagicMock()
         self.tab.out_dir_edit = MagicMock()
         self.tab.btn_scan_config = MagicMock()

@@ -41,6 +41,15 @@ _XC_ALIASES = {
 }
 
 
+# Dispersion choices in the UI -> PySCF's mf.disp keyword (pyscf-dispersion).
+_DISPERSION = {
+    "None": None,
+    "D3(BJ)": "d3bj",
+    "D3(zero)": "d3zero",
+    "D4": "d4",
+}
+
+
 def resolve_xc(functional: str) -> str:
     """The xc string PySCF needs for a functional name shown in the UI."""
     return _XC_ALIASES.get(str(functional).strip().lower(), functional)
@@ -336,15 +345,19 @@ class PySCFWorker(QThread):
         dm[1][ao_start:ao_end, ao_start:ao_end] = 0.0
         return dm
 
+    def _dispersion(self):
+        """PySCF `disp` keyword for the chosen correction, or None."""
+        return _DISPERSION.get(str(self.config.get("dispersion", "None")))
+
     def _build_mf(self, mol, method_name, functional):
         """Create a mean-field object for the given mol, method, and functional."""
         grid_level = self.config.get("grid_level", 3)
         if method_name == "RHF":
-            return scf.RHF(mol)
+            mf = scf.RHF(mol)
         elif method_name == "UHF":
-            return scf.UHF(mol)
+            mf = scf.UHF(mol)
         elif method_name == "ROHF":
-            return scf.ROHF(mol)
+            mf = scf.ROHF(mol)
         elif method_name == "RKS":
             mf = dft.RKS(mol)
         elif method_name == "UKS":
@@ -353,14 +366,37 @@ class PySCFWorker(QThread):
             mf = dft.ROKS(mol)
         else:
             raise ValueError(f"Unknown method: {method_name}")
-        mf.xc = resolve_xc(functional)
-        try:
-            mf.grids.level = grid_level
-            if grid_level >= 4:
-                mf.grids.prune = False
-        except Exception as _e:
-            logging.warning("[worker.py] _build_mf grid silenced: %s", _e)
+        if "KS" in method_name:
+            mf.xc = resolve_xc(functional)
+            try:
+                mf.grids.level = grid_level
+                if grid_level >= 4:
+                    mf.grids.prune = False
+            except Exception as _e:
+                logging.warning("[worker.py] _build_mf grid silenced: %s", _e)
+        # Set at construction: PySCF caches the dispersion object on the mf.
+        disp = self._dispersion()
+        if disp:
+            mf.disp = disp
         return mf
+
+    def _check_dispersion_setup(self, method_name, functional):
+        """An error message when the dispersion choice cannot run, else None."""
+        if not self._dispersion():
+            return None
+        if "KS" in method_name and str(functional).lower().endswith("-v"):
+            return (
+                f"{functional} already contains VV10 dispersion; "
+                "set Dispersion to None."
+            )
+        try:
+            import pyscf.dispersion  # noqa: F401, PLC0415
+        except ImportError:
+            return (
+                "Dispersion corrections need the pyscf-dispersion package "
+                "(pip install pyscf-dispersion)."
+            )
+        return None
 
     def run(self):
         if pyscf is None:
@@ -486,6 +522,15 @@ class PySCFWorker(QThread):
             # open-shell-switched) method as the rest of the job.
             self._method_name = method_name
 
+            disp_error = self._check_dispersion_setup(method_name, functional)
+            if disp_error:
+                self.error_signal.emit(disp_error)
+                return
+            if self._dispersion():
+                self.log_signal.emit(
+                    f"Dispersion correction: {self.config.get('dispersion')}\n"
+                )
+
             # --- Solvent Setup ---
             selected_solvent = self.config.get("solvent", "None (Vacuum)")
             use_solvent = selected_solvent != "None (Vacuum)"
@@ -548,6 +593,8 @@ class PySCFWorker(QThread):
                 else:
                     f.write(f"mf = scf.{method_name}(mol)\n")
 
+                if self._dispersion():
+                    f.write(f"mf.disp = '{self._dispersion()}'\n")
                 f.write(f"mf.max_cycle = {self.config.get('max_cycle', 100)}\n")
                 try:
                     tol = float(self.config.get("conv_tol", "1e-9"))

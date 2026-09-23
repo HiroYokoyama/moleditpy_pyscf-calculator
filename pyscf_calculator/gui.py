@@ -274,6 +274,9 @@ class PySCFDialog(QDialog):
             "check_symmetry": self.calc_tab.check_symmetry.isChecked(),
             "break_symmetry": self.calc_tab.check_break_sym.isChecked(),
             "hessian": self.calc_tab.hessian_combo.currentText(),
+            "dispersion": self.calc_tab.dispersion_combo.currentText(),
+            "temperature": self.calc_tab.spin_temperature.value(),
+            "pressure_atm": self.calc_tab.spin_pressure.value(),
             "spin_cycles": self.calc_tab.spin_cycles.value(),
             "conv_tol": self.calc_tab.edit_conv.text(),
             "grid_level": self.calc_tab.spin_grid_level.value(),
@@ -305,6 +308,9 @@ class PySCFDialog(QDialog):
             "check_symmetry": False,
             "break_symmetry": False,
             "hessian": "Analytic",
+            "dispersion": "None",
+            "temperature": 298.15,
+            "pressure_atm": 1.0,
             "spin_cycles": 100,
             "conv_tol": "1e-9",
             "grid_level": 3,
@@ -340,6 +346,9 @@ class PySCFDialog(QDialog):
             self.calc_tab.check_symmetry.setChecked(defaults["check_symmetry"])
             self.calc_tab.check_break_sym.setChecked(bool(defaults["break_symmetry"]))
             self.calc_tab.hessian_combo.setCurrentText(str(defaults["hessian"]))
+            self.calc_tab.dispersion_combo.setCurrentText(str(defaults["dispersion"]))
+            self.calc_tab.spin_temperature.setValue(float(defaults["temperature"]))
+            self.calc_tab.spin_pressure.setValue(float(defaults["pressure_atm"]))
             self.calc_tab.spin_cycles.setValue(int(defaults["spin_cycles"]))
             self.calc_tab.edit_conv.setText(defaults["conv_tol"])
             self.calc_tab.spin_grid_level.setValue(int(defaults["grid_level"]))
@@ -384,6 +393,12 @@ class PySCFDialog(QDialog):
                 self.calc_tab.check_break_sym.setChecked(bool(s["break_symmetry"]))
             if "hessian" in s:
                 self.calc_tab.hessian_combo.setCurrentText(str(s["hessian"]))
+            if "dispersion" in s:
+                self.calc_tab.dispersion_combo.setCurrentText(str(s["dispersion"]))
+            if "temperature" in s:
+                self.calc_tab.spin_temperature.setValue(float(s["temperature"]))
+            if "pressure_atm" in s:
+                self.calc_tab.spin_pressure.setValue(float(s["pressure_atm"]))
             if "spin_cycles" in s:
                 self.calc_tab.spin_cycles.setValue(int(s["spin_cycles"]))
             if "conv_tol" in s:
@@ -457,6 +472,9 @@ class PySCFDialog(QDialog):
             self.settings["check_symmetry"] = self.calc_tab.check_symmetry.isChecked()
             self.settings["break_symmetry"] = self.calc_tab.check_break_sym.isChecked()
             self.settings["hessian"] = self.calc_tab.hessian_combo.currentText()
+            self.settings["dispersion"] = self.calc_tab.dispersion_combo.currentText()
+            self.settings["temperature"] = self.calc_tab.spin_temperature.value()
+            self.settings["pressure_atm"] = self.calc_tab.spin_pressure.value()
             self.settings["spin_cycles"] = self.calc_tab.spin_cycles.value()
             self.settings["conv_tol"] = self.calc_tab.edit_conv.text()
             self.settings["grid_level"] = self.calc_tab.spin_grid_level.value()
