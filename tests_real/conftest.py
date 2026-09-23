@@ -85,6 +85,27 @@ O 0.000000 0.000000 0.000000
 H 0.000000 0.000000 0.970000"""
 
 
+# Planar NH3: the inversion transition state (exactly one imaginary mode).
+XYZ_NH3_PLANAR = """4
+ammonia, planar
+N 0.000000 0.000000 0.000000
+H 1.000000 0.000000 0.000000
+H -0.500000 0.866025 0.000000
+H -0.500000 -0.866025 0.000000"""
+
+# Smallest molecule with a dihedral to scan.
+XYZ_H2O2 = """4
+hydrogen peroxide
+O 0.000000 0.737500 -0.052800
+O 0.000000 -0.737500 -0.052800
+H 0.819000 0.817000 0.422000
+H -0.819000 -0.817000 0.422000"""
+
+
+def atom_xyz(symbol):
+    return f"1\n{symbol} atom\n{symbol} 0.000000 0.000000 0.000000"
+
+
 def base_config(tmp_path, **overrides):
     cfg = {
         "job_type": "Energy",
