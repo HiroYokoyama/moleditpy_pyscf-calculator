@@ -212,16 +212,19 @@ def _run(config, fake_mf, block_imports=None):
     gto_mock.M.return_value = mock_mol
     _mod.gto = gto_mock
 
+    # A list hands out one fake per _build_mf call (pre- vs post-optimization).
+    mf_kw = (
+        {"side_effect": list(fake_mf)}
+        if isinstance(fake_mf, list)
+        else {"return_value": fake_mf}
+    )
     scf_mock = MagicMock()
-    scf_mock.RHF.return_value = fake_mf
-    scf_mock.UHF.return_value = fake_mf
-    scf_mock.ROHF.return_value = fake_mf
-    _mod.scf = scf_mock
-
     dft_mock = MagicMock()
-    dft_mock.RKS.return_value = fake_mf
-    dft_mock.UKS.return_value = fake_mf
-    dft_mock.ROKS.return_value = fake_mf
+    for ctor in (scf_mock.RHF, scf_mock.UHF, scf_mock.ROHF):
+        ctor.configure_mock(**mf_kw)
+    for ctor in (dft_mock.RKS, dft_mock.UKS, dft_mock.ROKS):
+        ctor.configure_mock(**mf_kw)
+    _mod.scf = scf_mock
     _mod.dft = dft_mock
 
     w = _make_worker(config)
@@ -326,6 +329,39 @@ class TestEnsureEnergyKernelCall(unittest.TestCase):
         w, results = _run(_base_config(job_type="Energy", method="RHF"), fake_mf)
         w.finished_signal.emit.assert_called_once()
         self.assertEqual(len(fake_mf.kernel_calls), 1)
+
+
+# ===========================================================================
+# 2b. The properties SCF runs at the optimized geometry, with user settings
+# ===========================================================================
+
+
+class TestPostOptimizationMF(unittest.TestCase):
+    def _check(self, block_imports, solver):
+        mol_eq = _make_mol_eq()
+        _install_geomopt(solver, mol_eq)
+        first, second = FakeMF(), FakeMF()
+        w, _ = _run(
+            _base_config(extra={"max_cycle": 321, "conv_tol": "1e-7"}),
+            [first, second],
+            block_imports=block_imports,
+        )
+        w.error_signal.emit.assert_not_called()
+        # the final SCF ran on a fresh mf built at mol_eq ...
+        self.assertIs(_mod.scf.RHF.call_args_list[-1][0][0], mol_eq)
+        self.assertEqual(len(second.kernel_calls), 1)
+        self.assertEqual(first.kernel_calls, [])
+        # ... carrying the user's SCF settings
+        self.assertEqual(second.max_cycle, 321)
+        self.assertEqual(second.conv_tol, 1e-7)
+        self.assertTrue(second.chkfile.endswith("pyscf.chk"))
+
+    def test_geometric(self):
+        self._check(None, "geometric_solver")
+
+    def test_berny_fallback(self):
+        """Berny used to leave mf on the starting geometry."""
+        self._check(["pyscf.geomopt.geometric_solver"], "berny_solver")
 
 
 # ===========================================================================
