@@ -13,6 +13,8 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import QTimer
 import logging
 
+logger = logging.getLogger(__name__)
+
 # Local Imports
 try:
     from .worker import PySCFWorker, LoadWorker, PropertyWorker
@@ -29,6 +31,74 @@ except ImportError:
     ScanResultDialog = None
     CalcTab = None
     VisTab = None
+
+
+# Every persisted Calculation-tab setting, once: (settings key, CalcTab
+# widget attribute, widget kind, default). Saving, restoring and "Save as
+# Default" all walk this table, so a new option cannot be half-persisted
+# (Break Initial Guess Symmetry once was missing from three of the four
+# hand-written lists).
+_FIELDS = (
+    ("job_type", "job_type_combo", "combo", "Optimization + Frequency"),
+    ("method", "method_combo", "combo", "RKS"),
+    ("functional", "functional_combo", "combo", "b3lyp"),
+    ("basis", "basis_combo", "combo", "sto-3g"),
+    ("charge", "charge_input", "combo", "0"),
+    ("spin", "spin_input", "combo", "1 (Singlet)"),
+    ("threads", "spin_threads", "int", 0),
+    ("memory", "spin_memory", "int", 4000),
+    ("check_symmetry", "check_symmetry", "bool", False),
+    ("break_symmetry", "check_break_sym", "bool", False),
+    ("hessian", "hessian_combo", "combo", "Analytic"),
+    ("dispersion", "dispersion_combo", "combo", "None"),
+    ("temperature", "spin_temperature", "float", 298.15),
+    ("pressure_atm", "spin_pressure", "float", 1.0),
+    ("spin_cycles", "spin_cycles", "int", 100),
+    ("conv_tol", "edit_conv", "line", "1e-9"),
+    ("grid_level", "spin_grid_level", "int", 3),
+    ("solvent", "solvent_combo", "combo", "None (Vacuum)"),
+)
+# Per-molecule, so not part of the user's global defaults.
+_NOT_IN_DEFAULTS = ("charge", "spin")
+
+_GETTERS = {
+    "combo": lambda w: w.currentText(),
+    "line": lambda w: w.text(),
+    "int": lambda w: w.value(),
+    "float": lambda w: w.value(),
+    "bool": lambda w: w.isChecked(),
+}
+_SETTERS = {
+    "combo": lambda w, v: w.setCurrentText(str(v)),
+    "line": lambda w, v: w.setText(str(v)),
+    "int": lambda w, v: w.setValue(int(v)),
+    "float": lambda w, v: w.setValue(float(v)),
+    "bool": lambda w, v: w.setChecked(bool(v)),
+}
+
+
+def _read_fields(calc_tab, keys=None):
+    return {
+        key: _GETTERS[kind](getattr(calc_tab, attr))
+        for key, attr, kind, _ in _FIELDS
+        if keys is None or key in keys
+    }
+
+
+def _write_fields(calc_tab, values):
+    """Apply every known key present in values; a malformed stored value
+    is logged and skipped instead of aborting the whole restore."""
+    for key, attr, kind, _ in _FIELDS:
+        if key not in values:
+            continue
+        try:
+            _SETTERS[kind](getattr(calc_tab, attr), values[key])
+        except (TypeError, ValueError) as exc:
+            logger.warning("ignoring stored %s=%r: %s", key, values[key], exc)
+
+
+def _defaults_path():
+    return os.path.join(os.path.dirname(os.path.abspath(__file__)), "settings.json")
 
 
 class PySCFDialog(QDialog):
@@ -255,160 +325,55 @@ class PySCFDialog(QDialog):
         self.log("Document reset: Plugin state cleared.")
 
     def save_custom_defaults(self):
-        # Proxy to CalcTab's settings mostly
         if getattr(self, "calc_tab", None) is None:
             return
-
-        json_path = os.path.join(
-            os.path.dirname(os.path.abspath(__file__)), "settings.json"
-        )
-        local_settings = {
-            "root_path": self.calc_tab.out_dir_edit.text(),
-            "threads": self.calc_tab.spin_threads.value(),
-            "memory": self.calc_tab.spin_memory.value(),
-            # Calc Settings
-            "job_type": self.calc_tab.job_type_combo.currentText(),
-            "method": self.calc_tab.method_combo.currentText(),
-            "functional": self.calc_tab.functional_combo.currentText(),
-            "basis": self.calc_tab.basis_combo.currentText(),
-            "check_symmetry": self.calc_tab.check_symmetry.isChecked(),
-            "break_symmetry": self.calc_tab.check_break_sym.isChecked(),
-            "hessian": self.calc_tab.hessian_combo.currentText(),
-            "dispersion": self.calc_tab.dispersion_combo.currentText(),
-            "temperature": self.calc_tab.spin_temperature.value(),
-            "pressure_atm": self.calc_tab.spin_pressure.value(),
-            "spin_cycles": self.calc_tab.spin_cycles.value(),
-            "conv_tol": self.calc_tab.edit_conv.text(),
-            "grid_level": self.calc_tab.spin_grid_level.value(),
-            "solvent": self.calc_tab.solvent_combo.currentText(),
-            "scan_params": getattr(self.calc_tab, "scan_params", None),
-        }
+        keys = [f[0] for f in _FIELDS if f[0] not in _NOT_IN_DEFAULTS]
+        local_settings = _read_fields(self.calc_tab, keys)
+        local_settings["root_path"] = self.calc_tab.out_dir_edit.text()
+        local_settings["scan_params"] = getattr(self.calc_tab, "scan_params", None)
         try:
-            with open(json_path, "w", encoding="utf-8") as f:
+            with open(_defaults_path(), "w", encoding="utf-8") as f:
                 json.dump(local_settings, f, indent=4)
-
             self.log("Default settings saved.")
             QToolTip.showText(self.cursor().pos(), "Defaults Saved!", self)
-
-        except Exception as e:
+        except (OSError, TypeError) as e:
             self.log(f"Failed to save default settings: {e}")
 
     def apply_defaults(self):
-        # Defaults dict
-        defaults = {
-            "job_type": "Optimization + Frequency",
-            "method": "RKS",
-            "functional": "b3lyp",
-            "basis": "sto-3g",
-            "charge": "0",
-            "spin": "1 (Singlet)",  # must match a spin_input item exactly
-            "root_path": os.path.join(os.path.expanduser("~"), "PySCF_Results"),
-            "threads": 0,
-            "memory": 4000,
-            "check_symmetry": False,
-            "break_symmetry": False,
-            "hessian": "Analytic",
-            "dispersion": "None",
-            "temperature": 298.15,
-            "pressure_atm": 1.0,
-            "spin_cycles": 100,
-            "conv_tol": "1e-9",
-            "grid_level": 3,
-            "solvent": "None (Vacuum)",
-            "scan_params": None,
-        }
+        defaults = {key: default for key, _, _, default in _FIELDS}
+        defaults["root_path"] = os.path.join(os.path.expanduser("~"), "PySCF_Results")
+        defaults["scan_params"] = None
 
-        # Load User Defaults
-        json_path = os.path.join(
-            os.path.dirname(os.path.abspath(__file__)), "settings.json"
-        )
+        # The user's "Save as Default" choices override the built-ins
+        json_path = _defaults_path()
         if os.path.exists(json_path):
             try:
                 with open(json_path, "r", encoding="utf-8") as f:
-                    user_defaults = json.load(f)
-                    defaults.update(user_defaults)
-            except Exception as _e:
-                logging.warning("apply_defaults silenced: %s", _e)
+                    defaults.update(json.load(f))
+            except (OSError, ValueError) as _e:
+                logger.warning("user defaults not readable: %s", _e)
 
-        if getattr(self, "calc_tab", None) is not None:
-            self.calc_tab.job_type_combo.setCurrentText(defaults["job_type"])
-            self.calc_tab.method_combo.setCurrentText(defaults["method"])
-            self.calc_tab.functional_combo.setCurrentText(defaults["functional"])
-            self.calc_tab.basis_combo.setCurrentText(defaults["basis"])
-            self.calc_tab.charge_input.setCurrentText(str(defaults["charge"]))
-            self.calc_tab.spin_input.setCurrentText(str(defaults["spin"]))
-
-            self.calc_tab.out_dir_edit.setText(defaults["root_path"])
-
-            self.calc_tab.spin_threads.setValue(int(defaults["threads"]))
-            self.calc_tab.spin_memory.setValue(int(defaults["memory"]))
-
-            self.calc_tab.check_symmetry.setChecked(defaults["check_symmetry"])
-            self.calc_tab.check_break_sym.setChecked(bool(defaults["break_symmetry"]))
-            self.calc_tab.hessian_combo.setCurrentText(str(defaults["hessian"]))
-            self.calc_tab.dispersion_combo.setCurrentText(str(defaults["dispersion"]))
-            self.calc_tab.spin_temperature.setValue(float(defaults["temperature"]))
-            self.calc_tab.spin_pressure.setValue(float(defaults["pressure_atm"]))
-            self.calc_tab.spin_cycles.setValue(int(defaults["spin_cycles"]))
-            self.calc_tab.edit_conv.setText(defaults["conv_tol"])
-            self.calc_tab.spin_grid_level.setValue(int(defaults["grid_level"]))
-
-            if "solvent" in defaults:
-                self.calc_tab.solvent_combo.setCurrentText(defaults["solvent"])
-
-            if "scan_params" in defaults and defaults["scan_params"]:
-                self.calc_tab.scan_params = defaults["scan_params"]
-                if "Scan" in defaults["job_type"]:
-                    if hasattr(self.calc_tab, "btn_scan_config"):
-                        self.calc_tab.btn_scan_config.show()
+        if getattr(self, "calc_tab", None) is None:
+            return
+        _write_fields(self.calc_tab, defaults)
+        self.calc_tab.out_dir_edit.setText(str(defaults["root_path"]))
+        if defaults.get("scan_params"):
+            self.calc_tab.scan_params = defaults["scan_params"]
+            if "Scan" in str(defaults["job_type"]) and hasattr(
+                self.calc_tab, "btn_scan_config"
+            ):
+                self.calc_tab.btn_scan_config.show()
 
     def load_settings(self):
         self.apply_defaults()
 
         s = self.settings
         if getattr(self, "calc_tab", None) is not None:
-            if "job_type" in s:
-                self.calc_tab.job_type_combo.setCurrentText(s["job_type"])
-            if "method" in s:
-                self.calc_tab.method_combo.setCurrentText(s["method"])
-            if "functional" in s:
-                self.calc_tab.functional_combo.setCurrentText(s["functional"])
-            if "basis" in s:
-                self.calc_tab.basis_combo.setCurrentText(s["basis"])
-            if "charge" in s:
-                self.calc_tab.charge_input.setCurrentText(s["charge"])
-            if "spin" in s:
-                self.calc_tab.spin_input.setCurrentText(s["spin"])
+            _write_fields(self.calc_tab, s)
             if "out_dir" in s:
                 self.calc_tab.out_dir_edit.setText(s["out_dir"])
-
-            # Restore extended settings
-            if "threads" in s:
-                self.calc_tab.spin_threads.setValue(int(s["threads"]))
-            if "memory" in s:
-                self.calc_tab.spin_memory.setValue(int(s["memory"]))
-            if "check_symmetry" in s:
-                self.calc_tab.check_symmetry.setChecked(bool(s["check_symmetry"]))
-            if "break_symmetry" in s:
-                self.calc_tab.check_break_sym.setChecked(bool(s["break_symmetry"]))
-            if "hessian" in s:
-                self.calc_tab.hessian_combo.setCurrentText(str(s["hessian"]))
-            if "dispersion" in s:
-                self.calc_tab.dispersion_combo.setCurrentText(str(s["dispersion"]))
-            if "temperature" in s:
-                self.calc_tab.spin_temperature.setValue(float(s["temperature"]))
-            if "pressure_atm" in s:
-                self.calc_tab.spin_pressure.setValue(float(s["pressure_atm"]))
-            if "spin_cycles" in s:
-                self.calc_tab.spin_cycles.setValue(int(s["spin_cycles"]))
-            if "conv_tol" in s:
-                self.calc_tab.edit_conv.setText(str(s["conv_tol"]))
-            if "grid_level" in s:
-                self.calc_tab.spin_grid_level.setValue(int(s["grid_level"]))
             if "scan_params" in s:
                 self.calc_tab.scan_params = s["scan_params"]
-            if "solvent" in s:
-                self.calc_tab.solvent_combo.setCurrentText(s["solvent"])
 
         raw_history = s.get("calc_history", [])
         self.calc_history = []
@@ -458,28 +423,9 @@ class PySCFDialog(QDialog):
     def update_internal_state(self):
         # Syncs UI to self.settings for saving project
         if getattr(self, "calc_tab", None) is not None:
-            self.settings["job_type"] = self.calc_tab.job_type_combo.currentText()
-            self.settings["method"] = self.calc_tab.method_combo.currentText()
-            self.settings["functional"] = self.calc_tab.functional_combo.currentText()
-            self.settings["basis"] = self.calc_tab.basis_combo.currentText()
-            self.settings["charge"] = self.calc_tab.charge_input.currentText()
-            self.settings["spin"] = self.calc_tab.spin_input.currentText()
+            self.settings.update(_read_fields(self.calc_tab))
             self.settings["out_dir"] = self.calc_tab.out_dir_edit.text()
-
-            # Additional Settings ensuring project state match defaults
-            self.settings["threads"] = self.calc_tab.spin_threads.value()
-            self.settings["memory"] = self.calc_tab.spin_memory.value()
-            self.settings["check_symmetry"] = self.calc_tab.check_symmetry.isChecked()
-            self.settings["break_symmetry"] = self.calc_tab.check_break_sym.isChecked()
-            self.settings["hessian"] = self.calc_tab.hessian_combo.currentText()
-            self.settings["dispersion"] = self.calc_tab.dispersion_combo.currentText()
-            self.settings["temperature"] = self.calc_tab.spin_temperature.value()
-            self.settings["pressure_atm"] = self.calc_tab.spin_pressure.value()
-            self.settings["spin_cycles"] = self.calc_tab.spin_cycles.value()
-            self.settings["conv_tol"] = self.calc_tab.edit_conv.text()
-            self.settings["grid_level"] = self.calc_tab.spin_grid_level.value()
             self.settings["scan_params"] = getattr(self.calc_tab, "scan_params", None)
-            self.settings["solvent"] = self.calc_tab.solvent_combo.currentText()
 
         self.settings["version"] = self.version
 

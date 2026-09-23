@@ -175,6 +175,69 @@ class TestGuiInternalState(unittest.TestCase):
         self.dialog.calc_tab.spin_memory.setValue.assert_called_with(4000)
 
 
+class TestSettingsFieldTable(unittest.TestCase):
+    def test_every_field_widget_exists_on_calc_tab(self):
+        """The table is only read by the real GUI; a typo in a widget name
+        would surface there first. Check it against calc_tab.py."""
+        import ast
+
+        src = os.path.join(os.path.dirname(__file__), "..", "pyscf_calculator", "calc_tab.py")
+        with open(src, encoding="utf-8") as fh:
+            tree = ast.parse(fh.read())
+        created = {
+            t.attr
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Assign)
+            for t in node.targets
+            if isinstance(t, ast.Attribute)
+            and isinstance(t.value, ast.Name)
+            and t.value.id == "self"
+        }
+        missing = [attr for _, attr, _, _ in _gui_mod._FIELDS if attr not in created]
+        self.assertEqual(missing, [])
+
+    def test_keys_are_unique(self):
+        keys = [f[0] for f in _gui_mod._FIELDS]
+        self.assertEqual(len(keys), len(set(keys)))
+
+    def test_malformed_stored_value_is_skipped_not_fatal(self):
+        tab = MagicMock()
+        _gui_mod._write_fields(
+            tab, {"temperature": "not a number", "threads": 4, "method": "UKS"}
+        )
+        tab.spin_temperature.setValue.assert_not_called()
+        tab.spin_threads.setValue.assert_called_once_with(4)
+        tab.method_combo.setCurrentText.assert_called_once_with("UKS")
+
+    def test_round_trip_through_settings(self):
+        tab = MagicMock()
+        tab.method_combo.currentText.return_value = "ROKS"
+        tab.spin_pressure.value.return_value = 2.5
+        tab.check_break_sym.isChecked.return_value = True
+        values = _gui_mod._read_fields(tab)
+        restored = MagicMock()
+        _gui_mod._write_fields(restored, values)
+        restored.method_combo.setCurrentText.assert_called_once_with("ROKS")
+        restored.spin_pressure.setValue.assert_called_once_with(2.5)
+        restored.check_break_sym.setChecked.assert_called_once_with(True)
+
+    def test_defaults_exclude_per_molecule_fields(self):
+        dlg = PySCFDialog.__new__(PySCFDialog)
+        dlg.calc_tab = MagicMock()
+        dlg.log = MagicMock()
+        dlg.cursor = MagicMock()
+        written = {}
+        with patch.object(_gui_mod.json, "dump", side_effect=lambda d, f, **k: written.update(d)):
+            with patch("builtins.open", MagicMock()), patch.object(
+                _gui_mod, "QToolTip"
+            ):
+                dlg.save_custom_defaults()
+        self.assertNotIn("charge", written)
+        self.assertNotIn("spin", written)
+        self.assertIn("break_symmetry", written)
+        self.assertIn("root_path", written)
+
+
 class TestOnResultsMarksModified(unittest.TestCase):
     """on_results() must call context.mark_project_modified() (V4 API, no direct mw access)."""
 
