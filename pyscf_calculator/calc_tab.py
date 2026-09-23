@@ -1,36 +1,38 @@
+import logging
 import os
-from rdkit import Chem
 
+from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtWidgets import (
-    QWidget,
-    QVBoxLayout,
+    QCheckBox,
+    QComboBox,
+    QDoubleSpinBox,
+    QFileDialog,
+    QFormLayout,
+    QGroupBox,
     QHBoxLayout,
     QLabel,
-    QComboBox,
+    QLineEdit,
+    QMessageBox,
+    QProgressBar,
     QPushButton,
     QSpinBox,
-    QDoubleSpinBox,
-    QCheckBox,
-    QGroupBox,
-    QFormLayout,
-    QMessageBox,
-    QLineEdit,
-    QFileDialog,
-    QProgressBar,
     QTextEdit,
+    QVBoxLayout,
+    QWidget,
 )
-from PyQt6.QtCore import Qt, QTimer
-import logging
+from rdkit import Chem
 
 _TM_ATOMIC_NUMS = (
     frozenset(range(21, 31)) | frozenset(range(39, 49)) | frozenset(range(72, 81))
 )
 
+logger = logging.getLogger(__name__)
+
 # Local Imports
 try:
-    from .worker import PySCFWorker
-    from .utils import rdkit_to_xyz
     from .scan_dialog import ScanDialog
+    from .utils import rdkit_to_xyz
+    from .worker import PySCFWorker
 except ImportError:
     PySCFWorker = None
     ScanDialog = None
@@ -414,7 +416,12 @@ class CalcTab(QWidget):
             has_freq = "Frequency" in job
             self.lbl_hessian.setVisible(has_freq)
             self.hessian_combo.setVisible(has_freq)
-            for w in ("lbl_temperature", "spin_temperature", "lbl_pressure", "spin_pressure"):
+            for w in (
+                "lbl_temperature",
+                "spin_temperature",
+                "lbl_pressure",
+                "spin_pressure",
+            ):
                 if getattr(self, w, None) is not None:
                     getattr(self, w).setVisible(has_freq)
 
@@ -529,7 +536,7 @@ class CalcTab(QWidget):
                 self.charge_input.setToolTip(msg)
 
         except Exception as _e:
-            logging.warning("validate_spin_settings silenced: %s", _e)
+            logger.warning("validate_spin_settings silenced: %s", _e)
 
     def browse_out_dir(self):
         d = QFileDialog.getExistingDirectory(self, "Select Output Directory")
@@ -552,7 +559,7 @@ class CalcTab(QWidget):
             try:
                 self._scan_config_dlg.close()
             except Exception as _e:
-                logging.warning("configure_scan close silenced: %s", _e)
+                logger.warning("configure_scan close silenced: %s", _e)
 
         self._scan_config_dlg = ScanDialog(
             self, self.context, initial_params=self.scan_params
@@ -715,7 +722,7 @@ class CalcTab(QWidget):
             try:
                 stream.close()  # Sets _destroyed = True; safe to call from GUI thread
             except Exception as _e:
-                logging.warning("[calc_tab.py] silenced stream.close: %s", _e)
+                logger.warning("[calc_tab.py] silenced stream.close: %s", _e)
 
         # 3. Disconnect signals AFTER invalidating the stream.
         try:
@@ -724,7 +731,7 @@ class CalcTab(QWidget):
             self.worker.error_signal.disconnect()
             self.worker.result_signal.disconnect()
         except Exception as _e:
-            logging.warning("[calc_tab.py] silenced signal disconnect: %s", _e)
+            logger.warning("[calc_tab.py] silenced signal disconnect: %s", _e)
 
         # 4. Connect deferred cleanup — self.worker is only set to None AFTER
         #    the thread has fully exited, preventing use-after-free.

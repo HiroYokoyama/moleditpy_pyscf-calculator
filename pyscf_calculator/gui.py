@@ -1,27 +1,27 @@
-import os
 import json
+import logging
+import os
 import traceback
 
+from PyQt6.QtCore import QTimer
 from PyQt6.QtWidgets import (
     QDialog,
-    QVBoxLayout,
-    QTabWidget,
     QMessageBox,
-    QWidget,
+    QTabWidget,
     QToolTip,
+    QVBoxLayout,
+    QWidget,
 )
-from PyQt6.QtCore import QTimer
-import logging
 
 logger = logging.getLogger(__name__)
 
 # Local Imports
 try:
-    from .worker import PySCFWorker, LoadWorker, PropertyWorker
+    from .calc_tab import CalcTab
     from .scan_dialog import ScanDialog
     from .scan_results import ScanResultDialog
-    from .calc_tab import CalcTab
     from .vis_tab import VisTab
+    from .worker import LoadWorker, PropertyWorker, PySCFWorker
 except ImportError:
     traceback.print_exc()
     PySCFWorker = None
@@ -183,7 +183,7 @@ class PySCFDialog(QDialog):
         if getattr(self, "calc_tab", None) is not None:
             self.calc_tab.log(message)
         elif getattr(self, "vis_tab", None) is not None:
-            logging.warning("%s", message)
+            logger.warning("%s", message)
 
     def on_results(self, result_data):
         # Called by CalcTab worker
@@ -388,7 +388,7 @@ class PySCFDialog(QDialog):
                 if current_path:
                     project_dir = os.path.dirname(current_path)
             except Exception as _e:
-                logging.warning("load_settings project_dir silenced: %s", _e)
+                logger.warning("load_settings project_dir silenced: %s", _e)
 
         for h_path in raw_history:
             final_path = h_path
@@ -396,7 +396,7 @@ class PySCFDialog(QDialog):
                 if not os.path.isabs(h_path) and project_dir:
                     final_path = os.path.normpath(os.path.join(project_dir, h_path))
             except Exception as _e:
-                logging.warning("load_settings relpath silenced: %s", _e)
+                logger.warning("load_settings relpath silenced: %s", _e)
             self.calc_history.append(final_path)
 
         loaded_source = s.get("struct_source", None)
@@ -451,7 +451,7 @@ class PySCFDialog(QDialog):
                                 relative_history.append(h_path)
                         history_to_save = relative_history
                 except Exception as _e:
-                    logging.warning("update_internal_state relpath silenced: %s", _e)
+                    logger.warning("update_internal_state relpath silenced: %s", _e)
 
         self.settings["calc_history"] = history_to_save
         self.settings["struct_source"] = self.struct_source
@@ -464,9 +464,7 @@ class PySCFDialog(QDialog):
                         mw.init_manager.current_file_path
                     )
         except Exception as _e:
-            logging.warning(
-                "update_internal_state associated_filename silenced: %s", _e
-            )
+            logger.warning("update_internal_state associated_filename silenced: %s", _e)
 
     def save_settings(self):
         self.update_internal_state()

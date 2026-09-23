@@ -200,7 +200,7 @@ class TestLog(unittest.TestCase):
     def test_log_falls_back_to_logging_when_only_vis_tab(self):
         dlg = _make_dialog_bare()
         dlg.vis_tab = MagicMock()
-        with patch.object(_gui_mod.logging, "warning") as mock_warn:
+        with patch.object(_gui_mod.logger, "warning") as mock_warn:
             dlg.log("hello")
         mock_warn.assert_called_once_with("%s", "hello")
 

@@ -281,7 +281,7 @@ class TestCreateBaseMoleculeMarksModified(unittest.TestCase):
         dialog = ScanResultDialog.__new__(ScanResultDialog)
         dialog.trajectory = ["2\ncomment\nH 0.0 0.0 0.0\nH 0.0 0.0 1.0"]
         dialog.context = None
-        with patch.object(sr_mod.logging, "exception") as mock_log:
+        with patch.object(sr_mod.logger, "exception") as mock_log:
             dialog.create_base_molecule()
             mock_log.assert_not_called()
 

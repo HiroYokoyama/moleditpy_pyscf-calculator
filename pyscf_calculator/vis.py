@@ -1,8 +1,11 @@
+import logging
+import os
+
 import numpy as np
 import pyvista as pv
-import os
 from PyQt6.QtGui import QColor
-import logging
+
+logger = logging.getLogger(__name__)
 
 
 def parse_cube_data(filename):
@@ -212,7 +215,7 @@ class CubeVisualizer:
                 if self.mw.view_3d_manager.plotter.ren_win:
                     return self.mw.view_3d_manager.plotter
             except Exception as _e:
-                logging.warning("[vis.py:197] silenced: %s", _e)
+                logger.warning("[vis.py:197] silenced: %s", _e)
         return None
 
     def load_file(self, filename):
@@ -228,7 +231,7 @@ class CubeVisualizer:
 
             return True
         except Exception as e:
-            logging.warning("Error loading cube: %s", e)
+            logger.warning("Error loading cube: %s", e)
             return False
 
     def update_iso(self, isovalue, color_p, color_n, opacity, use_comp_color=False):
@@ -278,7 +281,7 @@ class CubeVisualizer:
                 self.plotter.render()
         except Exception as e:
             # print(f"Iso update error: {e}")
-            logging.warning("[vis.py:249] silenced: %s", e)
+            logger.warning("[vis.py:249] silenced: %s", e)
 
     def clear_actors(self):
         # Remove actors if they exist and plotter is valid
@@ -289,7 +292,7 @@ class CubeVisualizer:
             self.plotter.remove_actor("pyscf_iso_p")
             self.plotter.remove_actor("pyscf_iso_n")
         except Exception as _e:
-            logging.warning("[vis.py:261] silenced: %s", _e)
+            logger.warning("[vis.py:261] silenced: %s", _e)
 
         self.actors.clear()
         # Do NOT render here. Caller handles it. Rendering on close causes crashes.
@@ -318,7 +321,7 @@ class MappedVisualizer:
                 if self.mw.view_3d_manager.plotter.ren_win:
                     return self.mw.view_3d_manager.plotter
             except Exception as _e:
-                logging.warning("[vis.py:284] silenced: %s", _e)
+                logger.warning("[vis.py:284] silenced: %s", _e)
         return None
 
     def load_files(self, surf_file, prop_file):
@@ -342,7 +345,7 @@ class MappedVisualizer:
 
             return True
         except Exception as e:
-            logging.warning("Error loading mapped cubes: %s", e)
+            logger.warning("Error loading mapped cubes: %s", e)
             return False
 
     def get_mapped_range(self, iso_val):
@@ -414,7 +417,7 @@ class MappedVisualizer:
                 self.plotter.render()
 
         except Exception as e:
-            logging.exception("Mapped update error: %s", e)
+            logger.exception("Mapped update error: %s", e)
 
     def clear_actors(self):
         if getattr(self, "plotter", None) is None:
@@ -428,4 +431,4 @@ class MappedVisualizer:
             # Do NOT render here.
             # self.plotter.render()
         except Exception as _e:
-            logging.warning("[vis.py:406] silenced: %s", _e)
+            logger.warning("[vis.py:406] silenced: %s", _e)

@@ -3,31 +3,33 @@ import logging
 import os
 
 import matplotlib
+from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtWidgets import (
     QApplication,
-    QDialog,
-    QVBoxLayout,
-    QHBoxLayout,
-    QPushButton,
-    QLabel,
-    QSlider,
-    QFileDialog,
-    QMessageBox,
-    QComboBox,
-    QSpinBox,
     QCheckBox,
-    QFormLayout,
+    QComboBox,
+    QDialog,
     QDialogButtonBox,
+    QFileDialog,
+    QFormLayout,
+    QHBoxLayout,
+    QLabel,
+    QMessageBox,
     QProgressDialog,
+    QPushButton,
+    QSlider,
+    QSpinBox,
+    QVBoxLayout,
 )
-from PyQt6.QtCore import Qt, QTimer
 from rdkit import Chem
 from rdkit.Chem import rdGeometry
 
 matplotlib.use("QtAgg")  # must precede matplotlib backend imports
-from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg  # noqa: E402
-from matplotlib.figure import Figure  # noqa: E402
-import matplotlib.collections  # noqa: E402
+import matplotlib.collections
+from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg
+from matplotlib.figure import Figure
+
+logger = logging.getLogger(__name__)
 
 _HARTREE_TO_KJMOL = 2625.5
 _HARTREE_TO_KCALMOL = 627.509
@@ -44,7 +46,7 @@ class MplCanvas(FigureCanvasQTAgg):
     def __init__(self, parent=None, width=5, height=4, dpi=100):
         self.fig = Figure(figsize=(width, height), dpi=dpi)
         self.axes = self.fig.add_subplot(111)
-        super(MplCanvas, self).__init__(self.fig)
+        super().__init__(self.fig)
 
 
 class ScanResultDialog(QDialog):
@@ -280,12 +282,12 @@ class ScanResultDialog(QDialog):
             try:
                 self._highlight_marker.remove()
             except Exception as _e:
-                logging.warning("[scan_results.py:224] silenced: %s", _e)
+                logger.warning("[scan_results.py:224] silenced: %s", _e)
         if getattr(self, "_highlight_line", None) is not None:
             try:
                 self._highlight_line.remove()
             except Exception as _e:
-                logging.warning("[scan_results.py:227] silenced: %s", _e)
+                logger.warning("[scan_results.py:227] silenced: %s", _e)
 
         # Get coordinate value
         x = self.results[idx]["value"]
@@ -386,7 +388,7 @@ class ScanResultDialog(QDialog):
                     if hasattr(iom, "estimate_bonds_from_distances"):
                         iom.estimate_bonds_from_distances(mol)
                 except Exception as _e:
-                    logging.warning("estimate_bonds_from_distances failed: %s", _e)
+                    logger.warning("estimate_bonds_from_distances failed: %s", _e)
 
             # Also try rdDetermineBonds as a secondary supplement if 0 bonds were found
             if mol.GetNumBonds() == 0:
@@ -396,7 +398,7 @@ class ScanResultDialog(QDialog):
                     rdDetermineBonds.DetermineConnectivity(mol)
                     rdDetermineBonds.DetermineBondOrders(mol)
                 except Exception as e:
-                    logging.warning("rdDetermineBonds fallback failed: %s", e)
+                    logger.warning("rdDetermineBonds fallback failed: %s", e)
 
             self.base_mol = mol.GetMol()
 
@@ -420,7 +422,7 @@ class ScanResultDialog(QDialog):
                 mw.view_3d_manager.plotter.update()
                 mw.view_3d_manager.plotter.render()
         except Exception as e:
-            logging.exception("Error creating base molecule: %s", e)
+            logger.exception("Error creating base molecule: %s", e)
 
     def on_pick(self, event):
         if event.artist and hasattr(event, "ind"):
@@ -590,7 +592,7 @@ class ScanResultDialog(QDialog):
                 self._highlight_marker.remove()
                 self._highlight_marker = None
         except Exception as _e:
-            logging.warning("[scan_results.py:490] silenced: %s", _e)
+            logger.warning("[scan_results.py:490] silenced: %s", _e)
 
         try:
             if (
@@ -600,7 +602,7 @@ class ScanResultDialog(QDialog):
                 self._highlight_line.remove()
                 self._highlight_line = None
         except Exception as _e:
-            logging.warning("[scan_results.py:496] silenced: %s", _e)
+            logger.warning("[scan_results.py:496] silenced: %s", _e)
 
         self.canvas.draw()
 

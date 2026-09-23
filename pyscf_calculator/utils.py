@@ -1,6 +1,9 @@
-import os
-from rdkit import Chem
 import logging
+import os
+
+from rdkit import Chem
+
+logger = logging.getLogger(__name__)
 
 
 def get_unique_path(path):
@@ -103,7 +106,7 @@ def update_molecule_from_xyz(context, xyz_content, mark_modified=True):
             if old_mol is not None and old_mol.GetNumAtoms() == new_mol.GetNumAtoms():
                 charge = int(Chem.GetFormalCharge(old_mol))
         except Exception as _e:
-            logging.warning("Could not read the current molecule's charge: %s", _e)
+            logger.warning("Could not read the current molecule's charge: %s", _e)
 
         # determine bond and bond order by rdkit
         try:
@@ -115,7 +118,7 @@ def update_molecule_from_xyz(context, xyz_content, mark_modified=True):
             # Fallback for older RDKit?
             pass
         except Exception as e:
-            logging.warning("Could not determine bonds: %s", e)
+            logger.warning("Could not determine bonds: %s", e)
 
         # Preserve Dirty State if requested NOT to mark modified
         mw = context.get_main_window()
@@ -128,7 +131,7 @@ def update_molecule_from_xyz(context, xyz_content, mark_modified=True):
                 try:
                     was_dirty = getattr(sm, "has_unsaved_changes", False)
                 except Exception as _e:
-                    logging.warning(
+                    logger.warning(
                         "Failed to check dirty state in StateManager: %s", _e
                     )
 
@@ -144,6 +147,6 @@ def update_molecule_from_xyz(context, xyz_content, mark_modified=True):
                     if hasattr(sm, "update_window_title"):
                         sm.update_window_title()
                 except Exception as _e:
-                    logging.warning(
+                    logger.warning(
                         "Failed to restore dirty state in StateManager: %s", _e
                     )

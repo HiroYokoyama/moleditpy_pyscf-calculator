@@ -1,29 +1,32 @@
+import logging
+import time
+import traceback
+
+import numpy as np
+from PyQt6.QtCore import QPointF, Qt, QTimer
+from PyQt6.QtGui import QColor, QPainter, QPalette, QPen
 from PyQt6.QtWidgets import (
-    QWidget,
-    QVBoxLayout,
+    QApplication,
+    QCheckBox,
+    QDialog,
+    QDialogButtonBox,  # Added QFormLayout, QDialogButtonBox
+    QDoubleSpinBox,
+    QFileDialog,
+    QFormLayout,
+    QGroupBox,
     QHBoxLayout,
-    QPushButton,
+    QHeaderView,
     QLabel,
+    QMessageBox,
+    QPushButton,
+    QSpinBox,
     QTreeWidget,
     QTreeWidgetItem,
-    QHeaderView,
-    QDoubleSpinBox,
-    QCheckBox,
-    QGroupBox,
-    QSpinBox,
-    QDialog,
-    QFileDialog,
-    QMessageBox,
-    QApplication,
-    QFormLayout,
-    QDialogButtonBox,  # Added QFormLayout, QDialogButtonBox
+    QVBoxLayout,
+    QWidget,
 )
-from PyQt6.QtGui import QPainter, QPen, QColor, QPalette
-from PyQt6.QtCore import Qt, QTimer, QPointF
-import numpy as np
-import traceback
-import time
-import logging
+
+logger = logging.getLogger(__name__)
 
 try:
     from rdkit.Geometry import Point3D
@@ -284,7 +287,7 @@ class FreqVisualizer(QWidget):
                 self.mw.view_3d_manager.plotter.remove_actor("pyscf_iso_n")
                 self.mw.view_3d_manager.plotter.remove_actor("pyscf_mapped")
             except Exception as _e:
-                logging.warning("silenced: %s", _e)
+                logger.warning("silenced: %s", _e)
 
         if not self.chk_vectors.isChecked():
             try:
@@ -295,7 +298,7 @@ class FreqVisualizer(QWidget):
                 ):
                     self.mw.view_3d_manager.plotter.render()
             except Exception as _e:
-                logging.warning("silenced: %s", _e)
+                logger.warning("silenced: %s", _e)
             return
 
         item = self.list_freq.currentItem()
@@ -308,7 +311,7 @@ class FreqVisualizer(QWidget):
                 ):
                     self.mw.view_3d_manager.plotter.render()
             except Exception as _e:
-                logging.warning("silenced: %s", _e)
+                logger.warning("silenced: %s", _e)
             return
 
         idx = self.list_freq.indexOfTopLevelItem(item)
@@ -338,7 +341,7 @@ class FreqVisualizer(QWidget):
                 )
                 self.mw.view_3d_manager.plotter.render()
         except Exception as _e:
-            logging.warning("silenced: %s", _e)
+            logger.warning("silenced: %s", _e)
 
     def animate_frame(self):
         if not self.is_playing:
@@ -546,7 +549,7 @@ class FreqVisualizer(QWidget):
                 # Do NOT render during cleanup. It causes Segfaults (0x100).
                 # self.mw.view_3d_manager.plotter.render()
         except Exception as _e:
-            logging.warning("silenced: %s", _e)
+            logger.warning("silenced: %s", _e)
 
 
 class SpectrumDialog(QDialog):

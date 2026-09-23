@@ -1,21 +1,22 @@
 import glob
 import math
 import os
+
+from PyQt6.QtCore import Qt
+from PyQt6.QtGui import QAction, QColor, QFont, QPainter, QPen
 from PyQt6.QtWidgets import (
+    QApplication,
+    QComboBox,
     QDialog,
-    QVBoxLayout,
+    QFileDialog,
     QHBoxLayout,
     QLabel,
-    QPushButton,
-    QComboBox,
-    QFileDialog,
-    QMessageBox,
     QMenu,
-    QApplication,
+    QMessageBox,
+    QPushButton,
     QToolTip,
+    QVBoxLayout,
 )
-from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QPainter, QPen, QColor, QFont, QAction
 
 try:
     from pyscf.data import nist
@@ -434,7 +435,9 @@ class EnergyDiagramDialog(QDialog):
 
         # Reset Hit Zones
         self.hit_zones = []  # List of (QRect, index, label)
-        from PyQt6.QtCore import QRect  # noqa: PLC0415  # pylint: disable=import-outside-toplevel
+        from PyQt6.QtCore import (
+            QRect,  # pylint: disable=import-outside-toplevel
+        )
 
         w = self.width()
         h = self.height()

@@ -1,42 +1,43 @@
-import os
-import glob
-import re
 import csv
+import glob
+import logging
+import os
+import re
+
+from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtWidgets import (
-    QWidget,
-    QVBoxLayout,
+    QColorDialog,
+    QComboBox,
+    QDialog,
+    QDockWidget,
+    QDoubleSpinBox,
+    QFileDialog,
+    QGroupBox,
     QHBoxLayout,
+    QHeaderView,
     QLabel,
-    QPushButton,
+    QLineEdit,
     QListWidget,
     QListWidgetItem,
-    QGroupBox,
-    QLineEdit,
     QMessageBox,
-    QDoubleSpinBox,
+    QPushButton,
     QSlider,
-    QComboBox,
     QTableWidget,
     QTableWidgetItem,
-    QHeaderView,
-    QDockWidget,
-    QFileDialog,
-    QDialog,
-    QColorDialog,
+    QVBoxLayout,
+    QWidget,
 )
-from PyQt6.QtCore import Qt, QTimer
-import logging
 
 logger = logging.getLogger(__name__)
 
 
 # Local Imports
 try:
-    from .worker import LoadWorker, PropertyWorker
-    from .vis import CubeVisualizer, MappedVisualizer
-    from .utils import read_xyz_frames, update_molecule_from_xyz
-    from .scan_results import ScanResultDialog
     from .energy_diag import EnergyDiagramDialog
+    from .scan_results import ScanResultDialog
+    from .utils import read_xyz_frames, update_molecule_from_xyz
+    from .vis import CubeVisualizer, MappedVisualizer
+    from .worker import LoadWorker, PropertyWorker
 except ImportError:
     LoadWorker = None
     PropertyWorker = None
@@ -415,7 +416,7 @@ class VisTab(QWidget):
                 try:
                     self.freq_vis.cleanup()
                 except Exception as _e:
-                    logging.warning("silenced: %s", _e)
+                    logger.warning("silenced: %s", _e)
                 self.freq_vis = None
 
             if self.freq_dock:
@@ -425,7 +426,7 @@ class VisTab(QWidget):
                     self.freq_dock.deleteLater()
                     self.freq_dock = None
                 except Exception as _e:
-                    logging.warning("silenced: %s", _e)
+                    logger.warning("silenced: %s", _e)
 
             self.clear_3d_actors()
             self.visualizer = None
@@ -483,8 +484,7 @@ class VisTab(QWidget):
             charges = result_data.get("mulliken_charges") or []
             symbols = result_data.get("atom_symbols") or ["?"] * len(charges)
             q_txt = ", ".join(
-                f"{s}{i + 1} {q:+.3f}"
-                for i, (s, q) in enumerate(zip(symbols, charges))
+                f"{s}{i + 1} {q:+.3f}" for i, (s, q) in enumerate(zip(symbols, charges))
             )
             self.log(
                 f"Dipole moment: {result_data['dipole_total_debye']:.4f} Debye"
@@ -535,7 +535,7 @@ class VisTab(QWidget):
                     try:
                         self.context.reset_3d_camera()
                     except Exception as _e:
-                        logging.warning("Failed to reset camera in vis_tab: %s", _e)
+                        logger.warning("Failed to reset camera in vis_tab: %s", _e)
 
                 is_manual_load = getattr(self, "loading_update_struct", True)
                 if is_manual_load and uim:
@@ -543,15 +543,13 @@ class VisTab(QWidget):
                         if hasattr(uim, "minimize_2d_panel"):
                             uim.minimize_2d_panel()
                     except Exception as _e:
-                        logging.warning(
-                            "Failed to minimize 2d panel in vis_tab: %s", _e
-                        )
+                        logger.warning("Failed to minimize 2d panel in vis_tab: %s", _e)
 
                 try:
                     self.finalize_load(result_data, cubes)
                 except Exception as e:
                     self.log(f"Warning during finalize_load: {e}")
-                    logging.exception("finalize_load error: %s", e)
+                    logger.exception("finalize_load error: %s", e)
 
             self.log("Optimized geometry loaded automatically.")
             QTimer.singleShot(100, update_and_finalize)
@@ -570,28 +568,28 @@ class VisTab(QWidget):
                 self.freq_vis.cleanup()
                 self.freq_vis = None
             except Exception as _e:
-                logging.warning("silenced: %s", _e)
+                logger.warning("silenced: %s", _e)
 
         if self.freq_dock:
             try:
                 self.freq_dock.close()
                 self.freq_dock.deleteLater()
             except Exception as _e:
-                logging.warning("silenced: %s", _e)
+                logger.warning("silenced: %s", _e)
             self.freq_dock = None
 
         if getattr(self, "scan_dlg", None) is not None and self.scan_dlg:
             try:
                 self.scan_dlg.close()
             except Exception as _e:
-                logging.warning("silenced: %s", _e)
+                logger.warning("silenced: %s", _e)
         self.scan_dlg = None
 
         if getattr(self, "tddft_dlg", None) is not None and self.tddft_dlg:
             try:
                 self.tddft_dlg.close()
             except Exception as _e:
-                logging.warning("silenced: %s", _e)
+                logger.warning("silenced: %s", _e)
         self.tddft_dlg = None
 
         if result_data.get("freq_data", None):
@@ -733,7 +731,7 @@ class VisTab(QWidget):
                 else:
                     occ_a = safe_occ(occupations)
             except Exception as _e:
-                logging.warning("silenced: %s", _e)
+                logger.warning("silenced: %s", _e)
 
         elif scf_type in ["ROKS", "ROHF"]:
             is_roks = True
@@ -779,8 +777,8 @@ class VisTab(QWidget):
         def add_orb_items(
             suffix="",
             label_suffix="",
-            range_lumo=range(0, 5),
-            range_homo=range(0, 5),
+            range_lumo=range(5),
+            range_homo=range(5),
             check_somo=False,
         ):
             # LUMOs
@@ -875,7 +873,7 @@ class VisTab(QWidget):
                                 should_disable = True
                                 break
                     except Exception as _e:
-                        logging.warning("silenced: %s", _e)
+                        logger.warning("silenced: %s", _e)
                 else:
                     for bn in basenames:
                         if ".cube" in bn:
@@ -1040,7 +1038,7 @@ class VisTab(QWidget):
             try:
                 self.mapped_visualizer.clear_actors()
             except Exception as _e:
-                logging.warning("silenced: %s", _e)
+                logger.warning("silenced: %s", _e)
 
         self.loaded_file = path
         if not self.visualizer:
@@ -1067,7 +1065,7 @@ class VisTab(QWidget):
             try:
                 self.visualizer.clear_actors()
             except Exception as _e:
-                logging.warning("silenced: %s", _e)
+                logger.warning("silenced: %s", _e)
 
         if not self.mapped_visualizer:
             self.mapped_visualizer = MappedVisualizer(self.context.get_main_window())
@@ -1164,40 +1162,40 @@ class VisTab(QWidget):
             try:
                 mw.view_3d_manager.plotter.remove_actor("pyscf_iso_p")
             except Exception as _e:
-                logging.warning("silenced: %s", _e)
+                logger.warning("silenced: %s", _e)
             try:
                 mw.view_3d_manager.plotter.remove_actor("pyscf_iso_n")
             except Exception as _e:
-                logging.warning("silenced: %s", _e)
+                logger.warning("silenced: %s", _e)
             try:
                 mw.view_3d_manager.plotter.remove_actor("pyscf_mapped")
             except Exception as _e:
-                logging.warning("silenced: %s", _e)
+                logger.warning("silenced: %s", _e)
 
             if self.visualizer:
                 try:
                     self.visualizer.clear_actors()
                 except Exception as _e:
-                    logging.warning("silenced: %s", _e)
+                    logger.warning("silenced: %s", _e)
             if self.mapped_visualizer:
                 try:
                     self.mapped_visualizer.clear_actors()
                 except Exception as _e:
-                    logging.warning("silenced: %s", _e)
+                    logger.warning("silenced: %s", _e)
 
             if not self.parent_dialog.closing:
                 try:
                     mw.view_3d_manager.plotter.render()
                 except Exception as _e:
-                    logging.warning("silenced: %s", _e)
+                    logger.warning("silenced: %s", _e)
         except Exception as _e:
-            logging.warning("silenced: %s", _e)
+            logger.warning("silenced: %s", _e)
 
         if self.freq_vis:
             try:
                 self.freq_vis.cleanup()
             except Exception as _e:
-                logging.warning("silenced: %s", _e)
+                logger.warning("silenced: %s", _e)
 
     def load_optimized_geometry(self):
         if self.optimized_xyz:
@@ -1212,7 +1210,7 @@ class VisTab(QWidget):
             try:
                 self.freq_vis.cleanup()
             except Exception as _e:
-                logging.warning("silenced: %s", _e)
+                logger.warning("silenced: %s", _e)
             self.freq_vis = None
         update_molecule_from_xyz(self.context, xyz)
         try:
@@ -1222,7 +1220,7 @@ class VisTab(QWidget):
             ):
                 mw.edit_actions_manager.push_undo_state()
         except Exception as _e:
-            logging.warning("silenced: %s", _e)
+            logger.warning("silenced: %s", _e)
         self.log("Geometry updated.")
 
     def add_custom_mo(self):
@@ -1279,7 +1277,7 @@ class VisTab(QWidget):
                             lb = "LUMO" if diff == 0 else f"LUMO+{diff}"
                             display_label = f"{lb} (Index {idx})"
                 except Exception as _e:
-                    logging.warning("silenced: %s", _e)
+                    logger.warning("silenced: %s", _e)
         else:
             task_data = text.upper().replace(" ", "")
             display_label = task_data
@@ -1459,6 +1457,6 @@ class VisTab(QWidget):
             try:
                 self.freq_dock.close()
             except Exception as _e:
-                logging.warning("silenced: %s", _e)
+                logger.warning("silenced: %s", _e)
         self.freq_dock = None
         self.freq_vis = None
