@@ -126,6 +126,7 @@ class CalcTab(QWidget):
                 # --- Meta-GGA ---
                 "tpss",
                 "scan",
+                "r2scan",
                 "m06-l",
                 # --- Hybrid Meta-GGA ---
                 "m06",
@@ -133,7 +134,10 @@ class CalcTab(QWidget):
                 "tpssh",
                 "m11",
                 # --- Range-Separated ---
-                "wb97x-d",
+                # wB97X-D is not implemented in PySCF (2.14 raises); the
+                # VV10 variants carry their dispersion in the functional.
+                "wb97x-v",
+                "wb97m-v",
                 "cam-b3lyp",
                 "lrc-wpbe",
                 "lrc-wpbeh",

@@ -35,6 +35,17 @@ except (ImportError, TypeError, ValueError):
     _HARTREE_TO_EV = 27.211386245988
 
 
+# UI functional names PySCF/libxc does not know by that name.
+_XC_ALIASES = {
+    "m11": "hyb_mgga_x_m11,mgga_c_m11",
+}
+
+
+def resolve_xc(functional: str) -> str:
+    """The xc string PySCF needs for a functional name shown in the UI."""
+    return _XC_ALIASES.get(str(functional).strip().lower(), functional)
+
+
 class CaptureStdOut:
     def __init__(self, filename):
         self.filename = filename
@@ -342,7 +353,7 @@ class PySCFWorker(QThread):
             mf = dft.ROKS(mol)
         else:
             raise ValueError(f"Unknown method: {method_name}")
-        mf.xc = functional
+        mf.xc = resolve_xc(functional)
         try:
             mf.grids.level = grid_level
             if grid_level >= 4:
@@ -530,7 +541,7 @@ class PySCFWorker(QThread):
                 if "KS" in method_name:
                     grid_level = self.config.get("grid_level", 3)
                     f.write(f"mf = dft.{method_name}(mol)\n")
-                    f.write(f"mf.xc = '{functional}'\n")
+                    f.write(f"mf.xc = '{resolve_xc(functional)}'\n")
                     f.write(f"mf.grids.level = {grid_level}\n")
                     if grid_level >= 4:
                         f.write("mf.grids.prune = False\n")

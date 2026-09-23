@@ -528,5 +528,14 @@ class TestRestrictedOpenShellScfType(unittest.TestCase):
         self.assertEqual(results.get("scf_type"), "RHF")
 
 
+class TestFunctionalAliases(unittest.TestCase):
+    def test_m11_maps_to_its_libxc_components(self):
+        self.assertEqual(_mod.resolve_xc("m11"), "hyb_mgga_x_m11,mgga_c_m11")
+        self.assertEqual(_mod.resolve_xc("M11"), "hyb_mgga_x_m11,mgga_c_m11")
+
+    def test_other_names_pass_through(self):
+        self.assertEqual(_mod.resolve_xc("b3lyp"), "b3lyp")
+
+
 if __name__ == "__main__":
     unittest.main()
