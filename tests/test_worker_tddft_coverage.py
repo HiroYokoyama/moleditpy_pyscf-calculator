@@ -231,7 +231,8 @@ class TestTddftResults(unittest.TestCase):
         td.converged = np.array([True])
         w, results, out_dir, _ = _run(_base_config(), FakeMF(e_tot=-1.0), td)
         ev = results["tddft_data"][0]["excitation_energy_ev"]
-        self.assertAlmostEqual(ev, 0.2 * 27.211386245988, places=9)
+        self.assertAlmostEqual(ev, 0.2 * _mod._HARTREE_TO_EV, places=9)
+        self.assertAlmostEqual(_mod._HARTREE_TO_EV, 27.2114, places=3)
 
     def test_unconverged_excited_states_are_flagged(self):
         td = _make_td_obj([-0.9, -0.8], oscs=[0.1, 0.1])

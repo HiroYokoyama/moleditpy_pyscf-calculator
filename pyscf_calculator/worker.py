@@ -26,7 +26,13 @@ except ImportError:
     pyscf = None
 
 _HC_EV_NM = 1239.84193  # hc in eV·nm, for excitation wavelength conversion
-_HARTREE_TO_EV = 27.211386245988  # CODATA 2018, same value as pyscf.data.nist
+# PySCF's own factor, so tables agree with its logs; CODATA 2018 fallback.
+try:
+    from pyscf.data.nist import HARTREE2EV as _HARTREE_TO_EV
+
+    _HARTREE_TO_EV = float(_HARTREE_TO_EV)
+except (ImportError, TypeError, ValueError):
+    _HARTREE_TO_EV = 27.211386245988
 
 
 class CaptureStdOut:
