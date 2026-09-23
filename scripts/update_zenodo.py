@@ -327,13 +327,17 @@ def main():
             new_dates = []
             for d in dates:
                 if isinstance(d, dict):
-                    d_val = d.get("date") or today_str
+                    # Copy only a date that carries a value. The API view of
+                    # these records drops the "updated" date's value, and a
+                    # draft sent one filled in with today is rejected at
+                    # publish with an HTTP 500 (seen from 2026-09-23).
+                    d_val = d.get("date")
                     d_type = d.get("type")
                     if isinstance(d_type, dict):
                         t_id = d_type.get("id")
                     else:
                         t_id = d_type
-                    if t_id:
+                    if t_id and d_val:
                         new_dates.append({"date": d_val, "type": {"id": t_id.lower()}})
             if new_dates:
                 metadata["dates"] = new_dates
