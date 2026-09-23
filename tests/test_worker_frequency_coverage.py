@@ -351,6 +351,44 @@ class TestBrokenSolventHessianSkipsCleanly(unittest.TestCase):
         self.assertNotIn("Frequency analysis failed", logs)
 
 
+class TestImaginaryModeCheck(unittest.TestCase):
+    def _check(self, freqs, job):
+        w = _make_worker(_base_config(extra={"job_type": job}))
+        n = w._report_imaginary_modes(freqs, job)
+        return n, " ".join(str(c) for c in w.log_signal.emit.call_args_list)
+
+    def test_minimum_without_imaginary_modes(self):
+        n, logs = self._check([500.0, 1600.0, 3700.0], "Optimization + Frequency")
+        self.assertEqual(n, 0)
+        self.assertIn("consistent with a minimum", logs)
+
+    def test_minimum_with_an_imaginary_mode_is_flagged(self):
+        n, logs = self._check([-350.0, 1600.0], "Frequency")
+        self.assertEqual(n, 1)
+        self.assertIn("WARNING", logs)
+        self.assertIn("350.0i", logs)
+
+    def test_ts_needs_exactly_one(self):
+        n, logs = self._check([-900.0, 1200.0], "TS Optimization + Frequency")
+        self.assertIn("consistent with a transition state", logs)
+        n, logs = self._check([900.0, 1200.0], "TS Optimization + Frequency")
+        self.assertIn("WARNING", logs)
+        n, logs = self._check([-900.0, -400.0], "TS Optimization + Frequency")
+        self.assertIn("WARNING", logs)
+
+    def test_small_imaginary_modes_are_noise(self):
+        n, logs = self._check([-8.0, 1600.0], "Frequency")
+        self.assertEqual(n, 0)
+        self.assertIn("consistent with a minimum", logs)
+        self.assertIn("numerical noise", logs)
+
+    def test_count_is_stored_with_the_frequencies(self):
+        w, results, _ = _run(
+            _base_config(), FakeMF(), _make_thermo_mock([complex(0, 300.0), 100.0])
+        )
+        self.assertEqual(results["freq_data"]["n_imaginary"], 1)
+
+
 class TestFrequencyHessianFailure(unittest.TestCase):
     def test_hessian_kernel_exception_logged_not_fatal(self):
         fake_mf = FakeMF()

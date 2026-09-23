@@ -41,6 +41,9 @@ _XC_ALIASES = {
 }
 
 
+# Imaginary modes smaller than this (cm^-1) are treated as numerical noise.
+_IMAG_NOISE_CM = 20.0
+
 # Dispersion choices in the UI -> PySCF's mf.disp keyword (pyscf-dispersion).
 _DISPERSION = {
     "None": None,
@@ -309,6 +312,35 @@ class PySCFWorker(QThread):
             "(central finite differences)...\n"
         )
         return finite_diff.Hessian(mf.nuc_grad_method())
+
+    def _report_imaginary_modes(self, freqs, job_type):
+        """Count imaginary modes and say whether that fits the stationary
+        point the job was after: a minimum has none, a TS exactly one."""
+        imag = [f for f in freqs if f < -_IMAG_NOISE_CM]
+        small = [f for f in freqs if -_IMAG_NOISE_CM <= f < 0]
+        want_ts = "Transition State" in job_type or "TS Optimization" in job_type
+        expected = 1 if want_ts else 0
+        kind = "transition state" if want_ts else "minimum"
+        listing = ", ".join(f"{f:.1f}i" for f in (-x for x in imag))
+        if len(imag) == expected:
+            msg = f"Imaginary modes: {len(imag)} -- consistent with a {kind}"
+            if listing:
+                msg += f" ({listing} cm^-1)"
+            self.log_signal.emit(msg + ".\n")
+        else:
+            self.log_signal.emit(
+                f"WARNING: {len(imag)} imaginary mode(s) "
+                f"({listing or 'none'} cm^-1); a {kind} should have "
+                f"{expected}. This structure is not the intended stationary "
+                "point.\n"
+            )
+        if small:
+            self.log_signal.emit(
+                f"Note: {len(small)} small imaginary mode(s) below "
+                f"{_IMAG_NOISE_CM:.0f} cm^-1, usually numerical noise "
+                "(grid / convergence).\n"
+            )
+        return len(imag)
 
     @staticmethod
     def _scf_properties(mf):
@@ -902,12 +934,16 @@ class PySCFWorker(QThread):
                             else:
                                 processed_freqs.append(float(f))
 
+                        n_imag = self._report_imaginary_modes(
+                            processed_freqs, job_type
+                        )
                         results["freq_data"] = {
                             "freqs": processed_freqs,
                             "modes": freq_res["norm_mode"].tolist(),
                             "intensities": intensities.tolist()
                             if hasattr(intensities, "tolist")
                             else intensities,
+                            "n_imaginary": n_imag,
                         }
                         self.log_signal.emit("Frequency Analysis Completed.\n")
 
