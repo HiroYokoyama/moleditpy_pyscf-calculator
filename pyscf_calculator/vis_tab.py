@@ -362,18 +362,9 @@ class VisTab(QWidget):
         csv_path = os.path.join(result_dir, "scan_results.csv")
         traj_path = os.path.join(result_dir, "scan_trajectory.xyz")
 
-        scan_results = []
+        # Same reader as LoadWorker, so the "converged" flag survives a reload.
         try:
-            with open(csv_path, "r") as f:
-                reader = csv.DictReader(f)
-                for row in reader:
-                    scan_results.append(
-                        {
-                            "step": int(row["Step"]),
-                            "value": float(row["Value"]),
-                            "energy": float(row["Energy"]),
-                        }
-                    )
+            scan_results = LoadWorker._load_scan_csv(csv_path)
         except Exception as e:
             raise Exception(f"Failed to read scan CSV: {e}")
 

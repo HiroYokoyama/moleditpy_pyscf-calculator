@@ -2000,6 +2000,12 @@ class LoadWorker(QThread):
                     if key == "converged":
                         item[key] = str(v).strip().lower() in ("yes", "true", "1")
                         continue
+                    if key == "step":
+                        try:
+                            item[key] = int(float(v))
+                            continue
+                        except (TypeError, ValueError):
+                            pass
                     try:
                         item[key] = float(v)
                     except (TypeError, ValueError):
@@ -2058,8 +2064,13 @@ class LoadWorker(QThread):
                         with open(
                             os.path.join(base_dir, "freq_analysis.json"), "r"
                         ) as f:
-                            freq_data = json.load(f)
-                            results["freq_data"] = freq_data
+                            freq_json = json.load(f)
+                        # Same unpacking as the checkpoint path below: the
+                        # viewer reads freq_data["freqs"], not the file root.
+                        if "freq_data" in freq_json:
+                            results["freq_data"] = freq_json["freq_data"]
+                        if "thermo_data" in freq_json:
+                            results["thermo_data"] = freq_json["thermo_data"]
                     except Exception as e:
                         logging.warning(
                             "[worker.py] LoadWorker: failed to load freq: %s", e

@@ -190,6 +190,14 @@ class TestLoadWorkerAuxiliaryOnly(unittest.TestCase):
         freq_data = {"freq_data": {"freqs": [1000.0, 3000.0], "modes": []}}
         results = self._run_with_files({"freq_analysis.json": json.dumps(freq_data)})
         self.assertIn("freq_data", results)
+        # unpacked like the checkpoint path: the viewer reads ["freqs"]
+        self.assertEqual(results["freq_data"]["freqs"], [1000.0, 3000.0])
+
+    def test_freq_json_thermo_is_unpacked_too(self):
+        data = {"freq_data": {"freqs": [], "modes": []}, "thermo_data": {"G_tot": 1}}
+        results = self._run_with_files({"freq_analysis.json": json.dumps(data)})
+        self.assertEqual(results["thermo_data"], {"G_tot": 1})
+        self.assertNotIn("thermo_data", results["freq_data"])
 
     def test_all_three_aux_files_loaded(self):
         csv_content = "coord,energy\n1.0,-1.0\n"

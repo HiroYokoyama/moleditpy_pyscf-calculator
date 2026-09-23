@@ -232,9 +232,23 @@ class ScanResultDialog(QDialog):
         (line,) = self.canvas.axes.plot(
             x, y, "b-", label="Energy", picker=5
         )  # Enable picker
+        # Unconverged SCF points get a hollow marker: their energy can sit
+        # far off the surface and must not read as a real feature.
+        conv = [bool(r.get("converged", True)) for r in self.results]
         self.scatter = self.canvas.axes.scatter(
-            x, y, c="red", s=25, picker=5, zorder=5
+            x,
+            y,
+            c=["red" if ok else "none" for ok in conv],
+            edgecolors="red",
+            s=25,
+            picker=5,
+            zorder=5,
         )  # Use scatter for easier hover detection
+        if not all(conv):
+            self.canvas.axes.scatter(
+                [], [], c="none", edgecolors="red", s=25, label="SCF not converged"
+            )
+            self.canvas.axes.legend(loc="best")
 
         # Labeling
         xlabel = "Coordinate"
@@ -443,6 +457,8 @@ class ScanResultDialog(QDialog):
 
                     # High precision for exact values
                     text = f"X: {val:.6f}\nY: {disp_energy:.8f} {unit}"
+                    if not self.results[idx].get("converged", True):
+                        text += "\nSCF NOT CONVERGED"
                     self.annot.set_text(text)
                     self.annot.set_visible(True)
                     self.canvas.draw_idle()

@@ -568,6 +568,19 @@ class TestOnHover(unittest.TestCase):
         dlg.annot.set_visible.assert_called_with(True)
         dlg.canvas.draw_idle.assert_called_once()
 
+    def test_hover_flags_an_unconverged_point(self):
+        dlg = self._make_dlg()
+        dlg.results[1]["converged"] = False
+        dlg.annot.get_visible.return_value = False
+        event = MagicMock()
+        event.inaxes = dlg.canvas.axes
+        dlg.scatter.contains.return_value = (True, {"ind": [1]})
+        dlg.scatter.get_offsets.return_value = [(1.0, -1.0), (2.0, -2.0)]
+        dlg.unit_combo.currentText.return_value = "Hartree"
+        dlg.chk_relative.isChecked.return_value = False
+        dlg.on_hover(event)
+        self.assertIn("SCF NOT CONVERGED", dlg.annot.set_text.call_args[0][0])
+
     def test_hover_relative_kjmol(self):
         dlg = self._make_dlg()
         dlg.annot.get_visible.return_value = False
