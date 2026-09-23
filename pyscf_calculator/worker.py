@@ -856,6 +856,15 @@ class PySCFWorker(QThread):
                         else:
                             mf.kernel()
 
+                        # Energy / Optimization jobs used to report an
+                        # unconverged SCF energy without a word.
+                        if not getattr(mf, "converged", True):
+                            self.log_signal.emit(
+                                "WARNING: SCF did not converge within "
+                                f"{mf.max_cycle} cycles; the energy and "
+                                "orbitals are not reliable.\n"
+                            )
+
                 if "Frequency" in job_type:
                     self.log_signal.emit(
                         f"Starting Frequency Analysis using {method_name}...\n"

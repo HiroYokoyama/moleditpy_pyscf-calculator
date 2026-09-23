@@ -416,6 +416,19 @@ class TestDispersion(unittest.TestCase):
 # ===========================================================================
 
 
+class TestUnconvergedScfWarning(unittest.TestCase):
+    def test_energy_job_warns(self):
+        fake_mf = FakeMF(e_tot=None, converged=False)
+        w, _ = _run(_base_config(job_type="Energy"), fake_mf)
+        logs = " ".join(str(c) for c in w.log_signal.emit.call_args_list)
+        self.assertIn("SCF did not converge within 100 cycles", logs)
+
+    def test_converged_job_is_quiet(self):
+        w, _ = _run(_base_config(job_type="Energy"), FakeMF(e_tot=None))
+        logs = " ".join(str(c) for c in w.log_signal.emit.call_args_list)
+        self.assertNotIn("did not converge", logs)
+
+
 class TestSolventApplied(unittest.TestCase):
     """The first mf used to be built without ddCOSMO, so Energy / TDDFT /
     Optimization ran in vacuum while the log announced a solvent."""
