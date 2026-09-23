@@ -1,3 +1,4 @@
+import contextlib
 import csv
 import glob
 import logging
@@ -29,6 +30,19 @@ from PyQt6.QtWidgets import (
 )
 
 logger = logging.getLogger(__name__)
+
+# What tearing down a Qt widget / pyvista actor can legitimately raise: the
+# C++ object is already deleted (RuntimeError) or the host main window has
+# no such manager (AttributeError). Neither is an error during cleanup.
+_GONE = (RuntimeError, AttributeError)
+
+
+def _teardown(action, what):
+    """Run one cleanup call, tolerating an object that is already gone."""
+    try:
+        action()
+    except _GONE as exc:
+        logger.debug("%s skipped: %s", what, exc)
 
 
 # Local Imports
@@ -319,7 +333,7 @@ class VisTab(QWidget):
             # Load scan results
             try:
                 self.load_scan_results(d)
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001 -- Qt slot: an escaping exception aborts the host app (PyQt6)
                 self.log(f"Error loading scan results: {e}")
                 QMessageBox.warning(self, "Error", f"Failed to load scan results: {e}")
             return
@@ -376,24 +390,22 @@ class VisTab(QWidget):
         except (OSError, ValueError) as e:
             raise RuntimeError(f"Failed to read trajectory: {e}") from e
 
-        # Open scan results dialog
+        if not ScanResultDialog:
+            raise RuntimeError("ScanResultDialog not available")
         try:
-            if ScanResultDialog:
-                dlg = ScanResultDialog(
-                    scan_result_dir=result_dir,
-                    parent=self.context.get_main_window(),
-                    context=self.context,  # Pass context for 3D viewer updates
-                    results=scan_results,
-                    trajectory=trajectory,
-                    scan_type=LoadWorker.load_scan_type(result_dir) or "Coordinate",
-                )
-                dlg.show()
-                self.scan_dlg = dlg  # Keep reference
-                self.log(f"Scan results loaded: {len(scan_results)} steps")
-            else:
-                raise Exception("ScanResultDialog not available")
-        except Exception as e:
-            raise Exception(f"Failed to open scan dialog: {e}")
+            dlg = ScanResultDialog(
+                scan_result_dir=result_dir,
+                parent=self.context.get_main_window(),
+                context=self.context,  # for 3D viewer updates
+                results=scan_results,
+                trajectory=trajectory,
+                scan_type=LoadWorker.load_scan_type(result_dir) or "Coordinate",
+            )
+        except Exception as e:  # widget construction; re-raised with context
+            raise RuntimeError(f"Failed to open scan dialog: {e}") from e
+        dlg.show()
+        self.scan_dlg = dlg  # keep a reference
+        self.log(f"Scan results loaded: {len(scan_results)} steps")
 
         # Mark history as changed for saving
         if getattr(self, "_history_changed", False):
@@ -413,26 +425,21 @@ class VisTab(QWidget):
         try:
             # Cleanup
             if self.freq_vis:
-                try:
-                    self.freq_vis.cleanup()
-                except Exception as _e:
-                    logger.warning("silenced: %s", _e)
+                _teardown(self.freq_vis.cleanup, "freq_vis.cleanup")
                 self.freq_vis = None
 
             if self.freq_dock:
-                try:
+                with contextlib.suppress(*_GONE):
                     mw = self.context.get_main_window()
                     mw.removeDockWidget(self.freq_dock)
                     self.freq_dock.deleteLater()
                     self.freq_dock = None
-                except Exception as _e:
-                    logger.warning("silenced: %s", _e)
 
             self.clear_3d_actors()
             self.visualizer = None
             self.mapped_visualizer = None
 
-        except Exception as cleanup_err:
+        except _GONE as cleanup_err:
             self.log(f"Warning during initial cleanup: {cleanup_err}")
 
         if result_data.get("chkfile", None):
@@ -463,7 +470,7 @@ class VisTab(QWidget):
 
         try:
             self.populate_analysis_options()
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 -- Qt slot: an escaping exception aborts the host app (PyQt6)
             self.log(f"ERROR populating analysis options: {e}")
 
         self.file_list.clear()
@@ -532,64 +539,50 @@ class VisTab(QWidget):
                 v3m = getattr(mw, "view_3d_manager", None)
 
                 if v3m:
-                    try:
-                        self.context.reset_3d_camera()
-                    except Exception as _e:
-                        logger.warning("Failed to reset camera in vis_tab: %s", _e)
+                    _teardown(self.context.reset_3d_camera, "reset_3d_camera")
 
                 is_manual_load = getattr(self, "loading_update_struct", True)
-                if is_manual_load and uim:
-                    try:
-                        if hasattr(uim, "minimize_2d_panel"):
-                            uim.minimize_2d_panel()
-                    except Exception as _e:
-                        logger.warning("Failed to minimize 2d panel in vis_tab: %s", _e)
+                if is_manual_load and uim and hasattr(uim, "minimize_2d_panel"):
+                    _teardown(uim.minimize_2d_panel, "minimize_2d_panel")
 
+                # Qt slot: an escaping exception aborts the host app (PyQt6)
                 try:
                     self.finalize_load(result_data, cubes)
                 except Exception as e:
                     self.log(f"Warning during finalize_load: {e}")
-                    logger.exception("finalize_load error: %s", e)
+                    logger.exception("finalize_load error")
 
             self.log("Optimized geometry loaded automatically.")
             QTimer.singleShot(100, update_and_finalize)
 
         else:
+            # Qt slot: an escaping exception aborts the host app (PyQt6)
             try:
                 self.finalize_load(result_data, cubes)
             except Exception as e:
                 self.log(f"Warning during finalize_load: {e}")
+                logger.exception("finalize_load error")
 
         QTimer.singleShot(150, lambda: self.parent_dialog.tabs.setCurrentIndex(1))
 
     def finalize_load(self, result_data, cubes=None):
         if self.freq_vis:
-            try:
+            with contextlib.suppress(*_GONE):
                 self.freq_vis.cleanup()
                 self.freq_vis = None
-            except Exception as _e:
-                logger.warning("silenced: %s", _e)
 
         if self.freq_dock:
-            try:
+            with contextlib.suppress(*_GONE):
                 self.freq_dock.close()
                 self.freq_dock.deleteLater()
-            except Exception as _e:
-                logger.warning("silenced: %s", _e)
             self.freq_dock = None
 
         if getattr(self, "scan_dlg", None) is not None and self.scan_dlg:
-            try:
-                self.scan_dlg.close()
-            except Exception as _e:
-                logger.warning("silenced: %s", _e)
+            _teardown(self.scan_dlg.close, "scan_dlg.close")
         self.scan_dlg = None
 
         if getattr(self, "tddft_dlg", None) is not None and self.tddft_dlg:
-            try:
-                self.tddft_dlg.close()
-            except Exception as _e:
-                logger.warning("silenced: %s", _e)
+            _teardown(self.tddft_dlg.close, "tddft_dlg.close")
         self.tddft_dlg = None
 
         if result_data.get("freq_data", None):
@@ -620,7 +613,7 @@ class VisTab(QWidget):
                     )
                     self.freq_dock.show()
                     self.freq_dock.raise_()
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001 -- Qt slot: an escaping exception aborts the host app (PyQt6)
                 self.log(f"Error opening Frequency Visualizer: {e}")
 
         if result_data.get("tddft_data", None):
@@ -631,7 +624,7 @@ class VisTab(QWidget):
                     self.context.get_main_window(), result_data["tddft_data"]
                 )
                 self.tddft_dlg.show()
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001 -- Qt slot: an escaping exception aborts the host app (PyQt6)
                 self.log(f"Error opening TDDFT Results: {e}")
 
         if result_data.get("scan_results", None):
@@ -663,7 +656,7 @@ class VisTab(QWidget):
                 dlg.show()
                 self.scan_dlg = dlg  # Keep reference
 
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001 -- Qt slot: an escaping exception aborts the host app (PyQt6)
                 self.log(f"Error opening Scan Results: {e}")
 
         if cubes:
@@ -716,7 +709,7 @@ class VisTab(QWidget):
                                     res.append(0)
                             return res
                         return occ_list
-                    except Exception:
+                    except (TypeError, IndexError):
                         return []
 
                 if len(energies) >= 2 and isinstance(energies[0], list):
@@ -730,8 +723,8 @@ class VisTab(QWidget):
                         occ_a = safe_occ(occupations)
                 else:
                     occ_a = safe_occ(occupations)
-            except Exception as _e:
-                logger.warning("silenced: %s", _e)
+            except (TypeError, IndexError, AttributeError) as _e:
+                logger.warning("unexpected occupation layout: %s", _e)
 
         elif scf_type in ["ROKS", "ROHF"]:
             is_roks = True
@@ -753,7 +746,7 @@ class VisTab(QWidget):
                     occ_a = occupations
                 elif hasattr(occupations, "tolist"):
                     occ_a = occupations.tolist()
-            except Exception:
+            except (TypeError, IndexError, AttributeError):
                 occ_a = []
 
         else:
@@ -866,14 +859,13 @@ class VisTab(QWidget):
                         mo_idx = mo_prefix_match.group(1)
                         padded_idx = f"{int(mo_idx):03d}"
                         for bn in basenames:
-                            if (
-                                bn.startswith(f"{mo_idx}_")
-                                or bn.startswith(f"{padded_idx}_")
+                            if bn.startswith(
+                                (f"{mo_idx}_", f"{padded_idx}_")
                             ) and bn.endswith(".cube"):
                                 should_disable = True
                                 break
-                    except Exception as _e:
-                        logger.warning("silenced: %s", _e)
+                    except ValueError as _e:
+                        logger.warning("unparseable MO task %r: %s", task_data, _e)
                 else:
                     for bn in basenames:
                         if ".cube" in bn:
@@ -1024,7 +1016,7 @@ class VisTab(QWidget):
                 self.switch_to_mapped_mode(surf_file, prop_file)
             else:
                 self.switch_to_standard_mode(path)
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 -- Qt slot: an escaping exception aborts the host app (PyQt6)
             self.log(f"Error loading visualization file: {e}")
             self.switch_to_standard_mode(path)
 
@@ -1035,10 +1027,10 @@ class VisTab(QWidget):
         self.mapped_group.hide()
 
         if self.mapped_visualizer:
-            try:
-                self.mapped_visualizer.clear_actors()
-            except Exception as _e:
-                logger.warning("silenced: %s", _e)
+            _teardown(
+                lambda: self.mapped_visualizer.clear_actors(),
+                "self.mapped_visualizer.clear_actors",
+            )
 
         self.loaded_file = path
         if not self.visualizer:
@@ -1062,10 +1054,9 @@ class VisTab(QWidget):
         self.mapped_group.show()
 
         if self.visualizer:
-            try:
-                self.visualizer.clear_actors()
-            except Exception as _e:
-                logger.warning("silenced: %s", _e)
+            _teardown(
+                lambda: self.visualizer.clear_actors(), "self.visualizer.clear_actors"
+            )
 
         if not self.mapped_visualizer:
             self.mapped_visualizer = MappedVisualizer(self.context.get_main_window())
@@ -1151,51 +1142,20 @@ class VisTab(QWidget):
     def clear_3d_actors(self):
         try:
             mw = self.context.get_main_window()
-            if (
-                not mw
-                or not hasattr(mw, "view_3d_manager")
-                or not hasattr(mw.view_3d_manager, "plotter")
-                or mw.view_3d_manager.plotter is None
-            ):
-                return
-
-            try:
-                mw.view_3d_manager.plotter.remove_actor("pyscf_iso_p")
-            except Exception as _e:
-                logger.warning("silenced: %s", _e)
-            try:
-                mw.view_3d_manager.plotter.remove_actor("pyscf_iso_n")
-            except Exception as _e:
-                logger.warning("silenced: %s", _e)
-            try:
-                mw.view_3d_manager.plotter.remove_actor("pyscf_mapped")
-            except Exception as _e:
-                logger.warning("silenced: %s", _e)
-
-            if self.visualizer:
-                try:
-                    self.visualizer.clear_actors()
-                except Exception as _e:
-                    logger.warning("silenced: %s", _e)
-            if self.mapped_visualizer:
-                try:
-                    self.mapped_visualizer.clear_actors()
-                except Exception as _e:
-                    logger.warning("silenced: %s", _e)
-
+        except _GONE:  # the main window is already being torn down
+            mw = None
+        plotter = getattr(getattr(mw, "view_3d_manager", None), "plotter", None)
+        if plotter is not None:
+            for name in ("pyscf_iso_p", "pyscf_iso_n", "pyscf_mapped"):
+                _teardown(lambda n=name: plotter.remove_actor(n), f"remove {name}")
+            for vis in (self.visualizer, self.mapped_visualizer):
+                if vis:
+                    _teardown(vis.clear_actors, "clear_actors")
             if not self.parent_dialog.closing:
-                try:
-                    mw.view_3d_manager.plotter.render()
-                except Exception as _e:
-                    logger.warning("silenced: %s", _e)
-        except Exception as _e:
-            logger.warning("silenced: %s", _e)
+                _teardown(plotter.render, "render")
 
         if self.freq_vis:
-            try:
-                self.freq_vis.cleanup()
-            except Exception as _e:
-                logger.warning("silenced: %s", _e)
+            _teardown(self.freq_vis.cleanup, "freq_vis.cleanup")
 
     def load_optimized_geometry(self):
         if self.optimized_xyz:
@@ -1207,20 +1167,12 @@ class VisTab(QWidget):
     def update_geometry(self, xyz):
         self.clear_3d_actors()
         if self.freq_vis:
-            try:
-                self.freq_vis.cleanup()
-            except Exception as _e:
-                logger.warning("silenced: %s", _e)
+            _teardown(self.freq_vis.cleanup, "freq_vis.cleanup")
             self.freq_vis = None
         update_molecule_from_xyz(self.context, xyz)
-        try:
-            mw = self.context.get_main_window()
-            if hasattr(mw, "edit_actions_manager") and hasattr(
-                mw.edit_actions_manager, "push_undo_state"
-            ):
-                mw.edit_actions_manager.push_undo_state()
-        except Exception as _e:
-            logger.warning("silenced: %s", _e)
+        eam = getattr(self.context.get_main_window(), "edit_actions_manager", None)
+        if hasattr(eam, "push_undo_state"):
+            _teardown(eam.push_undo_state, "push_undo_state")
         self.log("Geometry updated.")
 
     def add_custom_mo(self):
@@ -1276,8 +1228,8 @@ class VisTab(QWidget):
                             diff = comp_idx - lumo_i
                             lb = "LUMO" if diff == 0 else f"LUMO+{diff}"
                             display_label = f"{lb} (Index {idx})"
-                except Exception as _e:
-                    logger.warning("silenced: %s", _e)
+                except (TypeError, IndexError, KeyError) as _e:
+                    logger.warning("could not label MO %s: %s", idx, _e)
         else:
             task_data = text.upper().replace(" ", "")
             display_label = task_data
@@ -1439,7 +1391,7 @@ class VisTab(QWidget):
                     ]
                     writer.writerow(row)
             QMessageBox.information(self, "Success", f"Exported to {fname}")
-        except Exception as e:
+        except OSError as e:
             QMessageBox.critical(self, "Error", str(e))
 
     def on_calculation_finished(self, result_data):
@@ -1454,9 +1406,6 @@ class VisTab(QWidget):
     def close_freq_window(self):
         """Close frequency visualization dock/window if open."""
         if getattr(self, "freq_dock", None) is not None and self.freq_dock:
-            try:
-                self.freq_dock.close()
-            except Exception as _e:
-                logger.warning("silenced: %s", _e)
+            _teardown(self.freq_dock.close, "freq_dock.close")
         self.freq_dock = None
         self.freq_vis = None

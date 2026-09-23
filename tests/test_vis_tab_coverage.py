@@ -1014,12 +1014,14 @@ class TestClear3dActors(unittest.TestCase):
         vt.clear_3d_actors()
         vt.freq_vis.cleanup.assert_called_once()
 
-    def test_freq_vis_cleanup_skipped_when_early_return(self):
+    def test_freq_vis_cleaned_up_even_without_a_plotter(self):
+        """The frequency animation's timer must stop whether or not there
+        is a 3D view; it used to be skipped by an early return."""
         vt = _make_vis_tab()
         vt.context.get_main_window.return_value = MagicMock(spec=[])
         vt.freq_vis = MagicMock()
         vt.clear_3d_actors()
-        vt.freq_vis.cleanup.assert_not_called()
+        vt.freq_vis.cleanup.assert_called_once()
 
     def test_swallows_outer_exception(self):
         vt = _make_vis_tab()
