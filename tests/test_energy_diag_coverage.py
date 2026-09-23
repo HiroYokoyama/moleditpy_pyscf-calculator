@@ -530,6 +530,8 @@ class TestMouseMoveEvent(unittest.TestCase):
         with patch.object(ed_mod.QToolTip, "showText") as show_m:
             d.mouseMoveEvent(ev)
             show_m.assert_called_once()
+        # a real line break, not a literal backslash-n
+        self.assertEqual(show_m.call_args[0][1], "Index: 3\nHOMO (A)")
         d.setCursor.assert_called_with(ed_mod.Qt.CursorShape.PointingHandCursor)
 
     def test_no_hover_hides_tooltip_and_arrow_cursor(self):

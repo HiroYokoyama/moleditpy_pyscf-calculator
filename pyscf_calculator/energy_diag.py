@@ -18,7 +18,7 @@ from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QPainter, QPen, QColor, QFont, QAction
 
 try:
-    import nist
+    from pyscf.data import nist
 except ImportError:
     nist = None
 
@@ -336,7 +336,7 @@ class EnergyDiagramDialog(QDialog):
                         idx_1b = index + 1
                         tip_text = f"Index: {idx_1b}"
                         if label:
-                            tip_text += f"\\n{label}"
+                            tip_text += f"\n{label}"
                         if spin_suffix:
                             tip_text += f" ({spin_suffix.replace('_', '')})"
 
@@ -595,10 +595,10 @@ class EnergyDiagramDialog(QDialog):
 
             # Title with Electron Count
             n_elec = sum(occs)
-            title_text = f"{title}\\n({n_elec:.0f}e)"
+            title_text = f"{title}\n({n_elec:.0f}e)"
 
             fm = painter.fontMetrics()
-            lines = title_text.split("\\n")
+            lines = title_text.split("\n")
             y_title_base = 20
 
             for line in lines:
