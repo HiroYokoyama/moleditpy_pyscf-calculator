@@ -142,6 +142,14 @@ class TestCheckpointScfTypeDetection(unittest.TestCase):
         lw, results = _run_load(chkfile, mo_e, mo_o)
         self.assertEqual(results["scf_type"], "ROKS")
 
+    def test_rohf_1d_mo_occ_as_pyscf_writes_it(self):
+        """PySCF stores ROHF/ROKS occupations as ONE 1-D array of 0/1/2."""
+        chkfile = os.path.join(tempfile.mkdtemp(), "pyscf.chk")
+        mo_e = np.array([-1.0, -0.5, 0.2])
+        mo_o = np.array([2.0, 1.0, 0.0])
+        lw, results = _run_load(chkfile, mo_e, mo_o)
+        self.assertEqual(results["scf_type"], "ROKS")
+
     def test_roks_list_of_lists_partial_occupancy(self):
         chkfile = os.path.join(tempfile.mkdtemp(), "pyscf.chk")
         mo_e = np.array([-1.0, -0.5, 0.2])

@@ -519,7 +519,9 @@ class TestPopulateAnalysisOptions(unittest.TestCase):
         vt.populate_analysis_options()
         tasks = self._tasks(vt)
         self.assertEqual(tasks[0], "ESP")
-        self.assertEqual(len(tasks), 6)  # ESP + 5 LUMOs, no HOMOs (occ_a empty)
+        self.assertEqual(tasks[1], "SpinDensity")
+        # ESP + Spin Density + 5 LUMOs, no HOMOs (occ_a empty)
+        self.assertEqual(len(tasks), 7)
 
 
 # ---------------------------------------------------------------------------

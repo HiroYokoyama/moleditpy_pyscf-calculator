@@ -184,6 +184,18 @@ class TestSpinDensityTask(unittest.TestCase):
         result = pw.result_signal.emit.call_args[0][0]
         self.assertEqual(len(result["files"]), 1)
 
+    def test_rohf_1d_occ_spin_density_uses_the_somo(self):
+        """PySCF's ROHF mo_occ is 1-D; it used to be skipped as closed-shell."""
+        mo_occ = np.array([2.0, 1.0, 0.0])
+        make_rdm1 = sys.modules["pyscf.scf"].hf.make_rdm1
+        make_rdm1.reset_mock()
+        make_rdm1.return_value = np.zeros((3, 3))
+        pw, out_dir = _run_with_tasks(["SpinDensity"], mo_occ, mo_coeff=np.eye(3))
+        result = pw.result_signal.emit.call_args[0][0]
+        self.assertEqual(len(result["files"]), 1)
+        occs = [c[0][1].tolist() for c in make_rdm1.call_args_list]
+        self.assertEqual(occs, [[1.0, 1.0, 0.0], [1.0, 0.0, 0.0]])
+
     def test_rhf_spin_density_skipped(self):
         """Closed-shell RHF has no spin density -> skip with log message."""
         mo_occ = np.array([2.0, 2.0, 0.0])

@@ -766,6 +766,11 @@ class VisTab(QWidget):
 
         elif scf_type in ["ROKS", "ROHF"]:
             is_roks = True
+            item_sd = QListWidgetItem("Spin Density")
+            item_sd.setFlags(item_sd.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+            item_sd.setCheckState(Qt.CheckState.Unchecked)
+            item_sd.setData(Qt.ItemDataRole.UserRole, "SpinDensity")
+            self.orb_list.addItem(item_sd)
             try:
                 occupations = self.mo_data.get("occupations", [])
                 if isinstance(occupations, list) and len(occupations) >= 2:

@@ -1629,6 +1629,31 @@ class PropertyWorker(QThread):
     def _unpack_uhf_coeff(mo_coeff, mo_occ):
         return mo_coeff[0], mo_coeff[1], mo_occ[0], mo_occ[1]
 
+    @classmethod
+    def _spin_density_matrices(cls, mo_coeff, mo_occ):
+        """(dm_alpha, dm_beta) for UHF, ROHF/ROKS and RHF checkpoints.
+
+        PySCF stores a restricted open-shell mo_occ as one 1-D array of
+        0/1/2 values: a SOMO is alpha-only, a doubly occupied MO is both.
+        """
+        from pyscf.scf import hf, uhf
+
+        if cls._is_uhf_coeff(mo_coeff):
+            c_a, c_b, o_a, o_b = cls._unpack_uhf_coeff(mo_coeff, mo_occ)
+            dm_ab = uhf.make_rdm1((c_a, c_b), (o_a, o_b))
+            return dm_ab[0], dm_ab[1]
+        occ = np.asarray(mo_occ, dtype=float)
+        if occ.ndim == 2:
+            return hf.make_rdm1(mo_coeff, occ[0]), hf.make_rdm1(mo_coeff, occ[1])
+        occ_a = (occ > 0.5).astype(float)
+        occ_b = (occ > 1.5).astype(float)
+        return hf.make_rdm1(mo_coeff, occ_a), hf.make_rdm1(mo_coeff, occ_b)
+
+    @staticmethod
+    def _is_open_shell_occ(mo_occ):
+        occ = np.asarray(mo_occ, dtype=float)
+        return occ.ndim == 2 or bool(np.any((occ > 0.5) & (occ < 1.5)))
+
     @staticmethod
     def _find_homo_lumo_1d(occs, threshold=0.1):
         homo_idx = -1
@@ -1701,25 +1726,14 @@ class PropertyWorker(QThread):
 
                 if task == "ESP":
                     # Generate Unique Paths
-                    f_esp_base = os.path.join(self.out_dir, "esp.cube")
-                    f_esp = get_unique_path(f_esp_base)
+                    f_esp = get_unique_path(os.path.join(self.out_dir, "esp.cube"))
+                    f_dens = get_unique_path(
+                        os.path.join(self.out_dir, "density.cube")
+                    )
 
-                    f_dens_base = os.path.join(self.out_dir, "density.cube")
-                    f_dens = get_unique_path(f_dens_base)
-
-                    # For ESP we need density matrix
-                    # Handle both RHF (array) and UHF (tuple)
-
-                    if self._is_uhf_coeff(mo_coeff):
-                        # UHF case
-                        from pyscf.scf import uhf
-
-                        c_a, c_b, o_a, o_b = self._unpack_uhf_coeff(mo_coeff, mo_occ)
-                        dm_ab = uhf.make_rdm1((c_a, c_b), (o_a, o_b))
-                        dm = dm_ab[0] + dm_ab[1]  # Total density for MEP
-                    else:
-                        # RHF case
-                        dm = scf.hf.make_rdm1(mo_coeff, mo_occ)
+                    # Total density for the MEP, for RHF / UHF / ROHF alike
+                    dm_a, dm_b = self._spin_density_matrices(mo_coeff, mo_occ)
+                    dm = dm_a + dm_b
 
                     self.log_signal.emit(
                         f"Generating ESP ({os.path.basename(f_esp)})...\n"
@@ -1735,45 +1749,18 @@ class PropertyWorker(QThread):
                     results["files"].append(f_dens)
 
                 elif task == "SpinDensity":
-                    # Check unrestricted
-                    if self._is_uhf_coeff(mo_coeff):
-                        from pyscf.scf import uhf
-
-                        c_a, c_b, o_a, o_b = self._unpack_uhf_coeff(mo_coeff, mo_occ)
-                        dm_ab = uhf.make_rdm1((c_a, c_b), (o_a, o_b))
-                        # Spin Density = Alpha - Beta
-                        spin_dens = dm_ab[0] - dm_ab[1]
-
-                        f_spin_base = os.path.join(self.out_dir, "spin_density.cube")
-                        f_spin = get_unique_path(f_spin_base)
-
+                    if self._is_uhf_coeff(mo_coeff) or self._is_open_shell_occ(
+                        mo_occ
+                    ):
+                        dm_a, dm_b = self._spin_density_matrices(mo_coeff, mo_occ)
+                        f_spin = get_unique_path(
+                            os.path.join(self.out_dir, "spin_density.cube")
+                        )
                         self.log_signal.emit(
                             f"Generating Spin Density ({os.path.basename(f_spin)})...\n"
                         )
-                        tools.cubegen.density(mol, f_spin, spin_dens)
+                        tools.cubegen.density(mol, f_spin, dm_a - dm_b)
                         results["files"].append(f_spin)
-
-                    # --- Added: ROKS/ROHF Support ---
-                    # ROKS mo_occ is often (2, N) (Alpha/Beta occupancy)
-                    elif isinstance(mo_occ, np.ndarray) and mo_occ.ndim == 2:
-                        # ROKS case: mo_coeff is (N,N), but mo_occ is (2, N)
-                        from pyscf import scf
-
-                        # Generate density from orbital coeffs and Alpha/Beta occupancies
-                        dm_a = scf.hf.make_rdm1(mo_coeff, mo_occ[0])
-                        dm_b = scf.hf.make_rdm1(mo_coeff, mo_occ[1])
-
-                        spin_dens = dm_a - dm_b
-
-                        f_spin_base = os.path.join(self.out_dir, "spin_density.cube")
-                        f_spin = get_unique_path(f_spin_base)
-
-                        self.log_signal.emit(
-                            f"Generating Spin Density (ROKS) ({os.path.basename(f_spin)})...\n"
-                        )
-                        tools.cubegen.density(mol, f_spin, spin_dens)
-                        results["files"].append(f_spin)
-                    # ---------------------------
                     else:
                         self.log_signal.emit(
                             "Skipping Spin Density (Not an open-shell calculation or format unknown).\n"
@@ -2105,6 +2092,11 @@ class LoadWorker(QThread):
                                 has_partial_occ = True
                                 break
                         if has_partial_occ:
+                            scf_type = "ROKS"
+                    elif isinstance(mo_occ, np.ndarray) and mo_occ.ndim == 1:
+                        # What PySCF actually writes for ROHF/ROKS: one 1-D
+                        # array of 0/1/2, a SOMO carrying occupation 1.
+                        if np.any((mo_occ > 0.5) & (mo_occ < 1.5)):
                             scf_type = "ROKS"
                     elif isinstance(mo_occ, list):
                         # Handle list of lists case
