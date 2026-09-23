@@ -296,7 +296,7 @@ class PySCFDialog(QDialog):
             "functional": "b3lyp",
             "basis": "sto-3g",
             "charge": "0",
-            "spin": "0",
+            "spin": "1 (Singlet)",  # must match a spin_input item exactly
             "root_path": os.path.join(os.path.expanduser("~"), "PySCF_Results"),
             "threads": 0,
             "memory": 4000,

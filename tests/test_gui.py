@@ -164,6 +164,10 @@ class TestGuiInternalState(unittest.TestCase):
             "Optimization + Frequency"
         )
         self.dialog.calc_tab.method_combo.setCurrentText.assert_called_with("RKS")
+        # must name a real combo item ("0" matched none, so it was a no-op)
+        self.dialog.calc_tab.spin_input.setCurrentText.assert_called_with(
+            "1 (Singlet)"
+        )
         self.dialog.calc_tab.functional_combo.setCurrentText.assert_called_with("b3lyp")
         self.dialog.calc_tab.spin_grid_level.setValue.assert_called_with(3)
         self.dialog.calc_tab.spin_memory.setValue.assert_called_with(4000)
