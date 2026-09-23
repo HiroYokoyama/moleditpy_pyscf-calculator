@@ -115,6 +115,45 @@ class TestUtils(unittest.TestCase):
         self.assertEqual(context.current_molecule, "raw_mol")
 
 
+class TestReadXyzFrames(unittest.TestCase):
+    def _write(self, text):
+        import tempfile
+
+        fd, path = tempfile.mkstemp(suffix=".xyz")
+        os.close(fd)
+        with open(path, "w") as fh:
+            fh.write(text)
+        self.addCleanup(os.remove, path)
+        return path
+
+    def test_frames_split_on_atom_counts(self):
+        path = self._write("2
+f1
+H 0 0 0
+H 0 0 0.7
+
+2
+f2
+H 0 0 0
+H 0 0 0.8
+")
+        frames = utils.read_xyz_frames(path)
+        self.assertEqual(len(frames), 2)
+        self.assertTrue(frames[1].startswith("2
+f2"))
+
+    def test_trailing_garbage_ends_the_trajectory(self):
+        path = self._write("1
+f1
+H 0 0 0
+not a frame
+")
+        self.assertEqual(len(utils.read_xyz_frames(path)), 1)
+
+    def test_empty_file(self):
+        self.assertEqual(utils.read_xyz_frames(self._write("")), [])
+
+
 class TestBondOrderCharge(unittest.TestCase):
     """Bond orders for a loaded XYZ must use the molecule's real charge."""
 

@@ -27,12 +27,14 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt, QTimer
 import logging
 
+logger = logging.getLogger(__name__)
+
 
 # Local Imports
 try:
     from .worker import LoadWorker, PropertyWorker
     from .vis import CubeVisualizer, MappedVisualizer
-    from .utils import update_molecule_from_xyz
+    from .utils import read_xyz_frames, update_molecule_from_xyz
     from .scan_results import ScanResultDialog
     from .energy_diag import EnergyDiagramDialog
 except ImportError:
@@ -43,6 +45,7 @@ except ImportError:
     ScanResultDialog = None
     EnergyDiagramDialog = None
     update_molecule_from_xyz = None
+    read_xyz_frames = None
 
 try:
     from .freq_vis import FreqVisualizer
@@ -365,29 +368,12 @@ class VisTab(QWidget):
         # Same reader as LoadWorker, so the "converged" flag survives a reload.
         try:
             scan_results = LoadWorker._load_scan_csv(csv_path)
-        except Exception as e:
-            raise Exception(f"Failed to read scan CSV: {e}")
-
-        # Parse trajectory
-        trajectory = []
+        except (OSError, ValueError) as e:
+            raise RuntimeError(f"Failed to read scan CSV: {e}") from e
         try:
-            with open(traj_path, "r") as f:
-                content = f.read()
-                lines = content.splitlines()
-                idx = 0
-                while idx < len(lines):
-                    if not lines[idx].strip():
-                        idx += 1
-                        continue
-                    try:
-                        natoms = int(lines[idx].strip())
-                        block = "\n".join(lines[idx : idx + natoms + 2])
-                        trajectory.append(block)
-                        idx += natoms + 2
-                    except Exception:
-                        break
-        except Exception as e:
-            raise Exception(f"Failed to read trajectory: {e}")
+            trajectory = read_xyz_frames(traj_path)
+        except (OSError, ValueError) as e:
+            raise RuntimeError(f"Failed to read trajectory: {e}") from e
 
         # Open scan results dialog
         try:
@@ -655,32 +641,12 @@ class VisTab(QWidget):
             scan_res = result_data["scan_results"]
             traj_path = result_data.get("scan_trajectory_path", None)
 
-            # Parse trajectory if path exists
             trajectory = []
             if traj_path and os.path.exists(traj_path):
                 try:
-                    with open(traj_path, "r") as f:
-                        # Simple parser or just read blocks
-                        # For now, pass raw path or read it?
-                        # ScanResultDialog expects list of strings?
-                        # Earlier I saw `trajectory` attribute. Let's read it into blocks if possible
-                        # Basic XYZ parser:
-                        content = f.read()
-                        lines = content.splitlines()
-                        idx = 0
-                        while idx < len(lines):
-                            if not lines[idx].strip():
-                                idx += 1
-                                continue
-                            try:
-                                natoms = int(lines[idx].strip())
-                                block = "\n".join(lines[idx : idx + natoms + 2])
-                                trajectory.append(block)
-                                idx += natoms + 2
-                            except Exception:
-                                break
-                except Exception as _e:
-                    logging.warning("scan trajectory parse silenced: %s", _e)
+                    trajectory = read_xyz_frames(traj_path)
+                except (OSError, ValueError) as _e:
+                    logger.warning("scan trajectory not readable: %s", _e)
 
             try:
                 # Use trajectories from result_data if available (likely fresher)

@@ -103,6 +103,31 @@ _vis_tab_mod = _load_module_direct(
     os.path.join("pyscf_calculator", "vis_tab.py"),
     "pyscf_calculator_vis_tab_coverage_under_test",
 )
+# The real (pure-Python) trajectory reader; vis_tab's relative import of it
+# fails when the module is loaded outside its package.
+_real_utils = _load_module_direct(
+    os.path.join("pyscf_calculator", "utils.py"),
+    "pyscf_calculator_utils_for_vis_tab_tests",
+)
+
+
+def _install_scan_readers():
+    """Tests elsewhere in this file rebind LoadWorker (to None, to mocks);
+    the scan-loading paths need a reader that actually parses the files."""
+    import csv
+
+    def _load_scan_csv(path):
+        with open(path) as fh:
+            return [
+                {k.lower(): float(v) for k, v in row.items()}
+                for row in csv.DictReader(fh)
+            ]
+
+    reader = MagicMock()
+    reader._load_scan_csv.side_effect = _load_scan_csv
+    reader.load_scan_type.return_value = None
+    _vis_tab_mod.LoadWorker = reader
+    _vis_tab_mod.read_xyz_frames = _real_utils.read_xyz_frames
 
 
 # ---------------------------------------------------------------------------
@@ -1376,6 +1401,9 @@ class TestLoadResultFolder(unittest.TestCase):
 
 
 class TestLoadScanResults(unittest.TestCase):
+    def setUp(self):
+        _install_scan_readers()
+
     def _write_scan_dir(self, d):
         with open(os.path.join(d, "scan_results.csv"), "w", newline="") as f:
             f.write("Step,Value,Energy\n0,1.0,-10.0\n1,1.1,-10.1\n")
@@ -1572,6 +1600,7 @@ class TestFinalizeLoad(unittest.TestCase):
         # just confirm no unhandled exception escaped.
 
     def test_scan_results_opens_dialog_with_trajectory(self):
+        _install_scan_readers()
         vt = _make_vis_tab()
         fake_dlg = MagicMock()
         _vis_tab_mod.ScanResultDialog = MagicMock(return_value=fake_dlg)
@@ -1589,6 +1618,11 @@ class TestFinalizeLoad(unittest.TestCase):
             )
         fake_dlg.show.assert_called_once()
         self.assertIs(vt.scan_dlg, fake_dlg)
+        # the trajectory file was really parsed into frames
+        self.assertEqual(
+            _vis_tab_mod.ScanResultDialog.call_args.kwargs["trajectory"],
+            ["1\ncomment\nC 0 0 0"],
+        )
 
     def test_cubes_disables_existing_items(self):
         vt = _make_vis_tab()

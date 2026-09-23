@@ -19,6 +19,25 @@ def get_unique_path(path):
         n += 1
 
 
+def read_xyz_frames(path):
+    """The frames of a multi-frame XYZ file, each as an XYZ block string.
+    Parsing stops at the first line that does not start a frame."""
+    with open(path, encoding="utf-8") as f:
+        lines = f.read().splitlines()
+    frames, idx = [], 0
+    while idx < len(lines):
+        head = lines[idx].strip()
+        if not head:
+            idx += 1
+            continue
+        if not head.isdigit():
+            break
+        n_atoms = int(head)
+        frames.append("\n".join(lines[idx : idx + n_atoms + 2]))
+        idx += n_atoms + 2
+    return frames
+
+
 def rdkit_to_xyz(mol):
     """
     Convert RDKit molecule to XYZ string format for PySCF.
