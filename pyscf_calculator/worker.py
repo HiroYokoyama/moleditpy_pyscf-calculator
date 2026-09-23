@@ -731,6 +731,18 @@ class PySCFWorker(QThread):
 
                     # Ensure out_dir is included for history
                     results["out_dir"] = self.out_dir
+                    # What was scanned, so the profile plot can label its
+                    # axis (also after a reload).
+                    results["scan_type"] = scan_params.get("type", "Coordinate")
+                    try:
+                        with open(
+                            os.path.join(self.out_dir, "scan_info.json"),
+                            "w",
+                            encoding="utf-8",
+                        ) as fh:
+                            json.dump(scan_params, fh, indent=2)
+                    except Exception as e_info:
+                        logging.warning("[worker.py] scan_info.json: %s", e_info)
 
                     self.result_signal.emit(results)
                     self.finished_signal.emit()
@@ -2108,6 +2120,18 @@ class LoadWorker(QThread):
         self._stop_requested = False
 
     @staticmethod
+    def load_scan_type(result_dir):
+        """Scanned coordinate type ("Dist" / "Angle" / "Dihedral") recorded
+        in scan_info.json, or None for older results."""
+        try:
+            with open(
+                os.path.join(result_dir, "scan_info.json"), encoding="utf-8"
+            ) as fh:
+                return json.load(fh).get("type")
+        except Exception:
+            return None
+
+    @staticmethod
     def _load_scan_csv(path):
         """Reload a scan from its CSV.
 
@@ -2162,6 +2186,7 @@ class LoadWorker(QThread):
                     try:
                         scan_csv = os.path.join(base_dir, "scan_results.csv")
                         results["scan_results"] = self._load_scan_csv(scan_csv)
+                        results["scan_type"] = self.load_scan_type(base_dir)
                         scan_traj = os.path.join(base_dir, "scan_trajectory.xyz")
                         if os.path.exists(scan_traj):
                             results["scan_trajectory_path"] = scan_traj
@@ -2353,6 +2378,7 @@ class LoadWorker(QThread):
             if os.path.exists(scan_csv):
                 try:
                     results["scan_results"] = self._load_scan_csv(scan_csv)
+                    results["scan_type"] = self.load_scan_type(base_dir)
                 except Exception as e_scan:
                     logging.warning(
                         "[worker.py] LoadWorker: failed to load scan csv: %s", e_scan

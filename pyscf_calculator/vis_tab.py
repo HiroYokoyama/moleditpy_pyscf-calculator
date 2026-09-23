@@ -398,6 +398,7 @@ class VisTab(QWidget):
                     context=self.context,  # Pass context for 3D viewer updates
                     results=scan_results,
                     trajectory=trajectory,
+                    scan_type=LoadWorker.load_scan_type(result_dir) or "Coordinate",
                 )
                 dlg.show()
                 self.scan_dlg = dlg  # Keep reference
@@ -693,6 +694,7 @@ class VisTab(QWidget):
                     results=scan_res,
                     trajectory=final_traj,
                     context=self.context,
+                    scan_type=result_data.get("scan_type") or "Coordinate",
                 )
                 dlg.show()
                 self.scan_dlg = dlg  # Keep reference

@@ -83,6 +83,20 @@ class TestLoadScanCsv(unittest.TestCase):
         loader = self.mod.LoadWorker._load_scan_csv
         return loader(path)
 
+    def test_scan_type_is_read_back_from_scan_info(self):
+        import json
+
+        d = tempfile.mkdtemp()
+        self.assertIsNone(self.mod.LoadWorker.load_scan_type(d))  # older result
+        with open(os.path.join(d, "scan_info.json"), "w") as fh:
+            json.dump({"type": "Dihedral", "atoms": [0, 1, 2, 3]}, fh)
+        self.assertEqual(self.mod.LoadWorker.load_scan_type(d), "Dihedral")
+
+    def test_step_is_an_int(self):
+        rows = self._load(self._write_csv([[3, 1.5, -76.4, "yes"]]))
+        self.assertEqual(rows[0]["step"], 3)
+        self.assertIsInstance(rows[0]["step"], int)
+
     def test_keys_are_lowercased_to_match_the_live_scan(self):
         rows = self._load(self._write_csv([[1, 1.5, -76.4, "yes"]]))
         self.assertIn("energy", rows[0])
