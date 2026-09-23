@@ -1,13 +1,7 @@
 PLUGIN_NAME = "PySCF Calculator"
-PLUGIN_VERSION = "4.0.1"
+PLUGIN_VERSION = "4.0.2"
 PLUGIN_AUTHOR = "HiroYokoyama"
-PLUGIN_DESCRIPTION = (
-    "Perform PySCF quantum chemistry calculations directly in MoleditPy. "
-    "Features: Single Point Energy, Geometry and Transition State Optimization, "
-    "Frequency Analysis with thermochemistry, TDDFT, Rigid/Relaxed Surface Scans, "
-    "implicit solvent and dispersion corrections, and interactive 3D visualization "
-    "of Molecular Orbitals, Spin Density and Electrostatic Potential (ESP)."
-)
+PLUGIN_DESCRIPTION = "Perform PySCF quantum chemistry calculations directly in MoleditPy. Features: Single Point Energy (RHF/UHF/DFT), Geometry Optimization (GeomeTRIC/Berny), Frequency Analysis, and interactive 3D visualization of Molecular Orbitals (HOMO/LUMO) and Electrostatic Potential (ESP) mapped on Density surfaces."
 PLUGIN_DEPENDENCIES = ["pyscf", "geometric", "numpy"]
 # Extra features only; the Plugin Installer lists these and copies an install
 # command, it never installs them. Do not install pyscf-dispersion on Apple
