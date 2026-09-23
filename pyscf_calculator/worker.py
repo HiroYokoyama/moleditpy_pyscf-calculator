@@ -525,7 +525,7 @@ class PySCFWorker(QThread):
             # ---------------------
 
             inp_file = os.path.join(out_dir, "pyscf_input.py")
-            with open(inp_file, "w") as f:
+            with open(inp_file, "w", encoding="utf-8") as f:
                 f.write("# PySCF Input for MoleditPy PySCF Calculator plugin\n")
                 f.write(
                     f"# Plugin Version: {self.config.get('plugin_version', '0.0.0')}\n"
@@ -554,16 +554,22 @@ class PySCFWorker(QThread):
 
                 f.write("\n")
                 f.write("from pyscf import gto, scf, dft\n")
-                f.write(f"mol = gto.M(atom='''{self.xyz_str}''', \n")
+                # The header-stripped atoms: gto.M does not take the XYZ
+                # count/comment lines, so the script must not embed them.
+                f.write(f"mol = gto.M(atom='''{clean_atom_str}''', \n")
                 f.write(f"    basis='{self.config.get('basis')}', \n")
                 f.write(f"    charge={charge}, \n")
                 f.write(f"    spin={spin_2s}, \n")
+                f.write(f"    max_memory={self.config.get('memory', 4000)}, \n")
                 f.write("    verbose=4)\n")
-                f.write("mol.build()\n")
 
                 if "KS" in method_name:
+                    grid_level = self.config.get("grid_level", 3)
                     f.write(f"mf = dft.{method_name}(mol)\n")
                     f.write(f"mf.xc = '{functional}'\n")
+                    f.write(f"mf.grids.level = {grid_level}\n")
+                    if grid_level >= 4:
+                        f.write("mf.grids.prune = False\n")
                 else:
                     f.write(f"mf = scf.{method_name}(mol)\n")
 
