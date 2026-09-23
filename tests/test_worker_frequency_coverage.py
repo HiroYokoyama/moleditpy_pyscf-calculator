@@ -325,6 +325,32 @@ class TestNumericalHessianOption(unittest.TestCase):
         fake_mf._hessian_obj.kernel.assert_called_once()
 
 
+class _BrokenSolventHessian:
+    """PySCF 2.14's ddCOSMOHessian: solvent-typed, but kernel() fails."""
+
+    def kernel(self):
+        raise AttributeError("'ddCOSMO' object has no attribute 'surface'")
+
+
+_BrokenSolventHessian.__module__ = "pyscf.solvent.hessian.pcm"
+
+
+class TestBrokenSolventHessianSkipsCleanly(unittest.TestCase):
+    def test_failure_becomes_a_skip_pointing_to_numerical(self):
+        fake_mf = FakeMF()
+        fake_mf._hessian_obj = _BrokenSolventHessian()
+        w, results, out_dir = _run(
+            _base_config(extra={"solvent": "Water"}),
+            fake_mf,
+            _make_thermo_mock([100.0]),
+        )
+        w.error_signal.emit.assert_not_called()
+        self.assertNotIn("freq_data", results)
+        logs = " ".join(str(c) for c in w.log_signal.emit.call_args_list)
+        self.assertIn("Hessian: Numerical", logs)
+        self.assertNotIn("Frequency analysis failed", logs)
+
+
 class TestFrequencyHessianFailure(unittest.TestCase):
     def test_hessian_kernel_exception_logged_not_fatal(self):
         fake_mf = FakeMF()

@@ -733,31 +733,41 @@ class PySCFWorker(QThread):
                     try:
                         hessian = None
 
+                        solvated = use_solvent or hasattr(mf, "with_solvent")
                         if self._wants_numerical_hessian():
                             h_obj = self._numerical_hessian_obj(mf, mol)
-                        else:
+                            hessian = h_obj.kernel()
+                        elif solvated:
+                            # Only a Hessian carrying the solvent response is
+                            # acceptable -- never vacuum frequencies for a
+                            # solvated structure. PySCF 2.14 has one for PCM,
+                            # but its ddCOSMO class fails inside kernel(), so
+                            # it is tried and a failure becomes a clean skip.
+                            # The numerical Hessian stays an explicit choice.
                             h_obj = mf.Hessian()
-
-                            # A solvated mf needs a Hessian that includes the
-                            # solvent response (PySCF 2.14 ships one for
-                            # ddCOSMO). If this PySCF hands back a plain
-                            # vacuum Hessian instead, skip rather than report
-                            # vacuum frequencies for a solvated structure. The
-                            # numerical Hessian stays an explicit user choice.
-                            if (use_solvent or hasattr(mf, "with_solvent")) and not (
-                                self._is_solvent_hessian(h_obj)
-                            ):
+                            hessian = None
+                            if self._is_solvent_hessian(h_obj):
+                                try:
+                                    hessian = h_obj.kernel()
+                                except Exception as e_sh:
+                                    logging.info(
+                                        "[worker.py] analytic solvent Hessian "
+                                        "failed: %s",
+                                        e_sh,
+                                    )
+                            if hessian is None:
                                 self.log_signal.emit(
-                                    "NOTE: Frequency analysis is skipped: this "
-                                    "PySCF has no analytic solvent Hessian. "
-                                    "Choose 'Hessian: Numerical' to compute it "
-                                    "by finite differences.\n"
+                                    "NOTE: Frequency analysis is skipped: no "
+                                    "working analytic Hessian for this solvent "
+                                    "model in this PySCF. Choose 'Hessian: "
+                                    "Numerical' to compute it by finite "
+                                    "differences.\n"
                                 )
                                 raise Exception(
                                     "Frequency Analysis Skipped (Solvent Not Supported)"
                                 )
-
-                        hessian = h_obj.kernel()
+                        else:
+                            hessian = mf.Hessian().kernel()
 
                         from pyscf.hessian import thermo
 
