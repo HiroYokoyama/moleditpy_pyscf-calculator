@@ -228,6 +228,25 @@ class TestSinglePointCompletion(unittest.TestCase):
             inp_file = os.path.join(job_dir, "pyscf_input.py")
             self.assertTrue(os.path.isfile(inp_file), "pyscf_input.py not written")
 
+    def test_symmetry_checkbox_reaches_the_molecule(self):
+        """config["symmetry"] used to be collected and then ignored."""
+        for flag in (True, False):
+            _mod.gto = MagicMock()
+            _mod.gto.M.return_value = _make_mock_mol()
+            _mod.scf = MagicMock()
+            _mod.scf.RHF.return_value = _make_mock_mf()
+            w = _make_worker()
+            w.config["symmetry"] = flag
+            with tempfile.TemporaryDirectory() as tmpdir:
+                w.config["out_dir"] = tmpdir
+                with patch.object(_mod, "CaptureStdOut") as mock_cap:
+                    mock_cap.return_value.__enter__ = MagicMock(
+                        return_value=MagicMock()
+                    )
+                    mock_cap.return_value.__exit__ = MagicMock(return_value=False)
+                    w.run()
+            self.assertIs(_mod.gto.M.call_args.kwargs["symmetry"], flag)
+
     def test_input_script_omits_the_xyz_header(self):
         """gto.M(atom=...) rejects the XYZ count/comment lines, so the
         reproduction script must carry only the atom lines."""

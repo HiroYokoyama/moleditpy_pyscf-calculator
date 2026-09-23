@@ -472,10 +472,18 @@ class PySCFWorker(QThread):
                     verbose=4,
                     output=None,
                     max_memory=self.config.get("memory", 4000),
+                    # Point-group symmetry. PySCF keeps the input frame, so
+                    # cubes and modes still line up with the editor geometry.
+                    symmetry=bool(self.config.get("symmetry", False)),
                 )
                 mol.stdout = stream
                 mol.verbose = 4
                 mol.build()
+                if mol.symmetry:
+                    self.log_signal.emit(
+                        f"Point-group symmetry: {mol.topgroup} "
+                        f"(using {mol.groupname})\n"
+                    )
             except (RuntimeError, ValueError) as e_mol:
                 # Catch specific PySCF errors (e.g. Spin/Charge mismatch)
                 msg = str(e_mol)
@@ -562,6 +570,8 @@ class PySCFWorker(QThread):
                 f.write(f"    charge={charge}, \n")
                 f.write(f"    spin={spin_2s}, \n")
                 f.write(f"    max_memory={self.config.get('memory', 4000)}, \n")
+                if self.config.get("symmetry", False):
+                    f.write("    symmetry=True, \n")
                 f.write("    verbose=4)\n")
 
                 if "KS" in method_name:
