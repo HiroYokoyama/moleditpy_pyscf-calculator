@@ -1,5 +1,5 @@
 PLUGIN_NAME = "PySCF Calculator"
-PLUGIN_VERSION = "4.0.0"
+PLUGIN_VERSION = "4.0.1"
 PLUGIN_AUTHOR = "HiroYokoyama"
 PLUGIN_DESCRIPTION = (
     "Perform PySCF quantum chemistry calculations directly in MoleditPy. "
@@ -9,10 +9,11 @@ PLUGIN_DESCRIPTION = (
     "of Molecular Orbitals, Spin Density and Electrostatic Potential (ESP)."
 )
 PLUGIN_DEPENDENCIES = ["pyscf", "geometric", "numpy"]
-# Extra features only. pyscf-dispersion (D3/D4) is deliberately not listed:
-# it has no Apple Silicon wheel, and the one pip falls back to there (1.0.0)
-# breaks `import pyscf` -- see README.
-PLUGIN_OPTIONAL_DEPENDENCIES = ["pyberny"]
+# Extra features only; the Plugin Installer lists these and copies an install
+# command, it never installs them. Do not install pyscf-dispersion on Apple
+# Silicon: it has no arm64 wheel and the fallback (1.0.0) breaks
+# `import pyscf` -- see README.
+PLUGIN_OPTIONAL_DEPENDENCIES = ["pyscf-dispersion", "pyberny"]
 PLUGIN_SUPPORTED_MOLEDITPY_VERSION = ">=4.0.0, <5.0.0"
 PLUGIN_SUPPORTED_OS = ["macOS", "Linux", "WSL"]  # pyscf has no native Windows support
 
