@@ -88,6 +88,10 @@ class FakeMF:
         self.kernel_calls = []
         self._hessian_obj = MagicMock()
 
+    def ddCOSMO(self):
+        self.with_solvent = MagicMock()
+        return self
+
     def kernel(self, dm0=None):
         self.kernel_calls.append(dm0)
         self.e_tot = -1.117

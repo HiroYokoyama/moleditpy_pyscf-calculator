@@ -329,6 +329,41 @@ class TestEnsureEnergyKernelCall(unittest.TestCase):
 
 
 # ===========================================================================
+# 3b. Solvent reaches the mean-field object of every non-scan job
+# ===========================================================================
+
+
+class TestSolventApplied(unittest.TestCase):
+    """The first mf used to be built without ddCOSMO, so Energy / TDDFT /
+    Optimization ran in vacuum while the log announced a solvent."""
+
+    def test_energy_job_is_solvated(self):
+        fake_mf = FakeMF(e_tot=None)
+        w, _ = _run(
+            _base_config(job_type="Energy", extra={"solvent": "Water"}), fake_mf
+        )
+        w.error_signal.emit.assert_not_called()
+        self.assertTrue(hasattr(fake_mf, "with_solvent"))
+        self.assertEqual(fake_mf.with_solvent.eps, 78.2)
+
+    def test_optimizer_receives_solvated_mf(self):
+        mol_eq = _make_mol_eq()
+        opt = _install_geomopt("geometric_solver", mol_eq)
+        fake_mf = FakeMF()
+        _run(_base_config(extra={"solvent": "Toluene"}), fake_mf)
+        mf_passed = opt.call_args[0][0]
+        self.assertTrue(hasattr(mf_passed, "with_solvent"))
+
+    def test_vacuum_job_is_not_solvated(self):
+        fake_mf = FakeMF(e_tot=None)
+        _run(
+            _base_config(job_type="Energy", extra={"solvent": "None (Vacuum)"}),
+            fake_mf,
+        )
+        self.assertFalse(hasattr(fake_mf, "with_solvent"))
+
+
+# ===========================================================================
 # 4. Symmetry breaking (UHF/UKS, spin>0)
 # ===========================================================================
 

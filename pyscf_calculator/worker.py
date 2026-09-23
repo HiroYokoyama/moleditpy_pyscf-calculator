@@ -575,6 +575,11 @@ class PySCFWorker(QThread):
                     f.write("td.kernel()\n")
 
             mf = self._build_mf(mol, method_name, functional)
+            # Every job type starts from this mf (the optimizer included), so
+            # the solvent has to go on here -- otherwise Energy / Optimization /
+            # TDDFT silently ran in vacuum while the log reported ddCOSMO.
+            if use_solvent:
+                mf = self._apply_solvent(mf, selected_solvent)
 
             # Ensure Checkpoint is in the new job folder
             chk_path = os.path.join(self.out_dir, "pyscf.chk")
