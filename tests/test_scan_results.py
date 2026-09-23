@@ -226,7 +226,7 @@ class TestScanResults(unittest.TestCase):
             if orig_msg is not None:
                 sr_mod.QMessageBox.information = orig_msg
 
-        mock_file.assert_called_with("/fake/path.csv", "w", newline="")
+        mock_file.assert_called_with("/fake/path.csv", "w", newline="", encoding="utf-8")
         handle = mock_file()
         handle.write.assert_any_call("step,value,energy\r\n")
         handle.write.assert_any_call("0,1.0,-76.0\r\n")

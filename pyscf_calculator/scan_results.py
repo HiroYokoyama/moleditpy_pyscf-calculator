@@ -33,6 +33,13 @@ logger = logging.getLogger(__name__)
 
 _HARTREE_TO_KJMOL = 2625.5
 _HARTREE_TO_KCALMOL = 627.509
+_UNIT_FACTORS = {
+    "Hartree": 1.0,
+    "kJ/mol": _HARTREE_TO_KJMOL,
+    "kcal/mol": _HARTREE_TO_KCALMOL,
+}
+# matplotlib raises these when an artist is already removed
+_ARTIST_GONE = (ValueError, NotImplementedError, AttributeError)
 
 try:
     from PIL import Image
@@ -100,8 +107,8 @@ class ScanResultDialog(QDialog):
             xy=(0, 0),
             xytext=(20, 20),
             textcoords="offset points",
-            bbox=dict(boxstyle="round", fc="w", alpha=0.9),
-            arrowprops=dict(arrowstyle="->"),
+            bbox={"boxstyle": "round", "fc": "w", "alpha": 0.9},
+            arrowprops={"arrowstyle": "->"},
         )
         self.annot.set_visible(False)
 
@@ -192,10 +199,8 @@ class ScanResultDialog(QDialog):
         self.timer = QTimer(self)
         self.timer.timeout.connect(self.next_frame_auto)
 
-    def plot_data(self):
-        if not self.results:
-            return
-
+    def _energy_settings(self):
+        """(unit, is_relative) as chosen in the controls."""
         unit = (
             self.unit_combo.currentText()
             if getattr(self, "unit_combo", None) is not None
@@ -206,34 +211,28 @@ class ScanResultDialog(QDialog):
             if getattr(self, "chk_relative", None) is not None
             else False
         )
+        return unit, is_rel
 
+    def _to_display(self, energy_ha):
+        """An energy (Hartree) in the chosen unit, relative to the scan's
+        minimum when "Relative" is ticked. Used by the plot, the highlight
+        marker and the hover text alike."""
+        unit, is_rel = self._energy_settings()
+        ref = min(r["energy"] for r in self.results) if is_rel else 0.0
+        return (energy_ha - ref) * _UNIT_FACTORS.get(unit, 1.0)
+
+    def plot_data(self):
+        if not self.results:
+            return
+
+        unit, is_rel = self._energy_settings()
         x = [r["value"] for r in self.results]
-        y_hartree_abs = [r["energy"] for r in self.results]
-
-        # Calculate Energy based on Relative setting
-        if is_rel:
-            min_e = min(y_hartree_abs)
-            y_hartree = [e - min_e for e in y_hartree_abs]
-            ylabel_prefix = "Relative Energy"
-        else:
-            y_hartree = y_hartree_abs
-            ylabel_prefix = "Energy"
-
-        # Convert energies based on selected unit
-        if unit == "kJ/mol":
-            y = [e * _HARTREE_TO_KJMOL for e in y_hartree]
-            ylabel = f"{ylabel_prefix} (kJ/mol)"
-        elif unit == "kcal/mol":
-            y = [e * _HARTREE_TO_KCALMOL for e in y_hartree]
-            ylabel = f"{ylabel_prefix} (kcal/mol)"
-        else:  # Hartree
-            y = y_hartree
-            ylabel = f"{ylabel_prefix} (Hartree)"
+        y = [self._to_display(r["energy"]) for r in self.results]
+        prefix = "Relative Energy" if is_rel else "Energy"
+        ylabel = f"{prefix} ({unit if unit in _UNIT_FACTORS else 'Hartree'})"
 
         self.canvas.axes.clear()
-        (line,) = self.canvas.axes.plot(
-            x, y, "b-", label="Energy", picker=5
-        )  # Enable picker
+        self.canvas.axes.plot(x, y, "b-", label="Energy", picker=5)
         # Unconverged SCF points get a hollow marker: their energy can sit
         # far off the surface and must not read as a real feature.
         conv = [bool(r.get("converged", True)) for r in self.results]
@@ -278,48 +277,9 @@ class ScanResultDialog(QDialog):
 
     def highlight_point(self, idx):
         # Remove old highlight if exists
-        if getattr(self, "_highlight_marker", None) is not None:
-            try:
-                self._highlight_marker.remove()
-            except Exception as _e:
-                logger.warning("[scan_results.py:224] silenced: %s", _e)
-        if getattr(self, "_highlight_line", None) is not None:
-            try:
-                self._highlight_line.remove()
-            except Exception as _e:
-                logger.warning("[scan_results.py:227] silenced: %s", _e)
-
-        # Get coordinate value
+        self._remove_highlight()
         x = self.results[idx]["value"]
-
-        # Get absolute energy and calculate energy according to relative checkbox
-        y_abs = self.results[idx]["energy"]
-        is_rel = (
-            self.chk_relative.isChecked()
-            if getattr(self, "chk_relative", None) is not None
-            else False
-        )
-
-        if is_rel:
-            all_energies = [r["energy"] for r in self.results]
-            min_e = min(all_energies)
-            y_hartree = y_abs - min_e
-        else:
-            y_hartree = y_abs
-
-        # Apply same conversion as plot_data
-        unit = (
-            self.unit_combo.currentText()
-            if getattr(self, "unit_combo", None) is not None
-            else "Hartree"
-        )
-
-        if unit == "kJ/mol":
-            y = y_hartree * _HARTREE_TO_KJMOL
-        elif unit == "kcal/mol":
-            y = y_hartree * _HARTREE_TO_KCALMOL
-        else:  # Hartree
-            y = y_hartree
+        y = self._to_display(self.results[idx]["energy"])
 
         # 1. Large distinct marker (Red circle)
         (self._highlight_marker,) = self.canvas.axes.plot(
@@ -338,6 +298,16 @@ class ScanResultDialog(QDialog):
         )
 
         self.canvas.draw()
+
+    def _remove_highlight(self):
+        for attr in ("_highlight_marker", "_highlight_line"):
+            artist = getattr(self, attr, None)
+            if artist is not None:
+                try:
+                    artist.remove()
+                except _ARTIST_GONE as exc:
+                    logger.debug("%s already removed: %s", attr, exc)
+                setattr(self, attr, None)
 
     def create_base_molecule(self):
         """Create a base molecule with topology from the first frame."""
@@ -366,8 +336,8 @@ class ScanResultDialog(QDialog):
                         coords.append((x, y, z))
                         try:
                             atom = Chem.Atom(sym)
-                        except Exception:
-                            atom = Chem.Atom("C")  # Fallback
+                        except (RuntimeError, ValueError):
+                            atom = Chem.Atom("C")  # unknown symbol
                         mol.AddAtom(atom)
                     except ValueError:
                         continue
@@ -383,11 +353,10 @@ class ScanResultDialog(QDialog):
 
             # Use same logic as xyz_giffer: prefer main window's estimate_bonds_from_distances
             iom = getattr(mw, "io_manager", None)
-            if iom:
+            if iom and hasattr(iom, "estimate_bonds_from_distances"):
                 try:
-                    if hasattr(iom, "estimate_bonds_from_distances"):
-                        iom.estimate_bonds_from_distances(mol)
-                except Exception as _e:
+                    iom.estimate_bonds_from_distances(mol)
+                except (RuntimeError, ValueError) as _e:
                     logger.warning("estimate_bonds_from_distances failed: %s", _e)
 
             # Also try rdDetermineBonds as a secondary supplement if 0 bonds were found
@@ -397,7 +366,7 @@ class ScanResultDialog(QDialog):
 
                     rdDetermineBonds.DetermineConnectivity(mol)
                     rdDetermineBonds.DetermineBondOrders(mol)
-                except Exception as e:
+                except (RuntimeError, ValueError) as e:  # RDKit: ValueError subclasses
                     logger.warning("rdDetermineBonds fallback failed: %s", e)
 
             self.base_mol = mol.GetMol()
@@ -421,8 +390,9 @@ class ScanResultDialog(QDialog):
             ):
                 mw.view_3d_manager.plotter.update()
                 mw.view_3d_manager.plotter.render()
-        except Exception as e:
-            logger.exception("Error creating base molecule: %s", e)
+        # runs while the dialog is built: log, never abort the host (PyQt6)
+        except Exception:
+            logger.exception("Error creating base molecule")
 
     def on_pick(self, event):
         if event.artist and hasattr(event, "ind"):
@@ -432,39 +402,22 @@ class ScanResultDialog(QDialog):
     def on_hover(self, event):
         """Update and show tooltip on hover"""
         vis = self.annot.get_visible()
-        if event.inaxes == self.canvas.axes:
-            if getattr(self, "scatter", None) is not None and self.scatter:
-                cont, ind = self.scatter.contains(event)
-                if cont:
-                    idx = ind["ind"][0]
-                    # offsets for scatter are at idx
-                    pos = self.scatter.get_offsets()[idx]
-
-                    self.annot.xy = pos
-
-                    unit = self.unit_combo.currentText()
-                    val = self.results[idx]["value"]
-                    energy = self.results[idx]["energy"]
-
-                    is_rel = self.chk_relative.isChecked()
-                    disp_energy = energy
-                    if is_rel:
-                        min_e = min([r["energy"] for r in self.results])
-                        disp_energy -= min_e
-
-                    if unit == "kJ/mol":
-                        disp_energy *= _HARTREE_TO_KJMOL
-                    elif unit == "kcal/mol":
-                        disp_energy *= _HARTREE_TO_KCALMOL
-
-                    # High precision for exact values
-                    text = f"X: {val:.6f}\nY: {disp_energy:.8f} {unit}"
-                    if not self.results[idx].get("converged", True):
-                        text += "\nSCF NOT CONVERGED"
-                    self.annot.set_text(text)
-                    self.annot.set_visible(True)
-                    self.canvas.draw_idle()
-                    return
+        if event.inaxes == self.canvas.axes and getattr(self, "scatter", None):
+            cont, ind = self.scatter.contains(event)
+            if cont:
+                idx = ind["ind"][0]
+                self.annot.xy = self.scatter.get_offsets()[idx]
+                unit, _ = self._energy_settings()
+                val = self.results[idx]["value"]
+                disp_energy = self._to_display(self.results[idx]["energy"])
+                # full precision: the tooltip is where exact values are read
+                text = f"X: {val:.6f}\nY: {disp_energy:.8f} {unit}"
+                if not self.results[idx].get("converged", True):
+                    text += "\nSCF NOT CONVERGED"
+                self.annot.set_text(text)
+                self.annot.set_visible(True)
+                self.canvas.draw_idle()
+                return
 
         if vis:
             self.annot.set_visible(False)
@@ -516,8 +469,8 @@ class ScanResultDialog(QDialog):
                 # The context.current_molecule setter might not trigger redraw if it's the same object
                 # So we might need to call draw_molecule_3d directly if available
                 self.context.draw_molecule_3d(self.base_mol)
-            except Exception:
-                # Fallback to full reload if efficient update fails
+            except (ValueError, IndexError, RuntimeError):
+                # frame does not fit the base molecule: reload it fully
                 from .utils import update_molecule_from_xyz
 
                 update_molecule_from_xyz(self.context, xyz, mark_modified=False)
@@ -552,7 +505,7 @@ class ScanResultDialog(QDialog):
             if path:
                 self.canvas.fig.savefig(path, dpi=300)
                 QMessageBox.information(self, "Saved", f"Graph saved to:\n{path}")
-        except Exception as e:
+        except (OSError, ValueError) as e:  # unwritable path / unknown format
             QMessageBox.critical(self, "Error", f"Failed to save graph: {e}")
 
     def save_csv(self):
@@ -571,12 +524,12 @@ class ScanResultDialog(QDialog):
             )
             if path:
                 keys = self.results[0].keys()
-                with open(path, "w", newline="") as f:
+                with open(path, "w", newline="", encoding="utf-8") as f:
                     writer = csv.DictWriter(f, fieldnames=keys)
                     writer.writeheader()
                     writer.writerows(self.results)
                 QMessageBox.information(self, "Saved", f"Results saved to:\n{path}")
-        except Exception as e:
+        except (OSError, ValueError, csv.Error) as e:
             QMessageBox.critical(self, "Error", f"Failed to save CSV: {e}")
 
     def prev_frame(self):
@@ -584,25 +537,7 @@ class ScanResultDialog(QDialog):
 
     def clear_selection(self):
         """Remove highlight marker and line from the graph"""
-        try:
-            if (
-                getattr(self, "_highlight_marker", None) is not None
-                and self._highlight_marker
-            ):
-                self._highlight_marker.remove()
-                self._highlight_marker = None
-        except Exception as _e:
-            logger.warning("[scan_results.py:490] silenced: %s", _e)
-
-        try:
-            if (
-                getattr(self, "_highlight_line", None) is not None
-                and self._highlight_line
-            ):
-                self._highlight_line.remove()
-                self._highlight_line = None
-        except Exception as _e:
-            logger.warning("[scan_results.py:496] silenced: %s", _e)
+        self._remove_highlight()
 
         self.canvas.draw()
 
@@ -708,7 +643,7 @@ class ScanResultDialog(QDialog):
                 hasattr(mw, "view_3d_manager")
                 and hasattr(mw.view_3d_manager, "plotter")
             ):
-                raise Exception("3D plotter not available")
+                raise RuntimeError("3D plotter not available")
 
             for i in range(len(self.trajectory)):
                 if progress.wasCanceled():
@@ -778,7 +713,8 @@ class ScanResultDialog(QDialog):
             # Restore original frame
             self.set_frame(original_frame_idx)
 
-        except Exception as e:
+        # button slot: PIL / VTK screenshot errors of any kind are reported
+        except Exception as e:  # noqa: BLE001
             QMessageBox.critical(self, "Error", f"Failed to save GIF:\n{e}")
         finally:
             self.setCursor(Qt.CursorShape.ArrowCursor)

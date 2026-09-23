@@ -411,13 +411,13 @@ class TestHighlightPoint(unittest.TestCase):
     def test_marker_remove_exception_silenced(self):
         dlg = self._make_dlg()
         dlg._highlight_marker = MagicMock()
-        dlg._highlight_marker.remove.side_effect = RuntimeError("boom")
+        dlg._highlight_marker.remove.side_effect = ValueError("list.remove(x): x not in list")
         dlg.highlight_point(0)  # must not raise
 
     def test_line_remove_exception_silenced(self):
         dlg = self._make_dlg()
         dlg._highlight_line = MagicMock()
-        dlg._highlight_line.remove.side_effect = RuntimeError("boom")
+        dlg._highlight_line.remove.side_effect = ValueError("list.remove(x): x not in list")
         dlg.highlight_point(0)  # must not raise
 
     def test_relative_kjmol_conversion(self):
@@ -773,7 +773,7 @@ class TestSavePlot(unittest.TestCase):
             ),
             patch.object(sr_mod.QMessageBox, "critical") as mock_crit,
         ):
-            dlg.canvas.fig.savefig.side_effect = RuntimeError("boom")
+            dlg.canvas.fig.savefig.side_effect = ValueError("Format is not supported")
             dlg.save_plot()
         mock_crit.assert_called_once()
 
@@ -852,13 +852,13 @@ class TestClearSelection(unittest.TestCase):
     def test_marker_remove_exception_silenced(self):
         dlg = _make_bare_dialog()
         dlg._highlight_marker = MagicMock()
-        dlg._highlight_marker.remove.side_effect = RuntimeError("boom")
+        dlg._highlight_marker.remove.side_effect = ValueError("list.remove(x): x not in list")
         dlg.clear_selection()  # must not raise
 
     def test_line_remove_exception_silenced(self):
         dlg = _make_bare_dialog()
         dlg._highlight_line = MagicMock()
-        dlg._highlight_line.remove.side_effect = RuntimeError("boom")
+        dlg._highlight_line.remove.side_effect = ValueError("list.remove(x): x not in list")
         dlg.clear_selection()  # must not raise
 
     def test_no_markers_no_crash(self):
