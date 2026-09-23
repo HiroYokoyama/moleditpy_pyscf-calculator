@@ -199,6 +199,8 @@ class _BaseTabTest(unittest.TestCase):
         self.tab.charge_input = MagicMock()
         self.tab.spin_input = MagicMock()
         self.tab.nstates_input = MagicMock()
+        self.tab.hessian_combo = MagicMock()
+        self.tab.lbl_hessian = MagicMock()
         self.tab.lbl_nstates = MagicMock()
         self.tab.out_dir_edit = MagicMock()
         self.tab.btn_scan_config = MagicMock()
@@ -268,6 +270,20 @@ class TestUpdateOptions(_BaseTabTest):
         self.tab.update_options()
         self.tab.lbl_nstates.setVisible.assert_called_with(False)
         self.tab.nstates_input.setVisible.assert_called_with(False)
+
+    def test_hessian_choice_shown_only_for_frequency_jobs(self):
+        self.tab.method_combo.currentText.return_value = "RKS"
+        for job, shown in (
+            ("Frequency", True),
+            ("Optimization + Frequency", True),
+            ("TS Optimization + Frequency", True),
+            ("Energy", False),
+            ("TDDFT", False),
+        ):
+            self.tab.job_type_combo.currentText.return_value = job
+            self.tab.update_options()
+            self.tab.hessian_combo.setVisible.assert_called_with(shown)
+            self.tab.lbl_hessian.setVisible.assert_called_with(shown)
 
 
 class TestAutoDetectChargeSpin(_BaseTabTest):

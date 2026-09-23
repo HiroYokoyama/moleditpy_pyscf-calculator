@@ -91,6 +91,19 @@ class CalcTab(QWidget):
         self.nstates_input.setVisible(False)
         form_layout.addRow(self.lbl_nstates, self.nstates_input)
 
+        # Hessian (Frequency jobs)
+        self.lbl_hessian = QLabel("Hessian:")
+        self.hessian_combo = QComboBox()
+        self.hessian_combo.addItems(["Analytic", "Numerical (finite difference)"])
+        self.hessian_combo.setToolTip(
+            "Analytic: fast, but not available for every method/solvent.\n"
+            "Numerical: central differences of analytic gradients "
+            "(6 x N atoms gradient runs); works wherever gradients do."
+        )
+        self.lbl_hessian.setVisible(False)
+        self.hessian_combo.setVisible(False)
+        form_layout.addRow(self.lbl_hessian, self.hessian_combo)
+
         self.method_combo = QComboBox()
         self.method_combo.addItems(["RKS", "RHF", "UKS", "UHF", "ROKS", "ROHF"])
         self.method_combo.currentTextChanged.connect(self.update_options)
@@ -362,6 +375,11 @@ class CalcTab(QWidget):
             self.lbl_nstates.setVisible(is_tddft)
             self.nstates_input.setVisible(is_tddft)
 
+        if getattr(self, "hessian_combo", None) is not None:
+            has_freq = "Frequency" in job
+            self.lbl_hessian.setVisible(has_freq)
+            self.hessian_combo.setVisible(has_freq)
+
     def auto_detect_charge_spin(self):
         if not self.context or not self.context.current_molecule:
             QMessageBox.warning(self, "Warning", "No molecule loaded.")
@@ -598,6 +616,7 @@ class CalcTab(QWidget):
             "charge": int(self.charge_input.currentText()),
             "spin": self.get_spin_value(),
             "nstates": self.nstates_input.value(),
+            "hessian": self.hessian_combo.currentText(),
             "threads": self.spin_threads.value(),
             "memory": self.spin_memory.value(),
             "symmetry": self.check_symmetry.isChecked(),

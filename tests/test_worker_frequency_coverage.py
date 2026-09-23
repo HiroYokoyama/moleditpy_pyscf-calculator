@@ -4,7 +4,8 @@ tests/test_worker_frequency_coverage.py
 Coverage for PySCFWorker.run() "Frequency" job type (worker.py ~735-887):
   - Successful Hessian + harmonic_analysis + thermo, real-valued and complex
     (imaginary) frequencies, JSON persistence
-  - Solvent-present skip path (no analytic/numeric fallback attempted)
+  - Solvent: solvent-aware analytic Hessian used, vacuum one skipped
+  - 'Hessian: Numerical' option via pyscf.tools.finite_diff
   - Hessian raising an exception -> logged, calculation continues
   - Freq JSON save failure -> warning logged, no crash
 """
@@ -99,6 +100,9 @@ class FakeMF:
 
     def Hessian(self):
         return self._hessian_obj
+
+    def nuc_grad_method(self):
+        return MagicMock()
 
 
 def _make_mock_mol():
@@ -279,6 +283,46 @@ class TestFrequencyWithSolventHessian(unittest.TestCase):
         self.assertIn("freq_data", results)
         all_logs = " ".join(str(c) for c in w.log_signal.emit.call_args_list)
         self.assertNotIn("Solvent Not Supported", all_logs)
+
+
+class TestNumericalHessianOption(unittest.TestCase):
+    """'Hessian: Numerical' uses PySCF's own finite-difference Hessian."""
+
+    def _run_numeric(self, extra=None):
+        fd = types.ModuleType("pyscf.tools.finite_diff")
+        h_obj = MagicMock()
+        h_obj.kernel.return_value = np.zeros((2, 2, 3, 3))
+        fd.Hessian = MagicMock(return_value=h_obj)
+        tools = types.ModuleType("pyscf.tools")
+        tools.finite_diff = fd
+        fake_mf = FakeMF()
+        cfg = {"hessian": "Numerical (finite difference)"}
+        cfg.update(extra or {})
+        with patch.dict(
+            sys.modules, {"pyscf.tools": tools, "pyscf.tools.finite_diff": fd}
+        ):
+            w, results, out_dir = _run(
+                _base_config(extra=cfg), fake_mf, _make_thermo_mock([100.0])
+            )
+        return w, results, fd, fake_mf
+
+    def test_numerical_choice_uses_finite_diff_not_analytic(self):
+        w, results, fd, fake_mf = self._run_numeric()
+        fd.Hessian.assert_called_once()
+        fake_mf._hessian_obj.kernel.assert_not_called()
+        self.assertIn("freq_data", results)
+
+    def test_numerical_choice_runs_in_solvent(self):
+        w, results, fd, _ = self._run_numeric({"solvent": "Water"})
+        self.assertIn("freq_data", results)
+        logs = " ".join(str(c) for c in w.log_signal.emit.call_args_list)
+        self.assertNotIn("Solvent Not Supported", logs)
+        self.assertIn("gradient evaluations", logs)
+
+    def test_analytic_is_the_default(self):
+        fake_mf = FakeMF()
+        _run(_base_config(), fake_mf, _make_thermo_mock([100.0]))
+        fake_mf._hessian_obj.kernel.assert_called_once()
 
 
 class TestFrequencyHessianFailure(unittest.TestCase):

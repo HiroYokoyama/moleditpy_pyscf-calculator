@@ -268,6 +268,28 @@ class PySCFWorker(QThread):
         self._apply_mf_settings(mf)
         return mf
 
+    def _wants_numerical_hessian(self) -> bool:
+        return str(self.config.get("hessian", "Analytic")).startswith("Numerical")
+
+    def _numerical_hessian_obj(self, mf, mol):
+        """PySCF's finite-difference Hessian (central differences of analytic
+        gradients, 6 N gradient evaluations). Returns the same (natm, natm,
+        3, 3) layout as the analytic one, and works wherever gradients do --
+        solvent models and functionals without an analytic Hessian included.
+        """
+        try:
+            from pyscf.tools import finite_diff
+        except ImportError as exc:
+            raise RuntimeError(
+                "Numerical Hessian needs pyscf.tools.finite_diff; "
+                "please update PySCF."
+            ) from exc
+        self.log_signal.emit(
+            f"Numerical Hessian: {6 * mol.natm} gradient evaluations "
+            "(central finite differences)...\n"
+        )
+        return finite_diff.Hessian(mf.nuc_grad_method())
+
     @staticmethod
     def _is_solvent_hessian(h_obj):
         """True when the Hessian object carries the solvent response
@@ -711,24 +733,29 @@ class PySCFWorker(QThread):
                     try:
                         hessian = None
 
-                        h_obj = mf.Hessian()
+                        if self._wants_numerical_hessian():
+                            h_obj = self._numerical_hessian_obj(mf, mol)
+                        else:
+                            h_obj = mf.Hessian()
 
-                        # A solvated mf needs a Hessian that includes the
-                        # solvent response (PySCF >= 2.x ships one for
-                        # ddCOSMO). If this PySCF hands back a plain vacuum
-                        # Hessian instead, skip rather than report vacuum
-                        # frequencies for a solvated structure -- and no
-                        # numerical fallback, by design.
-                        if (use_solvent or hasattr(mf, "with_solvent")) and not (
-                            self._is_solvent_hessian(h_obj)
-                        ):
-                            self.log_signal.emit(
-                                "NOTE: Frequency analysis is skipped: this PySCF "
-                                "has no analytic solvent Hessian.\n"
-                            )
-                            raise Exception(
-                                "Frequency Analysis Skipped (Solvent Not Supported)"
-                            )
+                            # A solvated mf needs a Hessian that includes the
+                            # solvent response (PySCF 2.14 ships one for
+                            # ddCOSMO). If this PySCF hands back a plain
+                            # vacuum Hessian instead, skip rather than report
+                            # vacuum frequencies for a solvated structure. The
+                            # numerical Hessian stays an explicit user choice.
+                            if (use_solvent or hasattr(mf, "with_solvent")) and not (
+                                self._is_solvent_hessian(h_obj)
+                            ):
+                                self.log_signal.emit(
+                                    "NOTE: Frequency analysis is skipped: this "
+                                    "PySCF has no analytic solvent Hessian. "
+                                    "Choose 'Hessian: Numerical' to compute it "
+                                    "by finite differences.\n"
+                                )
+                                raise Exception(
+                                    "Frequency Analysis Skipped (Solvent Not Supported)"
+                                )
 
                         hessian = h_obj.kernel()
 
@@ -845,6 +872,13 @@ class PySCFWorker(QThread):
                             self.log_signal.emit(
                                 f"Frequency analysis failed: {e_freq}\n{traceback.format_exc()}\n"
                             )
+                            if not self._wants_numerical_hessian() and isinstance(
+                                e_freq, (NotImplementedError, AttributeError)
+                            ):
+                                self.log_signal.emit(
+                                    "HINT: no analytic Hessian for this method; "
+                                    "choose 'Hessian: Numerical' and rerun.\n"
+                                )
 
                 if "TDDFT" in job_type:
                     self.log_signal.emit("Starting TDDFT Calculation...\n")

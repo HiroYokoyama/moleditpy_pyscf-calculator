@@ -152,6 +152,8 @@ class TestCalcTabConfig(unittest.TestCase):
         self.tab.charge_input = MagicMock()
         self.tab.spin_input = MagicMock()
         self.tab.nstates_input = MagicMock()
+        self.tab.hessian_combo = MagicMock()
+        self.tab.lbl_hessian = MagicMock()
         self.tab.out_dir_edit = MagicMock()
 
         self.tab.spin_memory = MagicMock()
@@ -232,6 +234,13 @@ class TestCalcTabConfig(unittest.TestCase):
         self.assertEqual(config["max_cycle"], 100)
         self.assertEqual(config["solvent"], "None (Vacuum)")
         self.assertEqual(config["job_type"], "Optimization")
+
+    def test_build_config_carries_hessian_choice(self):
+        self.tab.hessian_combo.currentText.return_value = (
+            "Numerical (finite difference)"
+        )
+        config = self._run_calc_and_get_config()
+        self.assertEqual(config["hessian"], "Numerical (finite difference)")
 
     def test_build_config_solvent(self):
         config = self._run_calc_and_get_config(solvent="water")
