@@ -2,6 +2,7 @@
 
 [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.18312165.svg)](https://doi.org/10.5281/zenodo.18312165)
 [![Python CI](https://github.com/HiroYokoyama/moleditpy_pyscf-calculator/actions/workflows/pytest.yml/badge.svg)](https://github.com/HiroYokoyama/moleditpy_pyscf-calculator/actions/workflows/pytest.yml)
+[![Real PySCF tests](https://github.com/HiroYokoyama/moleditpy_pyscf-calculator/actions/workflows/real-pyscf.yml/badge.svg)](https://github.com/HiroYokoyama/moleditpy_pyscf-calculator/actions/workflows/real-pyscf.yml)
 ![Test Coverage](https://img.shields.io/badge/coverage->90%25-green)
 [![MoleditPy](https://img.shields.io/badge/MoleditPy->=4.0.0-3577F7)](https://github.com/HiroYokoyama/python_molecular_editor)
 [![GitHub tag](https://img.shields.io/github/v/tag/HiroYokoyama/moleditpy_pyscf-calculator?label=version)](https://github.com/HiroYokoyama/moleditpy_pyscf-calculator/tags)
@@ -31,11 +32,14 @@ Master quantum chemistry calculations in MoleditPy with step-by-step interactive
 ## Features
 
 ### Calculation Capabilities
-- **Job Types**: Single Point Energy, Geometry Optimization, Frequency Analysis, Transition State Optimization, Rigid & Relaxed Surface Scans.
-- **Methods**: RHF, UHF, RKS, UKS (DFT).
-- **Functionals**: Support for standard functionals (B3LYP, PBE, etc.) via PySCF.
-- **Advanced Configuration**: Control over Basis Sets, Charge/Spin, Symmetry, Max Cycles, Convergence Tolerance, CPU Threads, and Memory.
-- **Settings Management**: Manually save your preferred configuration (Method, Basis, Resources) as the default for future sessions.
+- **Job Types**: Single Point Energy, Geometry Optimization, Frequency Analysis, Optimization + Frequency, Transition State Optimization (+ Frequency), TDDFT, Rigid & Relaxed Surface Scans.
+- **Methods**: RHF, UHF, ROHF, RKS, UKS, ROKS (open-shell RHF/RKS jobs switch to UHF/UKS automatically).
+- **Functionals**: LDA, GGA, meta-GGA, hybrid and range-separated functionals via PySCF/libxc (B3LYP, PBE, PBE0, r2SCAN, M06-2X, ωB97X-V, ωB97M-V, CAM-B3LYP, ...).
+- **Dispersion**: Grimme D3(BJ), D3(zero) or D4 (needs `pip install pyscf-dispersion`).
+- **Solvation**: ddCOSMO implicit solvent (water, alcohols, acetone, THF, chloroform, DCM, toluene, benzene) for every job type.
+- **Frequencies**: Analytic Hessian, or a numerical (finite-difference) Hessian for methods and solvent models without an analytic one; thermochemistry at a chosen temperature and pressure; the number of imaginary modes is checked against the job (none for a minimum, exactly one for a transition state).
+- **Advanced Configuration**: Basis Set, Charge/Multiplicity, point-group Symmetry, broken-symmetry initial guess, DFT grid level, Max Cycles, Convergence Tolerance, CPU Threads, and Memory.
+- **Settings Management**: Every option is saved with the project; save your preferred configuration as the default for future sessions.
 
 ### Visualization & Analysis
 - **Interactive Orbital Energy Diagram**:
@@ -54,6 +58,8 @@ Master quantum chemistry calculations in MoleditPy with step-by-step interactive
   - Compute and visualize Electron Density, Spin Density, and Electrostatic Potential (ESP).
   - Handles Open-Shell (UHF) density correctly.
 - **Thermodynamic Properties**: Calculate and view Enthalpy, Entropy, Gibbs Free Energy, and ZPE in a structured table format.
+- **SCF Properties**: Dipole moment and Mulliken charges after every calculation (log and `properties.json`).
+- **TDDFT**: Excitation energies, wavelengths and oscillator strengths in a table (TDHF for Hartree-Fock references).
 - **Surface Scans**:
   - Configure Rigid or Relaxed scans over bond lengths, angles, or dihedrals.
   - Visualize potential energy surfaces with interactive plots and trajectory animations.
@@ -63,7 +69,8 @@ Master quantum chemistry calculations in MoleditPy with step-by-step interactive
 
 ### Robust Job Management
 - **Organized Output**: Each calculation automatically creates a unique directory (output/job_1, job_2...) to prevent data loss.
-- **Full Logging**: Captures all PySCF output (including low-level C warnings) to both the GUI log window and pyscf.out log files.
+- **Full Logging**: Everything a job reports -- PySCF's output, output from its C libraries, and the plugin's own summaries -- goes to both the GUI log window and the job's `pyscf.out`.
+- **Reproducible Input**: Each job writes `pyscf_input.py`, a standalone script that reproduces its SCF.
 - **Artifact Safety**: Inputs, Checkpoints, and Cube files are strictly contained within their specific job folder.
 
 ## Installation
@@ -74,9 +81,11 @@ Master quantum chemistry calculations in MoleditPy with step-by-step interactive
 - NumPy
 - GeomeTRIC
 - Matplotlib
+- Optional: `pyscf-dispersion` (D3/D4 corrections), `pyberny` (fallback optimizer)
 
 ```bash
 pip install pyscf PyQt6 numpy geometric matplotlib
+pip install pyscf-dispersion pyberny   # optional
 ```
 > [!WARNING]
 > PySCF installation may fail on Windows, so it may only work on MacOS or Linux.
@@ -95,16 +104,25 @@ pip install pyscf PyQt6 numpy geometric matplotlib
    - Select specific orbitals (e.g., HOMO, LUMO) to generate Cube files.
    - Click "Show Properties" for thermodynamic data (after Frequency jobs).
 
+## Testing
+
+Two suites:
+
+- `tests/` -- fast headless tests with PySCF, Qt and RDKit mocked (runs anywhere):
+  ```bash
+  python -m pytest tests/
+  ```
+- `tests_real/` -- the plugin driven against **real PySCF** (plus geomeTRIC, RDKit and
+  offscreen PyQt6), each result checked against an independent PySCF reference: every
+  calculation option on minimal molecules, the tutorials' results, the real GUI, and
+  file logging. Modules skip themselves when a dependency is missing. PySCF has no
+  native Windows build, so run it on Linux or macOS:
+  ```bash
+  pip install pyscf geometric pyberny pyscf-dispersion rdkit PyQt6 pyvista matplotlib pytest
+  QT_QPA_PLATFORM=offscreen python -m pytest tests_real -m "not slow"   # ~2 min
+  python -m pytest tests_real -m slow   # the full SN2 tutorial (~3 min)
+  ```
+
 ## License & Disclaimer
 
 This project is licensed under the GNU General Public License v3.0 (GPLv3) - see the [LICENSE](LICENSE) file for details. As open-source software, it is provided 'as is' without warranty of any kind, and the author assumes no responsibility or liability for the results. Although outputs have been carefully verified, users are strongly encouraged to independently check and validate them for critical applications (such as publications). If you encounter any bugs, please open an issue.
-
-
-
-
-
-
-
-
-
-
