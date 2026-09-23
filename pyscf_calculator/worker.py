@@ -266,6 +266,15 @@ class PySCFWorker(QThread):
         return mf
 
     @staticmethod
+    def _is_solvent_hessian(h_obj):
+        """True when the Hessian object carries the solvent response
+        (e.g. pyscf.solvent.hessian.pcm.ddCOSMOHessian)."""
+        return any(
+            getattr(cls, "__module__", "").startswith("pyscf.solvent")
+            for cls in type(h_obj).__mro__
+        )
+
+    @staticmethod
     def _to_list(arr):
         if arr is None:
             return []
@@ -780,25 +789,26 @@ class PySCFWorker(QThread):
                     try:
                         hessian = None
 
-                        # Pre-emptive Skip for Solvent
-                        # User explicitly requested NO Vacuum fallback and NO numerical fallback.
-                        if use_solvent or hasattr(mf, "with_solvent"):
+                        h_obj = mf.Hessian()
+
+                        # A solvated mf needs a Hessian that includes the
+                        # solvent response (PySCF >= 2.x ships one for
+                        # ddCOSMO). If this PySCF hands back a plain vacuum
+                        # Hessian instead, skip rather than report vacuum
+                        # frequencies for a solvated structure -- and no
+                        # numerical fallback, by design.
+                        if (use_solvent or hasattr(mf, "with_solvent")) and not (
+                            self._is_solvent_hessian(h_obj)
+                        ):
                             self.log_signal.emit(
-                                "NOTE: Frequency analysis is skipped for Solvent calculations (Not Supported).\n"
-                            )
-                            self.log_signal.emit(
-                                "      (Analytic Hessian unavailable; Vacuum approximation disabled by user request.)\n"
+                                "NOTE: Frequency analysis is skipped: this PySCF "
+                                "has no analytic solvent Hessian.\n"
                             )
                             raise Exception(
                                 "Frequency Analysis Skipped (Solvent Not Supported)"
                             )
 
-                        # Standard Calculation
-                        try:
-                            h_obj = mf.Hessian()
-                            hessian = h_obj.kernel()
-                        except (AttributeError, KeyError) as e:
-                            raise e
+                        hessian = h_obj.kernel()
 
                         from pyscf.hessian import thermo
 

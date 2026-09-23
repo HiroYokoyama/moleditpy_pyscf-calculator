@@ -257,6 +257,30 @@ class TestFrequencySolventSkip(unittest.TestCase):
         self.assertIn("Solvent Not Supported", all_logs)
 
 
+class _SolventHessian:
+    """Stands in for pyscf.solvent.hessian.pcm.ddCOSMOHessian."""
+
+    def kernel(self):
+        return np.zeros((2, 3, 2, 3))
+
+
+_SolventHessian.__module__ = "pyscf.solvent.hessian.pcm"
+
+
+class TestFrequencyWithSolventHessian(unittest.TestCase):
+    def test_solvent_aware_hessian_is_used(self):
+        thermo_mock = _make_thermo_mock([100.0])
+        fake_mf = FakeMF()
+        fake_mf._hessian_obj = _SolventHessian()
+        w, results, out_dir = _run(
+            _base_config(extra={"solvent": "Water"}), fake_mf, thermo_mock
+        )
+        w.error_signal.emit.assert_not_called()
+        self.assertIn("freq_data", results)
+        all_logs = " ".join(str(c) for c in w.log_signal.emit.call_args_list)
+        self.assertNotIn("Solvent Not Supported", all_logs)
+
+
 class TestFrequencyHessianFailure(unittest.TestCase):
     def test_hessian_kernel_exception_logged_not_fatal(self):
         fake_mf = FakeMF()
