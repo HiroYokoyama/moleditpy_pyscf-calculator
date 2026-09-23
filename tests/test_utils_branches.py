@@ -12,10 +12,10 @@ covered by test_utils.py:
   - get_unique_path loops past multiple existing files
 """
 
+import importlib.util
 import os
 import sys
 import unittest
-import importlib.util
 from unittest.mock import MagicMock, patch
 
 
@@ -117,7 +117,7 @@ class TestUpdateMolMarkModified(unittest.TestCase):
         return ctx, mw, sm
 
     def test_mark_modified_false_restores_dirty_true(self):
-        ctx, mw, sm = self._make_context_with_state_manager(was_dirty=True)
+        ctx, _mw, sm = self._make_context_with_state_manager(was_dirty=True)
         utils.Chem.MolFromXYZBlock = MagicMock(return_value=MagicMock())
 
         utils.update_molecule_from_xyz(
@@ -128,7 +128,7 @@ class TestUpdateMolMarkModified(unittest.TestCase):
         self.assertTrue(sm.has_unsaved_changes)
 
     def test_mark_modified_false_restores_dirty_false(self):
-        ctx, mw, sm = self._make_context_with_state_manager(was_dirty=False)
+        ctx, _mw, sm = self._make_context_with_state_manager(was_dirty=False)
         utils.Chem.MolFromXYZBlock = MagicMock(return_value=MagicMock())
 
         utils.update_molecule_from_xyz(
@@ -138,7 +138,7 @@ class TestUpdateMolMarkModified(unittest.TestCase):
         self.assertFalse(sm.has_unsaved_changes)
 
     def test_mark_modified_false_calls_update_window_title(self):
-        ctx, mw, sm = self._make_context_with_state_manager(was_dirty=False)
+        ctx, _mw, sm = self._make_context_with_state_manager(was_dirty=False)
         utils.Chem.MolFromXYZBlock = MagicMock(return_value=MagicMock())
 
         utils.update_molecule_from_xyz(
@@ -149,7 +149,7 @@ class TestUpdateMolMarkModified(unittest.TestCase):
 
     def test_mark_modified_true_does_not_restore_dirty(self):
         """mark_modified=True must NOT suppress the dirty flag change."""
-        ctx, mw, sm = self._make_context_with_state_manager(was_dirty=False)
+        ctx, _mw, sm = self._make_context_with_state_manager(was_dirty=False)
         utils.Chem.MolFromXYZBlock = MagicMock(return_value=MagicMock())
 
         utils.update_molecule_from_xyz(

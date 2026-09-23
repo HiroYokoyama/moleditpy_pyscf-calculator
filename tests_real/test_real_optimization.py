@@ -9,9 +9,8 @@ pyscf = pytest.importorskip("pyscf")
 pytest.importorskip("rdkit")
 pytest.importorskip("PyQt6.QtCore")
 
-from pyscf import lib, scf  # noqa: E402
-
-from conftest import XYZ_H2, XYZ_H2O  # noqa: E402
+from conftest import XYZ_H2, XYZ_H2O
+from pyscf import lib, scf
 
 
 def _bond(xyz_block, i=0, j=1):

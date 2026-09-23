@@ -3,11 +3,11 @@ tests/test_calc_tab.py
 Unit tests for the main calculation tab configuration building without requiring UI interactions.
 """
 
+import importlib.util
 import os
 import sys
 import types
 import unittest
-import importlib.util
 from unittest.mock import MagicMock
 
 
@@ -220,7 +220,7 @@ class TestCalcTabConfig(unittest.TestCase):
 
         if MockWorker.called:
             args, _ = MockWorker.call_args
-            xyz_str, config = args
+            _xyz_str, config = args
             return config
         return None
 

@@ -11,9 +11,8 @@ pyscf = pytest.importorskip("pyscf")
 pytest.importorskip("rdkit")
 pytest.importorskip("PyQt6.QtCore")
 
-from pyscf import dft, gto, scf  # noqa: E402
-
-from conftest import XYZ_H2, XYZ_H2O, xyz_atoms  # noqa: E402
+from conftest import XYZ_H2, XYZ_H2O, xyz_atoms
+from pyscf import dft, gto, scf
 
 
 def _mol(xyz, **kw):

@@ -74,8 +74,7 @@ class TestLoadScanCsv(unittest.TestCase):
         os.close(fd)
         with open(path, "w", newline="") as fh:
             fh.write(header + "\n")
-            for r in rows:
-                fh.write(",".join(str(x) for x in r) + "\n")
+            fh.writelines(",".join(str(x) for x in r) + "\n" for r in rows)
         self.addCleanup(os.remove, path)
         return path
 

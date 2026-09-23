@@ -299,10 +299,10 @@ and sets `CI_MAIN_APP_SRC` so `test_plugin_integration.py` finds the real
 The stub captures all registrations:
 
 ```python
-ctx.menu_actions   # dict: path → callback
+ctx.menu_actions  # dict: path → callback
 ctx.save_handlers  # list of callables
 ctx.load_handlers  # list of callables
-ctx.reset_handlers # list of callables
+ctx.reset_handlers  # list of callables
 ```
 
 Every method called by `initialize()` is implemented on the stub.  All other

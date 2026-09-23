@@ -16,13 +16,12 @@ QTableWidget, QTableWidgetItem, QHeaderView) are rebound directly on our own
 test file's behavior independent of import order across the test suite.
 """
 
+import importlib.util
 import os
 import sys
 import types
 import unittest
-import importlib.util
 from unittest.mock import MagicMock, patch
-
 
 # ---------------------------------------------------------------------------
 # Minimal stubs -- just enough that vis_tab.py imports without raising.
@@ -1431,7 +1430,7 @@ class TestLoadScanResults(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             with open(os.path.join(d, "scan_trajectory.xyz"), "w") as f:
                 f.write("1\ncomment\nC 0 0 0\n")
-            with self.assertRaises(Exception):
+            with self.assertRaises(RuntimeError):
                 vt.load_scan_results(d)
 
     def test_scan_result_dialog_none_raises(self):
@@ -1441,7 +1440,7 @@ class TestLoadScanResults(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as d:
             self._write_scan_dir(d)
-            with self.assertRaises(Exception):
+            with self.assertRaises(RuntimeError):
                 vt.load_scan_results(d)
 
     def test_history_changed_marks_project_modified(self):

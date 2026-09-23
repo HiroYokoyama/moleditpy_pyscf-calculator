@@ -15,14 +15,14 @@ Run with:
     python -m pytest tests/test_stop_stability.py -v
 """
 
+import importlib
+import importlib.util
 import io
 import os
 import sys
 import types
 import unittest
-import importlib
-import importlib.util
-from unittest.mock import MagicMock, patch, call
+from unittest.mock import MagicMock, call, patch
 
 # ---------------------------------------------------------------------------
 # We import worker.py and calc_tab.py directly via importlib so that we
@@ -309,7 +309,7 @@ class TestStreamToSignal(unittest.TestCase):
         )
 
     def test_close_sets_destroyed_true(self):
-        s, _, tgt = self._make()
+        s, _, _tgt = self._make()
         self.assertFalse(s._destroyed)
         s.close()
         self.assertTrue(s._destroyed)
@@ -325,18 +325,18 @@ class TestStreamToSignal(unittest.TestCase):
         """RuntimeError from dead Qt signal must mark stream as destroyed."""
         sig = MagicMock()
         sig.emit.side_effect = RuntimeError("Qt C++ object deleted")
-        s, _, tgt = self._make(signal=sig)
+        s, _, _tgt = self._make(signal=sig)
         s.write("trigger")
         self.assertTrue(s._destroyed)
 
     def test_target_stream_ioerror_is_swallowed(self):
         """IOError writing to target_stream must not propagate."""
         tgt = MagicMock()
-        tgt.write.side_effect = IOError("closed file")
+        tgt.write.side_effect = OSError("closed file")
         s = StreamToSignal(MagicMock(), target_stream=tgt)
         try:
             s.write("safe?")  # must not raise
-        except IOError as e:
+        except OSError as e:
             self.fail(f"StreamToSignal.write() must swallow IOError, got: {e}")
 
 
@@ -462,7 +462,7 @@ class TestStopCalculationSequence(unittest.TestCase):
         self.assertTrue(worker._stop_requested)
 
     def test_stop_closes_stream(self):
-        tab, worker, stream = self._make_tab()
+        tab, _worker, stream = self._make_tab()
         CalcTab.stop_calculation(tab)
         stream.close.assert_called_once()
 

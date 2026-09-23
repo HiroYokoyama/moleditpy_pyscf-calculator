@@ -10,11 +10,11 @@ Not covered here: on_document_reset()/apply_defaults()/update_internal_state()
 happy path already exercised by tests/test_gui.py (not duplicated).
 """
 
+import importlib.util
 import os
 import sys
 import types
 import unittest
-import importlib.util
 from unittest.mock import MagicMock, patch
 
 

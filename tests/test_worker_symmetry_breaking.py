@@ -25,7 +25,6 @@ from unittest.mock import MagicMock
 
 import numpy as np
 
-
 # ---------------------------------------------------------------------------
 # Stub the Qt / rdkit surface so worker.py imports headlessly
 # ---------------------------------------------------------------------------

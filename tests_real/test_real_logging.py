@@ -13,11 +13,13 @@ pyscf = pytest.importorskip("pyscf")
 pytest.importorskip("rdkit")
 pytest.importorskip("PyQt6.QtCore")
 
-from conftest import XYZ_H2, XYZ_H2O, XYZ_OH, load_plugin_modules  # noqa: E402
+from conftest import XYZ_H2, XYZ_H2O, XYZ_OH, load_plugin_modules
 
 
 def _out(res):
-    with open(os.path.join(res.results["out_dir"], "pyscf.out"), encoding="utf-8") as fh:
+    with open(
+        os.path.join(res.results["out_dir"], "pyscf.out"), encoding="utf-8"
+    ) as fh:
         return fh.read()
 
 

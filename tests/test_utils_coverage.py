@@ -10,10 +10,10 @@ exercised by test_utils.py / test_utils_branches.py:
   - exception while restoring has_unsaved_changes/update_window_title (118-119)
 """
 
+import importlib.util
 import os
 import sys
 import unittest
-import importlib.util
 from unittest.mock import MagicMock, patch
 
 

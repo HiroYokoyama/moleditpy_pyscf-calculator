@@ -14,10 +14,7 @@ pyscf = pytest.importorskip("pyscf")
 pytest.importorskip("rdkit")
 pytest.importorskip("PyQt6.QtCore")
 
-from pyscf import dft, gto, lib, scf  # noqa: E402
-from pyscf.hessian import thermo  # noqa: E402
-
-from conftest import (  # noqa: E402
+from conftest import (
     XYZ_H2,
     XYZ_H2O,
     XYZ_H2O2,
@@ -26,8 +23,12 @@ from conftest import (  # noqa: E402
     atom_xyz,
     xyz_atoms,
 )
+from pyscf import dft, gto, lib, scf
+from pyscf.hessian import thermo
 
-CALC_TAB = pathlib.Path(__file__).resolve().parent.parent / "pyscf_calculator" / "calc_tab.py"
+CALC_TAB = (
+    pathlib.Path(__file__).resolve().parent.parent / "pyscf_calculator" / "calc_tab.py"
+)
 
 
 def _combo_items(attr):
@@ -60,9 +61,7 @@ def _chk_mol(res):
 
 def _ref(xyz, method="RHF", spin=0, charge=0, basis="sto-3g", xc="pbe", **opts):
     """Direct PySCF reference energy, built without the plugin."""
-    mol = gto.M(
-        atom=xyz_atoms(xyz), basis=basis, spin=spin, charge=charge, verbose=0
-    )
+    mol = gto.M(atom=xyz_atoms(xyz), basis=basis, spin=spin, charge=charge, verbose=0)
     mf = getattr(dft if "KS" in method else scf, method)(mol)
     if "KS" in method:
         mf.xc = xc
@@ -230,7 +229,9 @@ def test_symmetry_option(run_job):
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("choice,key", [("D3(BJ)", "d3bj"), ("D3(zero)", "d3zero"), ("D4", "d4")])
+@pytest.mark.parametrize(
+    "choice,key", [("D3(BJ)", "d3bj"), ("D3(zero)", "d3zero"), ("D4", "d4")]
+)
 def test_every_dispersion_choice(choice, key, run_job):
     pytest.importorskip("pyscf.dispersion")
     res = run_job(XYZ_H2O, method="RKS", functional="pbe", dispersion=choice)
@@ -328,7 +329,9 @@ def test_thermochemistry_temperature_and_pressure(temperature, pressure_atm, run
 
 @pytest.mark.parametrize("nstates", [1, 4])
 def test_tddft_nstates(nstates, run_job):
-    res = run_job(XYZ_H2O, job_type="TDDFT", method="RKS", functional="pbe", nstates=nstates)
+    res = run_job(
+        XYZ_H2O, job_type="TDDFT", method="RKS", functional="pbe", nstates=nstates
+    )
     assert len(res.results["tddft_data"]) == nstates
 
 
@@ -352,21 +355,35 @@ def test_tdhf_for_hartree_fock(run_job):
 def _scan_energy_check(res, spin=0):
     assert not res.errors, res.errors
     for p, frame in zip(res.results["scan_results"], res.results["scan_trajectory"]):
-        mol = gto.M(atom="\n".join(frame.splitlines()[2:]), basis="sto-3g", spin=spin, verbose=0)
+        mol = gto.M(
+            atom="\n".join(frame.splitlines()[2:]), basis="sto-3g", spin=spin, verbose=0
+        )
         ref = scf.RHF(mol)
         ref.conv_tol = 1e-10
         assert p["energy"] == pytest.approx(ref.run().e_tot, abs=1e-6)
 
 
 def test_rigid_angle_scan(run_job):
-    params = {"type": "Angle", "atoms": [1, 0, 2], "start": 100.0, "end": 110.0, "steps": 2}
+    params = {
+        "type": "Angle",
+        "atoms": [1, 0, 2],
+        "start": 100.0,
+        "end": 110.0,
+        "steps": 2,
+    }
     res = run_job(XYZ_H2O, job_type="Rigid Surface Scan", scan_params=params)
     _scan_energy_check(res)
     assert res.results["scan_type"] == "Angle"
 
 
 def test_rigid_dihedral_scan(run_job):
-    params = {"type": "Dihedral", "atoms": [2, 0, 1, 3], "start": 90.0, "end": 180.0, "steps": 2}
+    params = {
+        "type": "Dihedral",
+        "atoms": [2, 0, 1, 3],
+        "start": 90.0,
+        "end": 180.0,
+        "steps": 2,
+    }
     res = run_job(XYZ_H2O2, job_type="Rigid Surface Scan", scan_params=params)
     _scan_energy_check(res)
     assert [round(p["value"]) for p in res.results["scan_results"]] == [90, 180]
@@ -384,7 +401,13 @@ def test_relaxed_distance_scan(run_job):
 def test_relaxed_dihedral_scan(run_job):
     pytest.importorskip("geometric")
     # ends on 180 deg: the measured value must stay on the +180 branch
-    params = {"type": "Dihedral", "atoms": [2, 0, 1, 3], "start": 140.0, "end": 180.0, "steps": 2}
+    params = {
+        "type": "Dihedral",
+        "atoms": [2, 0, 1, 3],
+        "start": 140.0,
+        "end": 180.0,
+        "steps": 2,
+    }
     res = run_job(XYZ_H2O2, job_type="Relaxed Surface Scan", scan_params=params)
     _scan_energy_check(res)
     vals = [p["value"] for p in res.results["scan_results"]]
@@ -424,9 +447,8 @@ UHF_TASKS = [("HOMO_A", 0, 4), ("HOMO_B", 1, 3), ("LUMO_B", 1, 4), ("MO 5_A", 0,
 
 
 def _same_cube(path, mol, coeff, tmp_path):
-    from pyscf.tools import cubegen
-
     from conftest import read_cube
+    from pyscf.tools import cubegen
 
     ref_path = str(tmp_path / "ref.cube")
     cubegen.orbital(mol, ref_path, coeff)
@@ -436,7 +458,9 @@ def _same_cube(path, mol, coeff, tmp_path):
 
 
 @pytest.mark.parametrize("task,idx", RHF_TASKS)
-def test_orbital_cube_is_the_requested_mo_rhf(task, idx, run_job, run_properties, tmp_path):
+def test_orbital_cube_is_the_requested_mo_rhf(
+    task, idx, run_job, run_properties, tmp_path
+):
     res = run_job(XYZ_H2O)
     chk = res.results["chkfile"]
     props = run_properties(chk, [task], res.results["out_dir"])
@@ -448,7 +472,9 @@ def test_orbital_cube_is_the_requested_mo_rhf(task, idx, run_job, run_properties
 
 
 @pytest.mark.parametrize("task,spin,idx", UHF_TASKS)
-def test_orbital_cube_is_the_requested_mo_uhf(task, spin, idx, run_job, run_properties, tmp_path):
+def test_orbital_cube_is_the_requested_mo_uhf(
+    task, spin, idx, run_job, run_properties, tmp_path
+):
     res = run_job(XYZ_OH, method="UHF", spin=2)
     chk = res.results["chkfile"]
     props = run_properties(chk, [task], res.results["out_dir"])

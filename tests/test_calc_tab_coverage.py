@@ -11,11 +11,11 @@ Not covered here: the "happy path" run_calculation() config-building already
 exercised by tests/test_calc_tab.py (not duplicated).
 """
 
+import importlib.util
 import os
 import sys
 import types
 import unittest
-import importlib.util
 from unittest.mock import MagicMock, patch
 
 
@@ -722,7 +722,12 @@ class TestStopCalculation(_BaseTabTest):
             def __init__(self):
                 self.finished = _Sig()
                 self.started = _Sig()
-                for name in ("log_signal", "finished_signal", "error_signal", "result_signal"):
+                for name in (
+                    "log_signal",
+                    "finished_signal",
+                    "error_signal",
+                    "result_signal",
+                ):
                     setattr(self, name, _Sig())
                 self._stream = None
                 self._stop_requested = False

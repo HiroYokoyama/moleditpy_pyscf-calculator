@@ -12,15 +12,14 @@ Strategy:
   - No real pyscf computation is performed.
 """
 
+import importlib.util
 import json
 import os
 import sys
+import tempfile
 import types
 import unittest
-import tempfile
-import importlib.util
 from unittest.mock import MagicMock
-
 
 # ---------------------------------------------------------------------------
 # Qt and pyscf stubs (must be installed before worker.py is loaded)

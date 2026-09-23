@@ -3,11 +3,11 @@ tests/test_energy_diag.py
 Unit tests for the Orbital Energy Diagram parser.
 """
 
+import importlib.util
 import os
 import sys
 import types
 import unittest
-import importlib.util
 from unittest.mock import MagicMock
 
 

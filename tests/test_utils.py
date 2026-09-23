@@ -3,10 +3,10 @@ tests/test_utils.py
 Unit tests for pyscf_calculator utilities.
 """
 
+import importlib.util
 import os
 import sys
 import unittest
-import importlib.util
 from unittest.mock import MagicMock, patch
 
 
@@ -133,8 +133,15 @@ class TestReadXyzFrames(unittest.TestCase):
     def test_frames_split_on_atom_counts(self):
         path = self._write(
             self._text(
-                "2", "f1", "H 0 0 0", "H 0 0 0.7", "",
-                "2", "f2", "H 0 0 0", "H 0 0 0.8",
+                "2",
+                "f1",
+                "H 0 0 0",
+                "H 0 0 0.7",
+                "",
+                "2",
+                "f2",
+                "H 0 0 0",
+                "H 0 0 0.8",
             )
         )
         frames = utils.read_xyz_frames(path)

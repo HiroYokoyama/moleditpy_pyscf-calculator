@@ -18,14 +18,13 @@ Strategy:
   to raise on restore and exercising the warning branches.
 """
 
+import importlib.util
 import os
 import sys
-import types
 import tempfile
+import types
 import unittest
-import importlib.util
 from unittest.mock import MagicMock, patch
-
 
 # ---------------------------------------------------------------------------
 # Qt / pyscf stubs

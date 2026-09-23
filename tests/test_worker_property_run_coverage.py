@@ -16,14 +16,15 @@ would be heavy/unsafe under these stubs), and avoids polluting the real
 `pyscf_calculator` entry in sys.modules for other test files.
 """
 
+import importlib.util
 import os
 import sys
-import types
 import tempfile
+import types
 import unittest
-import importlib.util
-import numpy as np
 from unittest.mock import MagicMock, patch
+
+import numpy as np
 
 
 def _install_stubs(force=False):
@@ -142,7 +143,7 @@ def _run_with_tasks(tasks, mo_occ, mo_coeff=None, out_dir=None):
 class TestEspTask(unittest.TestCase):
     def test_rhf_esp_generates_two_cube_files(self):
         mo_occ = np.array([2.0, 2.0, 0.0, 0.0])
-        pw, out_dir = _run_with_tasks(["ESP"], mo_occ)
+        pw, _out_dir = _run_with_tasks(["ESP"], mo_occ)
         pw.finished_signal.emit.assert_called_once()
         pw.error_signal.emit.assert_not_called()
         result = pw.result_signal.emit.call_args[0][0]
@@ -154,7 +155,7 @@ class TestEspTask(unittest.TestCase):
         alpha = np.array([1.0, 0.0])
         beta = np.array([1.0, 0.0])
         mo_coeff = (np.eye(2), np.eye(2))
-        pw, out_dir = _run_with_tasks(["ESP"], (alpha, beta), mo_coeff=mo_coeff)
+        pw, _out_dir = _run_with_tasks(["ESP"], (alpha, beta), mo_coeff=mo_coeff)
         pw.finished_signal.emit.assert_called_once()
         pw.error_signal.emit.assert_not_called()
         result = pw.result_signal.emit.call_args[0][0]
@@ -171,7 +172,9 @@ class TestSpinDensityTask(unittest.TestCase):
         alpha = np.array([1.0, 0.0])
         beta = np.array([1.0, 0.0])
         mo_coeff = (np.eye(2), np.eye(2))
-        pw, out_dir = _run_with_tasks(["SpinDensity"], (alpha, beta), mo_coeff=mo_coeff)
+        pw, _out_dir = _run_with_tasks(
+            ["SpinDensity"], (alpha, beta), mo_coeff=mo_coeff
+        )
         pw.finished_signal.emit.assert_called_once()
         result = pw.result_signal.emit.call_args[0][0]
         self.assertEqual(len(result["files"]), 1)
@@ -179,7 +182,7 @@ class TestSpinDensityTask(unittest.TestCase):
 
     def test_roks_spin_density_generates_one_cube(self):
         mo_occ = np.array([[2.0, 1.0, 0.0], [2.0, 0.0, 0.0]])
-        pw, out_dir = _run_with_tasks(["SpinDensity"], mo_occ)
+        pw, _out_dir = _run_with_tasks(["SpinDensity"], mo_occ)
         pw.finished_signal.emit.assert_called_once()
         result = pw.result_signal.emit.call_args[0][0]
         self.assertEqual(len(result["files"]), 1)
@@ -190,7 +193,7 @@ class TestSpinDensityTask(unittest.TestCase):
         make_rdm1 = sys.modules["pyscf.scf"].hf.make_rdm1
         make_rdm1.reset_mock()
         make_rdm1.return_value = np.zeros((3, 3))
-        pw, out_dir = _run_with_tasks(["SpinDensity"], mo_occ, mo_coeff=np.eye(3))
+        pw, _out_dir = _run_with_tasks(["SpinDensity"], mo_occ, mo_coeff=np.eye(3))
         result = pw.result_signal.emit.call_args[0][0]
         self.assertEqual(len(result["files"]), 1)
         occs = [c[0][1].tolist() for c in make_rdm1.call_args_list]
@@ -199,7 +202,7 @@ class TestSpinDensityTask(unittest.TestCase):
     def test_rhf_spin_density_skipped(self):
         """Closed-shell RHF has no spin density -> skip with log message."""
         mo_occ = np.array([2.0, 2.0, 0.0])
-        pw, out_dir = _run_with_tasks(["SpinDensity"], mo_occ)
+        pw, _out_dir = _run_with_tasks(["SpinDensity"], mo_occ)
         pw.finished_signal.emit.assert_called_once()
         result = pw.result_signal.emit.call_args[0][0]
         self.assertEqual(result["files"], [])
@@ -215,7 +218,7 @@ class TestSpinDensityTask(unittest.TestCase):
 class TestMoOrbitalParsing(unittest.TestCase):
     def test_homo_label(self):
         mo_occ = np.array([2.0, 2.0, 0.0, 0.0])
-        pw, out_dir = _run_with_tasks(["HOMO"], mo_occ)
+        pw, _out_dir = _run_with_tasks(["HOMO"], mo_occ)
         pw.finished_signal.emit.assert_called_once()
         result = pw.result_signal.emit.call_args[0][0]
         self.assertEqual(len(result["files"]), 1)
@@ -223,37 +226,37 @@ class TestMoOrbitalParsing(unittest.TestCase):
 
     def test_lumo_plus_offset(self):
         mo_occ = np.array([2.0, 2.0, 0.0, 0.0])
-        pw, out_dir = _run_with_tasks(["LUMO+1"], mo_occ)
+        pw, _out_dir = _run_with_tasks(["LUMO+1"], mo_occ)
         result = pw.result_signal.emit.call_args[0][0]
         self.assertEqual(len(result["files"]), 1)
 
     def test_homo_minus_offset(self):
         mo_occ = np.array([2.0, 2.0, 2.0, 0.0])
-        pw, out_dir = _run_with_tasks(["HOMO-1"], mo_occ)
+        pw, _out_dir = _run_with_tasks(["HOMO-1"], mo_occ)
         result = pw.result_signal.emit.call_args[0][0]
         self.assertEqual(len(result["files"]), 1)
 
     def test_explicit_mo_number_one_based(self):
         mo_occ = np.array([2.0, 2.0, 0.0, 0.0])
-        pw, out_dir = _run_with_tasks(["MO 2"], mo_occ)
+        pw, _out_dir = _run_with_tasks(["MO 2"], mo_occ)
         result = pw.result_signal.emit.call_args[0][0]
         self.assertEqual(len(result["files"]), 1)
 
     def test_hash_index_zero_based(self):
         mo_occ = np.array([2.0, 2.0, 0.0, 0.0])
-        pw, out_dir = _run_with_tasks(["#1"], mo_occ)
+        pw, _out_dir = _run_with_tasks(["#1"], mo_occ)
         result = pw.result_signal.emit.call_args[0][0]
         self.assertEqual(len(result["files"]), 1)
 
     def test_mo_label_with_index_regex(self):
         mo_occ = np.array([2.0, 2.0, 0.0, 0.0])
-        pw, out_dir = _run_with_tasks(["MO 2_HOMO"], mo_occ)
+        pw, _out_dir = _run_with_tasks(["MO 2_HOMO"], mo_occ)
         result = pw.result_signal.emit.call_args[0][0]
         self.assertEqual(len(result["files"]), 1)
 
     def test_out_of_range_index_logged_and_skipped(self):
         mo_occ = np.array([2.0, 2.0, 0.0, 0.0])
-        pw, out_dir = _run_with_tasks(["MO 99"], mo_occ)
+        pw, _out_dir = _run_with_tasks(["MO 99"], mo_occ)
         pw.finished_signal.emit.assert_called_once()
         result = pw.result_signal.emit.call_args[0][0]
         self.assertEqual(result["files"], [])
@@ -262,7 +265,7 @@ class TestMoOrbitalParsing(unittest.TestCase):
 
     def test_unparseable_task_logged_and_skipped(self):
         mo_occ = np.array([2.0, 2.0, 0.0, 0.0])
-        pw, out_dir = _run_with_tasks(["???"], mo_occ)
+        pw, _out_dir = _run_with_tasks(["???"], mo_occ)
         pw.finished_signal.emit.assert_called_once()
         result = pw.result_signal.emit.call_args[0][0]
         self.assertEqual(result["files"], [])
@@ -271,7 +274,7 @@ class TestMoOrbitalParsing(unittest.TestCase):
         alpha = np.array([1.0, 0.0])
         beta = np.array([1.0, 0.0])
         mo_coeff = (np.eye(2), np.eye(2))
-        pw, out_dir = _run_with_tasks(["HOMO_B"], (alpha, beta), mo_coeff=mo_coeff)
+        pw, _out_dir = _run_with_tasks(["HOMO_B"], (alpha, beta), mo_coeff=mo_coeff)
         result = pw.result_signal.emit.call_args[0][0]
         self.assertEqual(len(result["files"]), 1)
         self.assertIn("b_", result["files"][0])
@@ -279,7 +282,7 @@ class TestMoOrbitalParsing(unittest.TestCase):
     def test_multiple_tasks_all_processed(self):
         """Sanity check: two valid tasks in one run both produce files."""
         mo_occ = np.array([2.0, 2.0, 0.0, 0.0])
-        pw, out_dir = _run_with_tasks(["HOMO", "LUMO"], mo_occ)
+        pw, _out_dir = _run_with_tasks(["HOMO", "LUMO"], mo_occ)
         pw.finished_signal.emit.assert_called_once()
         result = pw.result_signal.emit.call_args[0][0]
         self.assertEqual(len(result["files"]), 2)

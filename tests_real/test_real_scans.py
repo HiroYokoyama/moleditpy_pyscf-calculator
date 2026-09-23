@@ -10,9 +10,8 @@ pyscf = pytest.importorskip("pyscf")
 pytest.importorskip("rdkit")
 pytest.importorskip("PyQt6.QtCore")
 
-from pyscf import gto, scf  # noqa: E402
-
-from conftest import XYZ_H2, XYZ_H2O, XYZ_OH, load_plugin_modules  # noqa: E402
+from conftest import XYZ_H2, XYZ_H2O, XYZ_OH, load_plugin_modules
+from pyscf import gto, scf
 
 
 def _frame_mol(frame, spin=0):
@@ -69,9 +68,7 @@ def test_open_shell_relaxed_scan_keeps_the_uhf_switch(run_job):
     """Regression: relaxed scans re-read the raw method and ran ROHF."""
     pytest.importorskip("geometric")
     params = {"type": "Dist", "atoms": [0, 1], "start": 0.95, "end": 1.05, "steps": 2}
-    res = run_job(
-        XYZ_OH, job_type="Relaxed Surface Scan", scan_params=params, spin=2
-    )
+    res = run_job(XYZ_OH, job_type="Relaxed Surface Scan", scan_params=params, spin=2)
     assert not res.errors, res.errors
     for p, frame in zip(res.results["scan_results"], res.results["scan_trajectory"]):
         e_uhf = _energy(scf.UHF, frame, spin=1)

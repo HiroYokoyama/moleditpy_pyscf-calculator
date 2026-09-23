@@ -9,7 +9,7 @@ pyscf = pytest.importorskip("pyscf")
 pytest.importorskip("rdkit")
 pytest.importorskip("PyQt6.QtCore")
 
-from conftest import XYZ_H2O, XYZ_OH, read_cube  # noqa: E402
+from conftest import XYZ_H2O, XYZ_OH, read_cube
 
 
 def _integral(path):
@@ -40,7 +40,9 @@ def test_spin_density_of_a_doublet_integrates_to_one(
 
 def test_closed_shell_spin_density_is_skipped(run_job, run_properties):
     res = run_job(XYZ_H2O)
-    props = run_properties(res.results["chkfile"], ["SpinDensity"], res.results["out_dir"])
+    props = run_properties(
+        res.results["chkfile"], ["SpinDensity"], res.results["out_dir"]
+    )
     assert props.results["files"] == []
     assert "Skipping Spin Density" in props.log
 
@@ -75,7 +77,6 @@ def test_plugin_cube_parser_reads_real_pyscf_cubes(run_job, run_properties):
     import importlib
 
     import numpy as np
-
     from conftest import load_plugin_modules
 
     load_plugin_modules()

@@ -13,9 +13,11 @@ pyscf = pytest.importorskip("pyscf")
 pytest.importorskip("rdkit")
 pytest.importorskip("PyQt6.QtCore")
 
-from conftest import XYZ_H2  # noqa: E402
+from conftest import XYZ_H2
 
-CALC_TAB = pathlib.Path(__file__).resolve().parent.parent / "pyscf_calculator" / "calc_tab.py"
+CALC_TAB = (
+    pathlib.Path(__file__).resolve().parent.parent / "pyscf_calculator" / "calc_tab.py"
+)
 
 
 def _combo_items(attr):

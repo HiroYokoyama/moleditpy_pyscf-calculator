@@ -10,15 +10,16 @@ Coverage for PySCFWorker.run() "Optimization" job type dispatch and the
   - break_symmetry=False skip path
 """
 
+import builtins
+import importlib.util
 import os
 import sys
-import types
-import builtins
 import tempfile
+import types
 import unittest
-import importlib.util
-import numpy as np
 from unittest.mock import MagicMock, patch
+
+import numpy as np
 
 
 def _install_stubs(force=False):
@@ -280,7 +281,7 @@ class TestGeometricOptimizationSuccess(unittest.TestCase):
 class TestOptimizationImportErrors(unittest.TestCase):
     def test_ts_geometric_missing_emits_error_no_berny(self):
         """TS optimization requires geometric; berny fallback is NOT attempted."""
-        w, results = _run(
+        w, _results = _run(
             _base_config(job_type="Transition State Optimization"),
             FakeMF(),
             block_imports=["pyscf.geomopt.geometric_solver"],
@@ -304,7 +305,7 @@ class TestOptimizationImportErrors(unittest.TestCase):
         self.assertIn("geometric-lib not found", all_logs)
 
     def test_both_optimizers_missing_emits_error(self):
-        w, results = _run(
+        w, _results = _run(
             _base_config(),
             FakeMF(),
             block_imports=[
@@ -326,7 +327,7 @@ class TestOptimizationImportErrors(unittest.TestCase):
 class TestEnsureEnergyKernelCall(unittest.TestCase):
     def test_energy_job_type_calls_kernel_when_falsy(self):
         fake_mf = FakeMF(e_tot=None)
-        w, results = _run(_base_config(job_type="Energy", method="RHF"), fake_mf)
+        w, _results = _run(_base_config(job_type="Energy", method="RHF"), fake_mf)
         w.finished_signal.emit.assert_called_once()
         self.assertEqual(len(fake_mf.kernel_calls), 1)
 
@@ -393,20 +394,20 @@ class TestDispersion(unittest.TestCase):
             self.assertEqual(mf.disp, key)
 
     def test_hf_takes_dispersion_too(self):
-        w, mf = self._run_disp("D3(BJ)", method="RHF")
+        _w, mf = self._run_disp("D3(BJ)", method="RHF")
         self.assertEqual(mf.disp, "d3bj")
 
     def test_none_leaves_mf_untouched(self):
-        w, mf = self._run_disp("None")
+        _w, mf = self._run_disp("None")
         self.assertFalse(hasattr(mf, "disp"))
 
     def test_vv10_functional_refuses_double_counting(self):
-        w, mf = self._run_disp("D3(BJ)", functional="wb97x-v")
+        w, _mf = self._run_disp("D3(BJ)", functional="wb97x-v")
         w.error_signal.emit.assert_called_once()
         self.assertIn("VV10", w.error_signal.emit.call_args[0][0])
 
     def test_missing_package_is_a_clear_error(self):
-        w, mf = self._run_disp("D4", have_pkg=False)
+        w, _mf = self._run_disp("D4", have_pkg=False)
         w.error_signal.emit.assert_called_once()
         self.assertIn("pyscf-dispersion", w.error_signal.emit.call_args[0][0])
 
@@ -472,7 +473,7 @@ class TestSymmetryBreaking(unittest.TestCase):
 
     def test_uhf_symmetry_breaking_success(self):
         fake_mf = FakeMF(e_tot=None)
-        w, results = _run(
+        w, _results = _run(
             _base_config(job_type="Energy", method="UHF", extra={"spin": "1"}),
             fake_mf,
         )
@@ -494,7 +495,7 @@ class TestSymmetryBreaking(unittest.TestCase):
 
     def test_uks_symmetry_breaking_success(self):
         fake_mf = FakeMF(e_tot=None)
-        w, results = _run(
+        w, _results = _run(
             _base_config(
                 job_type="Energy",
                 method="UKS",
@@ -519,7 +520,7 @@ class TestSymmetryBreaking(unittest.TestCase):
     def test_symmetry_breaking_exception_falls_back(self):
         fake_mf = FakeMF(e_tot=None)
         fake_mf.get_init_guess_raises = True
-        w, results = _run(
+        w, _results = _run(
             _base_config(job_type="Energy", method="UHF", extra={"spin": "1"}),
             fake_mf,
         )
@@ -531,7 +532,7 @@ class TestSymmetryBreaking(unittest.TestCase):
 
     def test_break_symmetry_false_skips_mixing(self):
         fake_mf = FakeMF(e_tot=None)
-        w, results = _run(
+        w, _results = _run(
             _base_config(
                 job_type="Energy",
                 method="UHF",

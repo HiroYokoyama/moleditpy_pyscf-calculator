@@ -3,11 +3,11 @@ tests/test_gui.py
 Unit tests for the main GUI state manager.
 """
 
+import importlib.util
 import os
 import sys
 import types
 import unittest
-import importlib.util
 from unittest.mock import MagicMock, patch
 
 
@@ -167,9 +167,7 @@ class TestGuiInternalState(unittest.TestCase):
         )
         self.dialog.calc_tab.method_combo.setCurrentText.assert_called_with("RKS")
         # must name a real combo item ("0" matched none, so it was a no-op)
-        self.dialog.calc_tab.spin_input.setCurrentText.assert_called_with(
-            "1 (Singlet)"
-        )
+        self.dialog.calc_tab.spin_input.setCurrentText.assert_called_with("1 (Singlet)")
         self.dialog.calc_tab.functional_combo.setCurrentText.assert_called_with("b3lyp")
         self.dialog.calc_tab.spin_grid_level.setValue.assert_called_with(3)
         self.dialog.calc_tab.spin_memory.setValue.assert_called_with(4000)
@@ -181,7 +179,9 @@ class TestSettingsFieldTable(unittest.TestCase):
         would surface there first. Check it against calc_tab.py."""
         import ast
 
-        src = os.path.join(os.path.dirname(__file__), "..", "pyscf_calculator", "calc_tab.py")
+        src = os.path.join(
+            os.path.dirname(__file__), "..", "pyscf_calculator", "calc_tab.py"
+        )
         with open(src, encoding="utf-8") as fh:
             tree = ast.parse(fh.read())
         created = {
@@ -227,9 +227,12 @@ class TestSettingsFieldTable(unittest.TestCase):
         dlg.log = MagicMock()
         dlg.cursor = MagicMock()
         written = {}
-        with patch.object(_gui_mod.json, "dump", side_effect=lambda d, f, **k: written.update(d)):
-            with patch("builtins.open", MagicMock()), patch.object(
-                _gui_mod, "QToolTip"
+        with patch.object(
+            _gui_mod.json, "dump", side_effect=lambda d, f, **k: written.update(d)
+        ):
+            with (
+                patch("builtins.open", MagicMock()),
+                patch.object(_gui_mod, "QToolTip"),
             ):
                 dlg.save_custom_defaults()
         self.assertNotIn("charge", written)

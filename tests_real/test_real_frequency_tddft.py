@@ -10,11 +10,10 @@ pyscf = pytest.importorskip("pyscf")
 pytest.importorskip("rdkit")
 pytest.importorskip("PyQt6.QtCore")
 
-from pyscf import gto, scf, tdscf  # noqa: E402
-from pyscf.data import nist  # noqa: E402
-from pyscf.hessian import thermo  # noqa: E402
-
-from conftest import XYZ_H2O, xyz_atoms  # noqa: E402
+from conftest import XYZ_H2O, xyz_atoms
+from pyscf import gto, scf, tdscf
+from pyscf.data import nist
+from pyscf.hessian import thermo
 
 
 def _freqs(res):

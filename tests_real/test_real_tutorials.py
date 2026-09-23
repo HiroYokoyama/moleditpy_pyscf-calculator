@@ -13,9 +13,8 @@ pytest.importorskip("rdkit")
 pytest.importorskip("PyQt6.QtCore")
 pytest.importorskip("geometric")
 
-from pyscf import lib, scf  # noqa: E402
-
-from conftest import read_cube  # noqa: E402
+from conftest import read_cube
+from pyscf import lib, scf
 
 HARTREE_TO_KJMOL = 2625.4996
 
@@ -97,8 +96,16 @@ def _pi_sign_changes(mol, coeff):
 
 
 def test_tutorial_1_butadiene_nodes(run_job, run_properties):
-    r = _ok(run_job(XYZ_BUTADIENE, job_type="Geometry Optimization",
-                    method="RKS", functional="b3lyp", basis="sto-3g", threads=8))
+    r = _ok(
+        run_job(
+            XYZ_BUTADIENE,
+            job_type="Geometry Optimization",
+            method="RKS",
+            functional="b3lyp",
+            basis="sto-3g",
+            threads=8,
+        )
+    )
     chk = r["chkfile"]
     mol = lib.chkfile.load_mol(chk)
     coeff = scf.chkfile.load(chk, "scf/mo_coeff")
@@ -113,7 +120,12 @@ def test_tutorial_1_butadiene_nodes(run_job, run_properties):
     # the tutorial's step 2: generate those four cubes via the plugin
     props = run_properties(chk, ["HOMO-1", "HOMO", "LUMO", "LUMO+1"], r["out_dir"])
     names = sorted(os.path.basename(f) for f in props.results["files"])
-    assert names == ["014_HOMO-1.cube", "015_HOMO.cube", "016_LUMO.cube", "017_LUMO+1.cube"]
+    assert names == [
+        "014_HOMO-1.cube",
+        "015_HOMO.cube",
+        "016_LUMO.cube",
+        "017_LUMO+1.cube",
+    ]
 
 
 # ---------------------------------------------------------------------------
@@ -133,8 +145,16 @@ def _cube_value_at(path, point_bohr):
 
 
 def test_tutorial_2_acetone_esp(run_job, run_properties):
-    r = _ok(run_job(XYZ_ACETONE, job_type="Geometry Optimization",
-                    method="RKS", functional="b3lyp", basis="sto-3g", threads=8))
+    r = _ok(
+        run_job(
+            XYZ_ACETONE,
+            job_type="Geometry Optimization",
+            method="RKS",
+            functional="b3lyp",
+            basis="sto-3g",
+            threads=8,
+        )
+    )
     props = run_properties(r["chkfile"], ["ESP"], r["out_dir"])
     esp, _dens = props.results["files"]
 
@@ -142,14 +162,24 @@ def test_tutorial_2_acetone_esp(run_job, run_properties):
     xyz = mol.atom_coords()  # Bohr
     sym = [mol.atom_symbol(i) for i in range(mol.natm)]
     c_o = xyz[sym.index("O")] - xyz[0]
-    o_out = xyz[sym.index("O")] + 2.5 * c_o / np.linalg.norm(c_o)  # beyond the lone pairs
+    o_out = xyz[sym.index("O")] + 2.5 * c_o / np.linalg.norm(
+        c_o
+    )  # beyond the lone pairs
     assert _cube_value_at(esp, o_out) < 0  # red: negative at the oxygen
 
     h_vals = []
     for i, s in enumerate(sym):
         if s == "H":
-            c = xyz[int(np.argmin([np.linalg.norm(xyz[i] - xyz[j]) if sym[j] == "C" else 1e9
-                                   for j in range(mol.natm)]))]
+            c = xyz[
+                int(
+                    np.argmin(
+                        [
+                            np.linalg.norm(xyz[i] - xyz[j]) if sym[j] == "C" else 1e9
+                            for j in range(mol.natm)
+                        ]
+                    )
+                )
+            ]
             out = xyz[i] + 2.0 * (xyz[i] - c) / np.linalg.norm(xyz[i] - c)
             h_vals.append(_cube_value_at(esp, out))
     assert all(v > 0 for v in h_vals)  # blue: positive at the hydrogens
@@ -161,9 +191,24 @@ def test_tutorial_2_acetone_esp(run_job, run_properties):
 
 
 def test_tutorial_3_ethane_rotation(run_job):
-    params = {"type": "Dihedral", "atoms": [2, 0, 1, 5], "start": 0.0, "end": 180.0, "steps": 10}
-    r = _ok(run_job(XYZ_ETHANE, job_type="Relaxed Surface Scan", method="RKS",
-                    functional="b3lyp", basis="sto-3g", scan_params=params, threads=8))
+    params = {
+        "type": "Dihedral",
+        "atoms": [2, 0, 1, 5],
+        "start": 0.0,
+        "end": 180.0,
+        "steps": 10,
+    }
+    r = _ok(
+        run_job(
+            XYZ_ETHANE,
+            job_type="Relaxed Surface Scan",
+            method="RKS",
+            functional="b3lyp",
+            basis="sto-3g",
+            scan_params=params,
+            threads=8,
+        )
+    )
     pts = r["scan_results"]
     assert len(pts) == 10
     ang = np.array([p["value"] for p in pts])
@@ -190,9 +235,18 @@ def test_tutorial_3_ethane_rotation(run_job):
 @pytest.mark.slow
 def test_tutorial_4_sn2_scan_and_ts(run_job, tmp_path):
     params = {"type": "Dist", "atoms": [0, 5], "start": 2.8, "end": 1.96, "steps": 5}
-    scan = _ok(run_job(XYZ_SN2, job_type="Relaxed Surface Scan", method="RKS",
-                       functional="b3lyp", basis="ma-def2-svp", charge=-1,
-                       scan_params=params, threads=16))
+    scan = _ok(
+        run_job(
+            XYZ_SN2,
+            job_type="Relaxed Surface Scan",
+            method="RKS",
+            functional="b3lyp",
+            basis="ma-def2-svp",
+            charge=-1,
+            scan_params=params,
+            threads=16,
+        )
+    )
     pts = scan["scan_results"]
     assert len(pts) == 5
     e = np.array([p["energy"] for p in pts])
@@ -201,8 +255,17 @@ def test_tutorial_4_sn2_scan_and_ts(run_job, tmp_path):
 
     # step 4: TS Optimization + Frequency from the highest scan point
     frame = scan["scan_trajectory"][top]
-    ts = _ok(run_job(frame, job_type="TS Optimization + Frequency", method="RKS",
-                     functional="b3lyp", basis="ma-def2-svp", charge=-1, threads=16))
+    ts = _ok(
+        run_job(
+            frame,
+            job_type="TS Optimization + Frequency",
+            method="RKS",
+            functional="b3lyp",
+            basis="ma-def2-svp",
+            charge=-1,
+            threads=16,
+        )
+    )
     fd = ts["freq_data"]
     assert fd["n_imaginary"] == 1  # "exactly one imaginary frequency"
 

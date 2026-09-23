@@ -3,12 +3,12 @@ tests/test_tddft_table.py
 Unit tests for data formatting in the TDDFT result widget via headless stubs.
 """
 
+import importlib.util
 import os
 import sys
 import types
 import unittest
-import importlib.util
-from unittest.mock import MagicMock, patch, mock_open
+from unittest.mock import MagicMock, mock_open, patch
 
 
 def _load_module_direct(relpath, module_name):

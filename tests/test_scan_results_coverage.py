@@ -14,11 +14,11 @@ create_base_molecule()'s mark_project_modified regression tests (not
 duplicated).
 """
 
+import importlib.util
 import os
 import sys
 import types
 import unittest
-import importlib.util
 from unittest.mock import MagicMock, patch
 
 
@@ -411,13 +411,17 @@ class TestHighlightPoint(unittest.TestCase):
     def test_marker_remove_exception_silenced(self):
         dlg = self._make_dlg()
         dlg._highlight_marker = MagicMock()
-        dlg._highlight_marker.remove.side_effect = ValueError("list.remove(x): x not in list")
+        dlg._highlight_marker.remove.side_effect = ValueError(
+            "list.remove(x): x not in list"
+        )
         dlg.highlight_point(0)  # must not raise
 
     def test_line_remove_exception_silenced(self):
         dlg = self._make_dlg()
         dlg._highlight_line = MagicMock()
-        dlg._highlight_line.remove.side_effect = ValueError("list.remove(x): x not in list")
+        dlg._highlight_line.remove.side_effect = ValueError(
+            "list.remove(x): x not in list"
+        )
         dlg.highlight_point(0)  # must not raise
 
     def test_relative_kjmol_conversion(self):
@@ -425,7 +429,7 @@ class TestHighlightPoint(unittest.TestCase):
         dlg.chk_relative.isChecked.return_value = True
         dlg.unit_combo.currentText.return_value = "kJ/mol"
         dlg.highlight_point(1)  # min energy index -> rel 0
-        args, kwargs = dlg.canvas.axes.plot.call_args
+        args, _kwargs = dlg.canvas.axes.plot.call_args
         self.assertAlmostEqual(args[1], 0.0)
 
     def test_kcalmol_conversion_absolute(self):
@@ -433,14 +437,14 @@ class TestHighlightPoint(unittest.TestCase):
         dlg.chk_relative.isChecked.return_value = False
         dlg.unit_combo.currentText.return_value = "kcal/mol"
         dlg.highlight_point(0)
-        args, kwargs = dlg.canvas.axes.plot.call_args
+        args, _kwargs = dlg.canvas.axes.plot.call_args
         self.assertAlmostEqual(args[1], -1.0 * sr_mod._HARTREE_TO_KCALMOL)
 
     def test_no_unit_combo_defaults_hartree(self):
         dlg = self._make_dlg()
         del dlg.unit_combo
         dlg.highlight_point(0)
-        args, kwargs = dlg.canvas.axes.plot.call_args
+        args, _kwargs = dlg.canvas.axes.plot.call_args
         self.assertAlmostEqual(args[1], -1.0)
 
 
@@ -852,13 +856,17 @@ class TestClearSelection(unittest.TestCase):
     def test_marker_remove_exception_silenced(self):
         dlg = _make_bare_dialog()
         dlg._highlight_marker = MagicMock()
-        dlg._highlight_marker.remove.side_effect = ValueError("list.remove(x): x not in list")
+        dlg._highlight_marker.remove.side_effect = ValueError(
+            "list.remove(x): x not in list"
+        )
         dlg.clear_selection()  # must not raise
 
     def test_line_remove_exception_silenced(self):
         dlg = _make_bare_dialog()
         dlg._highlight_line = MagicMock()
-        dlg._highlight_line.remove.side_effect = ValueError("list.remove(x): x not in list")
+        dlg._highlight_line.remove.side_effect = ValueError(
+            "list.remove(x): x not in list"
+        )
         dlg.clear_selection()  # must not raise
 
     def test_no_markers_no_crash(self):

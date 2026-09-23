@@ -15,9 +15,9 @@ PySCF has no native Windows build -- run these on Linux or macOS.
 """
 
 import os
+import pathlib
 import sys
 import types
-import pathlib
 
 import pytest
 
@@ -35,8 +35,10 @@ def load_plugin_modules():
         pkg = types.ModuleType("pyscf_calculator")
         pkg.__path__ = [str(PKG_DIR)]
         sys.modules["pyscf_calculator"] = pkg
-    import pyscf_calculator.worker as worker  # noqa: PLC0415
-    import pyscf_calculator.utils as utils  # noqa: PLC0415
+    from pyscf_calculator import (
+        utils,
+        worker,
+    )
 
     return worker, utils
 

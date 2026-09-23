@@ -10,15 +10,16 @@ All RDKit/PySCF calls are mocked; only real filesystem writes (CSV/XYZ) and
 real numpy math (linalg.norm/arccos) are exercised.
 """
 
+import builtins
+import importlib.util
 import os
 import sys
-import types
-import builtins
 import tempfile
+import types
 import unittest
-import importlib.util
-import numpy as np
 from unittest.mock import MagicMock, patch
+
+import numpy as np
 
 
 def _install_stubs(force=False):
@@ -265,7 +266,7 @@ class TestScanParamsMissing(unittest.TestCase):
             "max_cycle": 100,
             "conv_tol": "1e-9",
         }
-        w, results, out_dir = _run(config)
+        w, _results, _out_dir = _run(config)
         w.error_signal.emit.assert_called_once()
         self.assertIn("Scan parameters missing", w.error_signal.emit.call_args[0][0])
         w.finished_signal.emit.assert_not_called()
@@ -287,7 +288,7 @@ class TestRigidScan(unittest.TestCase):
             "end": 0.9,
             "steps": 2,
         }
-        w, results, out_dir = _run(
+        w, results, _out_dir = _run(
             _base_config("Rigid Scan", scan_params), chem_mock=chem_mock
         )
         w.error_signal.emit.assert_called_once()
@@ -298,7 +299,7 @@ class TestRigidScan(unittest.TestCase):
         self.assertNotIn("scan_results", results)
 
     def test_dist_scan_success_writes_csv_and_trajectory(self):
-        chem_mock, rw_mol, conf = _make_rd_stub()
+        chem_mock, _rw_mol, _conf = _make_rd_stub()
         scan_params = {
             "type": "Dist",
             "atoms": [0, 1],
@@ -317,7 +318,7 @@ class TestRigidScan(unittest.TestCase):
         self.assertTrue(os.path.isfile(os.path.join(out_dir, "scan_trajectory.xyz")))
 
     def test_angle_scan_type(self):
-        chem_mock, rw_mol, conf = _make_rd_stub()
+        chem_mock, _rw_mol, _conf = _make_rd_stub()
         scan_params = {
             "type": "Angle",
             "atoms": [0, 1, 0],
@@ -325,14 +326,14 @@ class TestRigidScan(unittest.TestCase):
             "end": 110.0,
             "steps": 2,
         }
-        w, results, out_dir = _run(
+        w, results, _out_dir = _run(
             _base_config("Rigid Scan", scan_params), chem_mock=chem_mock
         )
         w.finished_signal.emit.assert_called_once()
         self.assertEqual(len(results["scan_results"]), 2)
 
     def test_dihedral_scan_type(self):
-        chem_mock, rw_mol, conf = _make_rd_stub()
+        chem_mock, _rw_mol, _conf = _make_rd_stub()
         scan_params = {
             "type": "Dihedral",
             "atoms": [0, 1, 0, 1],
@@ -340,14 +341,14 @@ class TestRigidScan(unittest.TestCase):
             "end": 30.0,
             "steps": 2,
         }
-        w, results, out_dir = _run(
+        w, results, _out_dir = _run(
             _base_config("Rigid Scan", scan_params), chem_mock=chem_mock
         )
         w.finished_signal.emit.assert_called_once()
         self.assertEqual(len(results["scan_results"]), 2)
 
     def test_stop_requested_breaks_loop_early(self):
-        chem_mock, rw_mol, conf = _make_rd_stub()
+        chem_mock, _rw_mol, _conf = _make_rd_stub()
         scan_params = {
             "type": "Dist",
             "atoms": [0, 1],
@@ -383,7 +384,7 @@ class TestRigidScan(unittest.TestCase):
         self.assertIn("stopped by user", all_logs)
 
     def test_sanitize_exception_falls_back_to_partial_update(self):
-        chem_mock, rw_mol, conf = _make_rd_stub()
+        chem_mock, rw_mol, _conf = _make_rd_stub()
         chem_mock.SanitizeMol.side_effect = ValueError("bad valence")
         scan_params = {
             "type": "Dist",
@@ -392,7 +393,7 @@ class TestRigidScan(unittest.TestCase):
             "end": 0.9,
             "steps": 1,
         }
-        w, results, out_dir = _run(
+        w, _results, _out_dir = _run(
             _base_config("Rigid Scan", scan_params), chem_mock=chem_mock
         )
         w.finished_signal.emit.assert_called_once()
@@ -400,7 +401,7 @@ class TestRigidScan(unittest.TestCase):
         chem_mock.GetSymmSSSR.assert_called_once()
 
     def test_geometry_set_exception_logs_and_continues(self):
-        chem_mock, rw_mol, conf = _make_rd_stub()
+        chem_mock, _rw_mol, _conf = _make_rd_stub()
         rdmt = MagicMock()
         rdmt.SetBondLength.side_effect = RuntimeError("bad geometry")
         scan_params = {
@@ -410,7 +411,7 @@ class TestRigidScan(unittest.TestCase):
             "end": 0.9,
             "steps": 2,
         }
-        w, results, out_dir = _run(
+        w, results, _out_dir = _run(
             _base_config("Rigid Scan", scan_params), chem_mock=chem_mock, rdmt_mock=rdmt
         )
         w.finished_signal.emit.assert_called_once()
@@ -420,7 +421,7 @@ class TestRigidScan(unittest.TestCase):
         self.assertIn("Geometry set failed", all_logs)
 
     def test_solvent_applied_when_selected(self):
-        chem_mock, rw_mol, conf = _make_rd_stub()
+        chem_mock, _rw_mol, _conf = _make_rd_stub()
         scan_params = {
             "type": "Dist",
             "atoms": [0, 1],
@@ -428,7 +429,7 @@ class TestRigidScan(unittest.TestCase):
             "end": 0.9,
             "steps": 1,
         }
-        w, results, out_dir = _run(
+        w, results, _out_dir = _run(
             _base_config("Rigid Scan", scan_params, extra={"solvent": "Water"}),
             chem_mock=chem_mock,
         )
@@ -468,7 +469,7 @@ class TestRelaxedScan(unittest.TestCase):
             "end": 0.9,
             "steps": 2,
         }
-        w, results, out_dir = _run(
+        w, results, _out_dir = _run(
             _base_config("Relaxed Scan", scan_params),
             block_imports=["pyscf.geomopt.geometric_solver"],
         )
@@ -523,7 +524,7 @@ class TestRelaxedScan(unittest.TestCase):
             "end": 100.0,
             "steps": 1,
         }
-        w, results, out_dir = _run(
+        w, results, _out_dir = _run(
             _base_config("Relaxed Scan", scan_params), fake_mf=FakeMF()
         )
         w.finished_signal.emit.assert_called_once()
@@ -555,7 +556,7 @@ class TestRelaxedScan(unittest.TestCase):
             "end": 30.0,
             "steps": 1,
         }
-        w, results, out_dir = _run(
+        w, results, _out_dir = _run(
             _base_config("Relaxed Scan", scan_params),
             fake_mf=FakeMF(),
             chem_mock=chem_mock,
@@ -614,7 +615,7 @@ class TestRelaxedScan(unittest.TestCase):
             "end": 0.9,
             "steps": 3,
         }
-        w, results, out_dir = _run(
+        w, results, _out_dir = _run(
             _base_config("Relaxed Scan", scan_params), fake_mf=FakeMF()
         )
         w.finished_signal.emit.assert_called_once()

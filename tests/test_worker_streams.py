@@ -3,11 +3,11 @@ tests/test_worker_streams.py
 Unit tests for the thread-safe stream capture models.
 """
 
+import importlib.util
 import os
 import sys
 import types
 import unittest
-import importlib.util
 from unittest.mock import MagicMock
 
 

@@ -12,15 +12,15 @@ minimal fake QColor supporting hue()/saturation()/value()/fromHsv()/name()
 so the complementary-color branch in update_iso() is exercised for real.
 """
 
+import importlib.util
 import os
 import sys
-import types
 import tempfile
+import types
 import unittest
-import importlib.util
-import numpy as np
 from unittest.mock import MagicMock
 
+import numpy as np
 
 # ---------------------------------------------------------------------------
 # Stubs
@@ -439,7 +439,7 @@ class TestCubeVisualizerUpdateIso(_TempDirMixin, unittest.TestCase):
         self.assertEqual(plotter.add_mesh.call_count, 2)
 
     def test_update_iso_skips_actor_when_zero_points(self):
-        cv, plotter = self._loaded_cv()
+        cv, _plotter = self._loaded_cv()
         empty_mesh = MagicMock()
         empty_mesh.n_points = 0
         cv.current_grid.contour.return_value = empty_mesh
@@ -459,7 +459,7 @@ class TestCubeVisualizerUpdateIso(_TempDirMixin, unittest.TestCase):
         self.assertTrue(neg_color.startswith("#hsv"))
 
     def test_update_iso_swallows_contour_exception(self):
-        cv, plotter = self._loaded_cv()
+        cv, _plotter = self._loaded_cv()
         cv.current_grid.contour.side_effect = RuntimeError("boom")
         cv.update_iso(0.04, "blue", "red", 0.5)  # should not raise
         self.assertEqual(cv.actors, {})

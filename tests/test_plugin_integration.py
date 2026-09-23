@@ -38,13 +38,12 @@ Then set CI_MAIN_APP_SRC=../python_molecular_editor/moleditpy/src in the test
 step's env block to activate real-context mode.
 """
 
+import importlib.util
 import os
 import sys
 import types
 import unittest
-import importlib.util
 from unittest.mock import MagicMock
-
 
 # ---------------------------------------------------------------------------
 # Qt / RDKit stubs (must be installed before loading __init__.py)
@@ -124,11 +123,11 @@ def _install_stubs():
             def blueF(self):
                 return 1.0
 
-        setattr(qt_gui, "QColor", MockQColor)
+        qt_gui.QColor = MockQColor
         # Mock QFont so it supports Weight.Bold (constants.py uses it)
         mock_font = MagicMock()
         mock_font.Weight.Bold = 75
-        setattr(qt_gui, "QFont", mock_font)
+        qt_gui.QFont = mock_font
         for name in ["QPainter", "QPen", "QAction", "QIcon"]:
             if not hasattr(qt_gui, name):
                 setattr(qt_gui, name, MagicMock)
@@ -434,12 +433,12 @@ class TestShowDialogViaContext(unittest.TestCase):
 
     def test_dialog_receives_main_window(self):
         self.show_dialog()
-        args, kwargs = _MockPySCFDialog.call_args
+        args, _kwargs = _MockPySCFDialog.call_args
         self.assertIs(args[0], self.ctx._main_window)
 
     def test_dialog_receives_context(self):
         self.show_dialog()
-        args, kwargs = _MockPySCFDialog.call_args
+        args, _kwargs = _MockPySCFDialog.call_args
         self.assertIs(args[1], self.ctx)
 
     def test_dialog_receives_settings_kwarg(self):

@@ -14,15 +14,15 @@ Coverage targets (worker.py):
   - stop_requested during task loop → breaks early
 """
 
+import importlib.util
 import os
 import sys
-import types
 import tempfile
+import types
 import unittest
-import importlib.util
-import numpy as np
 from unittest.mock import MagicMock, patch
 
+import numpy as np
 
 # ---------------------------------------------------------------------------
 # Qt / pyscf stubs

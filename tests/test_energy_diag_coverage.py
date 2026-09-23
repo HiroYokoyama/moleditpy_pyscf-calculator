@@ -30,13 +30,12 @@ Stub strategy follows test_energy_diag.py / test_energy_diag_branches.py
     (not raw MagicMock) so return values are controllable per test.
 """
 
+import importlib.util
 import os
 import sys
 import types
 import unittest
-import importlib.util
 from unittest.mock import MagicMock, patch
-
 
 # ---------------------------------------------------------------------------
 # Stubs

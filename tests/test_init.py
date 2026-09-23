@@ -3,10 +3,10 @@ tests/test_init.py
 Unit tests for the plugin initialization module.
 """
 
+import importlib.util
 import os
 import sys
 import unittest
-import importlib.util
 from unittest.mock import MagicMock
 
 

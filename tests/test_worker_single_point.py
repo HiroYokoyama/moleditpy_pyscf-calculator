@@ -14,15 +14,15 @@ This test covers the large uncovered block in run() (lines ~343-1049):
   - stream/FD restore in finally block (lines 1060-1086)
 """
 
+import importlib.util
 import os
 import sys
-import types
 import tempfile
+import types
 import unittest
-import importlib.util
-import numpy as np
 from unittest.mock import MagicMock, patch
 
+import numpy as np
 
 # ---------------------------------------------------------------------------
 # Qt / pyscf stubs
@@ -351,17 +351,17 @@ class TestMethodSelection(unittest.TestCase):
 
     def test_rhf_spin1_stays_rhf(self):
         """Spin=1 (Singlet, 2S=0) → RHF unchanged."""
-        w, _ = _run_single_point(method="RHF", extra_config={"spin": "1"})
+        _w, _ = _run_single_point(method="RHF", extra_config={"spin": "1"})
         _mod.scf.RHF.assert_called()
 
     def test_rhf_spin2_switches_to_uhf(self):
         """Spin=2 (Doublet, 2S=1) → auto-switch to UHF."""
-        w, _ = _run_single_point(method="RHF", extra_config={"spin": "2"})
+        _w, _ = _run_single_point(method="RHF", extra_config={"spin": "2"})
         # UHF should have been instantiated
         _mod.scf.UHF.assert_called()
 
     def test_rks_method_uses_dft(self):
-        w, _ = _run_single_point(method="RKS", extra_config={"functional": "b3lyp"})
+        _w, _ = _run_single_point(method="RKS", extra_config={"functional": "b3lyp"})
         _mod.dft.RKS.assert_called()
 
 
@@ -373,7 +373,7 @@ class TestMethodSelection(unittest.TestCase):
 class TestSolventSetup(unittest.TestCase):
     def test_known_solvent_uses_hardcoded_eps(self):
         """Water solvent → eps=78.2 hardcoded, log message emitted."""
-        w, results = _run_single_point(extra_config={"solvent": "Water"})
+        w, _results = _run_single_point(extra_config={"solvent": "Water"})
         # No error should occur; finished emitted
         w.finished_signal.emit.assert_called_once()
         # Log must mention solvent
@@ -382,7 +382,7 @@ class TestSolventSetup(unittest.TestCase):
 
     def test_vacuum_solvent_not_applied(self):
         """Default 'None (Vacuum)' → ddCOSMO not applied."""
-        w, _ = _run_single_point()
+        _w, _ = _run_single_point()
         # mf.ddCOSMO should NOT have been called
         mf = _mod.scf.RHF.return_value
         mf.ddCOSMO.assert_not_called()

@@ -12,14 +12,14 @@ Coverage targets (vis.py lines 134-181):
   - Non-unit voxel vectors (anisotropic spacing)
 """
 
+import importlib.util
 import os
 import sys
 import types
 import unittest
-import importlib.util
-import numpy as np
 from unittest.mock import MagicMock
 
+import numpy as np
 
 # ---------------------------------------------------------------------------
 # Stubs for pyvista and Qt (vis.py imports both at module level)
