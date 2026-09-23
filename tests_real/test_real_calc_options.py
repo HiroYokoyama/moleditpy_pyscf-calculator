@@ -3,6 +3,7 @@ on real PySCF and checked against an independent PySCF reference with the
 same setting -- the smallest molecule each option allows."""
 
 import ast
+import itertools
 import os
 import pathlib
 import re
@@ -186,7 +187,7 @@ def test_solvation_grows_with_polarity(run_job):
     energies = [_chk_energy(run_job(XYZ_H2O, solvent=s)) for s in order]
     vac = _chk_energy(run_job(XYZ_H2O))
     assert all(e < vac for e in energies)
-    assert all(b <= a + 1e-7 for a, b in zip(energies, energies[1:]))
+    assert all(b <= a + 1e-7 for a, b in itertools.pairwise(energies))
 
 
 # ---------------------------------------------------------------------------

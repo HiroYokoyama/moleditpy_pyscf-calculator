@@ -769,7 +769,7 @@ class PySCFWorker(QThread):
 
         body = [
             "",
-            "from pyscf import gto, scf, dft",
+            f"from pyscf import gto, {'dft' if 'KS' in method_name else 'scf'}",
             f"mol = gto.M(atom='''{clean_atom_str}''', ",
             f"    basis='{cfg.get('basis')}', ",
             f"    charge={cfg.get('charge', 0)}, ",

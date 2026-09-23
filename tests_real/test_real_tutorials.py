@@ -3,6 +3,7 @@ tutorial's exact settings, checking the result each tutorial tells the
 reader to expect. The molecule *is* the claim here, so these are not
 minimal systems; the SN2 tutorial is the slow one (marked `slow`)."""
 
+import itertools
 import os
 
 import numpy as np
@@ -92,7 +93,7 @@ def _pi_sign_changes(mol, coeff):
         return None  # sigma orbital
     vals = [pz[a] for a in sorted(pz)]
     signs = [np.sign(v) for v in vals if abs(v) > 1e-3]
-    return sum(1 for a, b in zip(signs, signs[1:]) if a != b)
+    return sum(1 for a, b in itertools.pairwise(signs) if a != b)
 
 
 def test_tutorial_1_butadiene_nodes(run_job, run_properties):

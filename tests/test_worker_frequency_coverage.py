@@ -372,7 +372,7 @@ class TestImaginaryModeCheck(unittest.TestCase):
     def test_ts_needs_exactly_one(self):
         n, logs = self._check([-900.0, 1200.0], "TS Optimization + Frequency")
         self.assertIn("consistent with a transition state", logs)
-        n, logs = self._check([900.0, 1200.0], "TS Optimization + Frequency")
+        _, logs = self._check([900.0, 1200.0], "TS Optimization + Frequency")
         self.assertIn("WARNING", logs)
         _n, logs = self._check([-900.0, -400.0], "TS Optimization + Frequency")
         self.assertIn("WARNING", logs)

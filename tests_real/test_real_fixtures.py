@@ -39,7 +39,7 @@ def test_reloaded_scan_is_the_tutorial_profile(load_result):
     top = int(np.argmax(energies))
     assert 0 < top < 4  # the tutorial's "mountain-shaped" profile
 
-    worker, utils = load_plugin_modules()
+    _, utils = load_plugin_modules()
     frames = utils.read_xyz_frames(res["scan_trajectory_path"])
     assert len(frames) == 5 and all(f.startswith("6\n") for f in frames)
 

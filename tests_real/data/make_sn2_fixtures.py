@@ -20,7 +20,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.dirname(HERE))
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from conftest import base_config, load_plugin_modules  # noqa: E402
+from conftest import base_config, load_plugin_modules
 
 XYZ_SN2 = """6
 CH3Cl + Br- backside
