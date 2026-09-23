@@ -476,9 +476,10 @@ class TestCubeVisualizerUpdateIso(_TempDirMixin, unittest.TestCase):
         mw = _mw_with_plotter(None)
         cv = CubeVisualizer(mw)
         cv.actors = {"p": MagicMock()}
-        cv.clear_actors()
-        # actors untouched because plotter is None (early return)
-        self.assertEqual(len(cv.actors), 1)
+        cv.clear_actors()  # must not raise
+        # The actors belonged to a plotter that no longer exists; keeping
+        # the stale references (the old early return) served nothing.
+        self.assertEqual(cv.actors, {})
 
     def test_clear_actors_swallows_remove_actor_exception(self):
         cv, plotter = self._loaded_cv()
