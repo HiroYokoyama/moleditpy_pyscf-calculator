@@ -1,5 +1,5 @@
 PLUGIN_NAME = "PySCF Calculator"
-PLUGIN_VERSION = "4.0.2"
+PLUGIN_VERSION = "4.0.3"
 PLUGIN_AUTHOR = "HiroYokoyama"
 PLUGIN_DESCRIPTION = "Perform PySCF quantum chemistry calculations directly in MoleditPy. Features: Single Point Energy (RHF/UHF/DFT), Geometry Optimization (GeomeTRIC/Berny), Frequency Analysis, and interactive 3D visualization of Molecular Orbitals (HOMO/LUMO) and Electrostatic Potential (ESP) mapped on Density surfaces."
 PLUGIN_DEPENDENCIES = ["pyscf", "geometric", "numpy"]
