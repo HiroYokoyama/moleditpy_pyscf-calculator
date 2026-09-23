@@ -58,6 +58,55 @@ def _unwrap_angle(measured: float, target: float) -> float:
     return target + ((measured - target + 180.0) % 360.0 - 180.0)
 
 
+def _as_list(value):
+    """Nested plain lists from numpy arrays / tuples (JSON- and Qt-safe)."""
+    if value is None:
+        return []
+    if hasattr(value, "tolist"):
+        return value.tolist()
+    if isinstance(value, (list, tuple)):
+        return [_as_list(v) if hasattr(v, "tolist") or isinstance(v, (list, tuple)) else v
+                for v in value]
+    return value
+
+
+def classify_mo_data(mo_energy, mo_occ):
+    """(scf_type, mo_energy, mo_occ) with plain lists.
+
+    scf_type is what the viewers distinguish: "UHF" (two spin channels),
+    "ROKS" (restricted open shell -- PySCF writes one 1-D mo_occ of 0/1/2,
+    a SOMO carrying 1) or "RHF".
+    """
+    energy, occ = _as_list(mo_energy), _as_list(mo_occ)
+    is_uhf = (
+        isinstance(energy, list)
+        and len(energy) == 2
+        and all(isinstance(x, list) for x in energy)
+    )
+    if is_uhf:
+        return "UHF", energy, occ
+    flat = []
+    for o in occ if isinstance(occ, list) else []:
+        flat.extend(o if isinstance(o, list) else [o])
+    has_somo = any(isinstance(o, (int, float)) and 0.5 < o < 1.5 for o in flat)
+    return ("ROKS" if has_somo else "RHF"), energy, occ
+
+
+def _json_safe(obj):
+    """obj with numpy values turned into plain Python and NaN/inf -> None."""
+    if hasattr(obj, "tolist"):
+        obj = obj.tolist()
+    if isinstance(obj, dict):
+        return {k: _json_safe(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [_json_safe(v) for v in obj]
+    if isinstance(obj, float) and (math.isnan(obj) or math.isinf(obj)):
+        return None
+    if obj is None or isinstance(obj, (bool, int, float, str)):
+        return obj
+    return str(obj)
+
+
 def resolve_xc(functional: str) -> str:
     """The xc string PySCF needs for a functional name shown in the UI."""
     return _XC_ALIASES.get(str(functional).strip().lower(), functional)
@@ -395,12 +444,6 @@ class PySCFWorker(QThread):
             getattr(cls, "__module__", "").startswith("pyscf.solvent")
             for cls in type(h_obj).__mro__
         )
-
-    @staticmethod
-    def _to_list(arr):
-        if arr is None:
-            return []
-        return arr.tolist() if hasattr(arr, "tolist") else list(arr)
 
     def _broken_symmetry_guess(self, mf, mol):
         """A spin-asymmetric initial density matrix for unrestricted SCF.
@@ -973,59 +1016,21 @@ class PySCFWorker(QThread):
                         }
                         self.log_signal.emit("Frequency Analysis Completed.\n")
 
-                        # Store Thermo
                         if t_data:
-                            # Robust conversion function for JSON serialization
-                            def make_json_safe(obj):
-                                if obj is None:
-                                    return None
-                                if isinstance(obj, (bool, int, str)):
-                                    return obj
-                                if isinstance(obj, float):
-                                    if math.isnan(obj) or math.isinf(obj):
-                                        return None
-                                    return obj
-                                if hasattr(obj, "tolist"):  # numpy array
-                                    obj = obj.tolist()
-                                if isinstance(obj, (list, tuple)):
-                                    return [make_json_safe(item) for item in obj]
-                                if isinstance(obj, dict):
-                                    return {
-                                        k: make_json_safe(v) for k, v in obj.items()
-                                    }
-                                # Fallback: convert to string
-                                return str(obj)
+                            results["thermo_data"] = _json_safe(t_data)
 
-                            results["thermo_data"] = make_json_safe(t_data)
-
-                        # Save freq_data and thermo_data to JSON file
+                        # Save freq_data and thermo_data for reloading
                         freq_json_path = os.path.join(
                             self.out_dir, "freq_analysis.json"
                         )
+                        save_data = {
+                            k: results[k]
+                            for k in ("freq_data", "thermo_data")
+                            if k in results
+                        }
                         try:
-                            # Custom JSON encoder to handle all edge cases
-                            class SafeEncoder(json.JSONEncoder):
-                                def default(self, obj):
-                                    if hasattr(obj, "tolist"):
-                                        return obj.tolist()
-                                    if isinstance(obj, (np.integer, np.floating)):
-                                        return obj.item()
-                                    if isinstance(obj, float):
-                                        if math.isnan(obj) or math.isinf(obj):
-                                            return None
-                                        return obj
-                                    if isinstance(obj, tuple):
-                                        return list(obj)
-                                    return str(obj)
-
-                            save_data = {}
-                            if "freq_data" in results:
-                                save_data["freq_data"] = results["freq_data"]
-                            if "thermo_data" in results:
-                                save_data["thermo_data"] = results["thermo_data"]
-
-                            with open(freq_json_path, "w") as f:
-                                json.dump(save_data, f, indent=2, cls=SafeEncoder)
+                            with open(freq_json_path, "w", encoding="utf-8") as f:
+                                json.dump(_json_safe(save_data), f, indent=2)
                             self.log_signal.emit(
                                 f"Frequency data saved to: {freq_json_path}\n"
                             )
@@ -1033,7 +1038,6 @@ class PySCFWorker(QThread):
                             self.log_signal.emit(
                                 f"Warning: Failed to save frequency JSON: {e_save}\n"
                             )
-                            self.log_signal.emit(traceback.format_exc())
 
                     except Exception as e_freq:
                         if "Skipped" in str(e_freq):
@@ -1223,55 +1227,17 @@ class PySCFWorker(QThread):
 
                 results.update({"chkfile": chk_path, "out_dir": self.out_dir})
 
-                is_uhf = False
-                # Match LoadWorker's labels: restricted open-shell (ROHF/ROKS)
-                # is reported as "ROKS" since consumers only distinguish
-                # RHF / UHF / ROKS.
-                restricted_type = "ROKS" if method_name in ("ROHF", "ROKS") else "RHF"
-
-                # Defensive check for None
                 if mf.mo_energy is None or mf.mo_occ is None:
                     self.log_signal.emit(
                         "Warning: No MO energy/occupancy data found.\n"
                     )
-                    results["mo_energy"] = []
-                    results["mo_occ"] = []
-                    results["scf_type"] = restricted_type
-                else:
-                    if isinstance(mf.mo_energy, tuple):
-                        is_uhf = True
-                    elif isinstance(mf.mo_energy, list) and len(mf.mo_energy) == 2:
-                        # Check content types?
-                        if hasattr(mf.mo_energy[0], "__len__"):
-                            is_uhf = True
-                    elif hasattr(mf.mo_energy, "ndim") and mf.mo_energy.ndim == 2:
-                        is_uhf = True
-
-                    try:
-                        if is_uhf:
-                            if isinstance(mf.mo_energy, tuple):
-                                e_a, e_b = mf.mo_energy
-                                o_a, o_b = mf.mo_occ
-                            else:
-                                e_a = mf.mo_energy[0]
-                                e_b = mf.mo_energy[1] if len(mf.mo_energy) > 1 else []
-                                o_a = mf.mo_occ[0]
-                                o_b = mf.mo_occ[1] if len(mf.mo_occ) > 1 else []
-
-                            results["mo_energy"] = [
-                                self._to_list(e_a),
-                                self._to_list(e_b),
-                            ]
-                            results["mo_occ"] = [self._to_list(o_a), self._to_list(o_b)]
-                            results["scf_type"] = "UHF"
-                        else:
-                            results["mo_energy"] = self._to_list(mf.mo_energy)
-                            results["mo_occ"] = self._to_list(mf.mo_occ)
-                            results["scf_type"] = restricted_type
-                    except Exception as e_process:
-                        self.log_signal.emit(f"Error processing MO data: {e_process}\n")
-                        results["mo_energy"] = []
-                        results["mo_occ"] = []
+                # Same classification LoadWorker applies to the checkpoint.
+                scf_type, mo_energy, mo_occ = classify_mo_data(
+                    mf.mo_energy, mf.mo_occ
+                )
+                results.update(
+                    {"mo_energy": mo_energy, "mo_occ": mo_occ, "scf_type": scf_type}
+                )
 
                 self.log_signal.emit(f"Checkpoint saved to: {chk_path}\n")
 
@@ -2152,6 +2118,71 @@ class LoadWorker(QThread):
                 scan_res.append(item)
         return scan_res
 
+    # Auxiliary result files next to the checkpoint.
+    _AUX_FILES = (
+        "scan_results.csv",
+        "tddft_results.json",
+        "freq_analysis.json",
+        "properties.json",
+    )
+
+    def _load_checkpoint(self, lib, scf):
+        """MO data and geometry from pyscf.chk, or None if stopped."""
+        mol = lib.chkfile.load_mol(self.chkfile)
+        if self._stop_requested:
+            return None
+        scf_data = scf.chkfile.load(self.chkfile, "scf")
+        scf_type, mo_energy, mo_occ = classify_mo_data(
+            scf_data.get("mo_energy"), scf_data.get("mo_occ")
+        )
+        coords = mol.atom_coords(unit="Ang")
+        xyz_lines = [f"{mol.natm}", "Loaded from Checkpoint"]
+        for i, c in enumerate(coords):
+            xyz_lines.append(f"{mol.atom_symbol(i)} {c[0]:.6f} {c[1]:.6f} {c[2]:.6f}")
+        return {
+            "mo_energy": mo_energy,
+            "mo_occ": mo_occ,
+            "scf_type": scf_type,
+            "loaded_xyz": "\n".join(xyz_lines),
+            "chkfile": self.chkfile,
+        }
+
+    @staticmethod
+    def _read_json(path):
+        with open(path, "r", encoding="utf-8") as f:
+            return json.load(f)
+
+    def _load_aux_files(self, base_dir, results):
+        """Merge scan / TDDFT / frequency / property files into results.
+        A damaged file is logged and skipped, never fatal."""
+        loaders = {
+            "scan_results.csv": lambda p: {
+                "scan_results": self._load_scan_csv(p),
+                "scan_type": self.load_scan_type(base_dir),
+            },
+            "tddft_results.json": lambda p: {
+                k: v for k, v in self._read_json(p).items() if k == "tddft_data"
+            },
+            # the viewer reads freq_data["freqs"]: unpack the file's two keys
+            "freq_analysis.json": lambda p: {
+                k: v
+                for k, v in self._read_json(p).items()
+                if k in ("freq_data", "thermo_data")
+            },
+            "properties.json": self._read_json,
+        }
+        for name, loader in loaders.items():
+            path = os.path.join(base_dir, name)
+            if not os.path.exists(path):
+                continue
+            try:
+                results.update(loader(path))
+            except Exception as exc:
+                logging.warning("[worker.py] LoadWorker: failed to load %s: %s", name, exc)
+        traj = os.path.join(base_dir, "scan_trajectory.xyz")
+        if os.path.exists(traj):
+            results["scan_trajectory_path"] = traj
+
     def run(self):
         if pyscf is None:
             self.error_signal.emit("PySCF not found.")
@@ -2160,248 +2191,19 @@ class LoadWorker(QThread):
         try:
             from pyscf import lib, scf
 
-            results = {"out_dir": os.path.dirname(self.chkfile)}
             base_dir = os.path.dirname(self.chkfile)
-
-            # Check if this is a scan/tddft/freq-only folder (no checkpoint needed)
-            has_scan = os.path.exists(os.path.join(base_dir, "scan_results.csv"))
-            has_tddft = os.path.exists(os.path.join(base_dir, "tddft_results.json"))
-            has_freq = os.path.exists(os.path.join(base_dir, "freq_analysis.json"))
-
-            # If only auxiliary data exists (no checkpoint), load it and return
-            if (has_scan or has_tddft or has_freq) and not os.path.exists(self.chkfile):
-                # Load scan data
-                if has_scan:
-                    try:
-                        scan_csv = os.path.join(base_dir, "scan_results.csv")
-                        results["scan_results"] = self._load_scan_csv(scan_csv)
-                        results["scan_type"] = self.load_scan_type(base_dir)
-                        scan_traj = os.path.join(base_dir, "scan_trajectory.xyz")
-                        if os.path.exists(scan_traj):
-                            results["scan_trajectory_path"] = scan_traj
-                    except Exception as e:
-                        logging.warning(
-                            "[worker.py] LoadWorker: failed to load scan: %s", e
-                        )
-
-                # Load TDDFT data
-                if has_tddft:
-                    try:
-                        with open(
-                            os.path.join(base_dir, "tddft_results.json"), "r"
-                        ) as f:
-                            tddft_data = json.load(f)
-                            if "tddft_data" in tddft_data:
-                                results["tddft_data"] = tddft_data["tddft_data"]
-                    except Exception as e:
-                        logging.warning(
-                            "[worker.py] LoadWorker: failed to load TDDFT: %s", e
-                        )
-
-                # Load frequency data
-                if has_freq:
-                    try:
-                        with open(
-                            os.path.join(base_dir, "freq_analysis.json"), "r"
-                        ) as f:
-                            freq_json = json.load(f)
-                        # Same unpacking as the checkpoint path below: the
-                        # viewer reads freq_data["freqs"], not the file root.
-                        if "freq_data" in freq_json:
-                            results["freq_data"] = freq_json["freq_data"]
-                        if "thermo_data" in freq_json:
-                            results["thermo_data"] = freq_json["thermo_data"]
-                    except Exception as e:
-                        logging.warning(
-                            "[worker.py] LoadWorker: failed to load freq: %s", e
-                        )
-
-                if self._stop_requested:
+            results = {"out_dir": base_dir}
+            has_aux = any(
+                os.path.exists(os.path.join(base_dir, n)) for n in self._AUX_FILES
+            )
+            # A scan / TDDFT / frequency folder may have no checkpoint; with
+            # neither, loading the checkpoint raises the error the user sees.
+            if os.path.exists(self.chkfile) or not has_aux:
+                chk = self._load_checkpoint(lib, scf)
+                if chk is None:
                     return
-                self.finished_signal.emit(results)
-                return
-
-            # Original checkpoint loading logic
-            # Load Molecule
-            mol = lib.chkfile.load_mol(self.chkfile)
-            if self._stop_requested:
-                return
-
-            # Load SCF Data
-            scf_data = scf.chkfile.load(self.chkfile, "scf")
-            mo_energy = scf_data.get("mo_energy", None)
-            mo_occ = scf_data.get("mo_occ", None)
-
-            # Identify Type (Enhanced: UHF, RHF, ROKS, ROHF)
-            scf_type = "RHF"
-
-            # Step 1: Check for Unrestricted (UHF/UKS)
-            is_uhf = False
-            if isinstance(mo_energy, tuple):
-                is_uhf = True
-            elif (
-                isinstance(mo_energy, list)
-                and len(mo_energy) == 2
-                and isinstance(mo_energy[0], (list, np.ndarray))
-            ):
-                is_uhf = True
-            elif isinstance(mo_energy, np.ndarray) and mo_energy.ndim == 2:
-                is_uhf = True
-
-            # Step 2: Check for Restricted Open-shell (ROKS/ROHF)
-            # ROKS has 2D mo_occ: shape (2, N) for Alpha/Beta occupancies
-            # and contains partial occupancy (values near 1.0)
-            if not is_uhf:  # Only check if not already identified as UHF
-                try:
-                    if isinstance(mo_occ, np.ndarray) and mo_occ.ndim == 2:
-                        # Check for partial occupancy (SOMO signature: occ ≈ 1.0)
-                        has_partial_occ = False
-                        for occ_val in mo_occ.flatten():
-                            if 0.5 < occ_val < 1.5:  # Near 1.0 (SOMO)
-                                has_partial_occ = True
-                                break
-                        if has_partial_occ:
-                            scf_type = "ROKS"
-                    elif isinstance(mo_occ, np.ndarray) and mo_occ.ndim == 1:
-                        # What PySCF actually writes for ROHF/ROKS: one 1-D
-                        # array of 0/1/2, a SOMO carrying occupation 1.
-                        if np.any((mo_occ > 0.5) & (mo_occ < 1.5)):
-                            scf_type = "ROKS"
-                    elif isinstance(mo_occ, list):
-                        # Handle list of lists case
-                        if len(mo_occ) == 2 and all(
-                            isinstance(x, (list, np.ndarray)) for x in mo_occ
-                        ):
-                            has_partial_occ = False
-                            for sublist in mo_occ:
-                                for occ_val in (
-                                    sublist
-                                    if isinstance(sublist, list)
-                                    else sublist.tolist()
-                                ):
-                                    if 0.5 < occ_val < 1.5:
-                                        has_partial_occ = True
-                                        break
-                                if has_partial_occ:
-                                    break
-                            if has_partial_occ:
-                                scf_type = "ROKS"
-                except Exception as _e:
-                    # If ROKS detection fails, default to RHF (safe fallback)
-                    logging.warning("[worker.py] PySCF ROKS detection silenced: %s", _e)
-
-            if is_uhf:
-                scf_type = "UHF"
-                # Convert to lists for JSON/Qt safety
-                try:
-                    if isinstance(mo_energy, tuple):
-                        mo_energy = [
-                            e.tolist() if hasattr(e, "tolist") else list(e)
-                            for e in mo_energy
-                        ]
-                        mo_occ = [
-                            o.tolist() if hasattr(o, "tolist") else list(o)
-                            for o in mo_occ
-                        ]
-                    else:
-                        # Numpy 2D case
-                        if hasattr(mo_energy, "tolist"):
-                            mo_energy = mo_energy.tolist()
-                        if hasattr(mo_occ, "tolist"):
-                            mo_occ = mo_occ.tolist()
-                except Exception as _e:
-                    logging.warning(
-                        "[worker.py] Array conversion failed on UHF: %s", _e
-                    )
-            else:
-                # RHF/ROKS Case
-                try:
-                    if hasattr(mo_energy, "tolist"):
-                        mo_energy = mo_energy.tolist()
-                    if hasattr(mo_occ, "tolist"):
-                        mo_occ = mo_occ.tolist()
-                except Exception as _e:
-                    logging.warning(
-                        "[worker.py] Array conversion failed on RHF/ROKS: %s", _e
-                    )
-
-            # Attempt to extract optimized XYZ if present (or just current geometry)
-            coords = mol.atom_coords(unit="Ang")
-            symbols = [mol.atom_symbol(i) for i in range(mol.natm)]
-
-            xyz_lines = [f"{len(symbols)}", "Loaded from Checkpoint"]
-            for s, c in zip(symbols, coords):
-                xyz_lines.append(f"{s} {c[0]:.6f} {c[1]:.6f} {c[2]:.6f}")
-
-            optimized_xyz = "\n".join(xyz_lines)
-
-            results = {
-                "mo_energy": mo_energy,
-                "mo_occ": mo_occ,
-                "scf_type": scf_type,
-                "loaded_xyz": optimized_xyz,
-                "chkfile": self.chkfile,
-                "out_dir": os.path.dirname(self.chkfile),
-            }
-
-            # --- Load Post-Process Data (Freq/Thermo) ---
-            base_dir = os.path.dirname(self.chkfile)
-            freq_file = os.path.join(base_dir, "freq_analysis.json")
-
-            if os.path.exists(freq_file):
-                try:
-                    with open(freq_file, "r") as f:
-                        data = json.load(f)
-                        # Extract and merge
-                        if "freq_data" in data:
-                            results["freq_data"] = data["freq_data"]
-                        if "thermo_data" in data:
-                            results["thermo_data"] = data["thermo_data"]
-                except Exception as e_json:
-                    logging.warning(
-                        "[worker.py] LoadWorker: failed to load freq json: %s", e_json
-                    )
-
-            # --- Load Scan Data ---
-            scan_csv = os.path.join(base_dir, "scan_results.csv")
-            if os.path.exists(scan_csv):
-                try:
-                    results["scan_results"] = self._load_scan_csv(scan_csv)
-                    results["scan_type"] = self.load_scan_type(base_dir)
-                except Exception as e_scan:
-                    logging.warning(
-                        "[worker.py] LoadWorker: failed to load scan csv: %s", e_scan
-                    )
-
-            scan_traj = os.path.join(base_dir, "scan_trajectory.xyz")
-            if os.path.exists(scan_traj):
-                # Just pass the path, viewer can read it on demand or we read valid frames
-                results["scan_trajectory_path"] = scan_traj
-
-            # --- Load TDDFT Data ---
-            tddft_file = os.path.join(base_dir, "tddft_results.json")
-            if os.path.exists(tddft_file):
-                try:
-                    with open(tddft_file, "r") as f:
-                        tddft_data = json.load(f)
-                        if "tddft_data" in tddft_data:
-                            results["tddft_data"] = tddft_data["tddft_data"]
-                except Exception as e_tddft:
-                    logging.warning(
-                        "[worker.py] LoadWorker: failed to load TDDFT json: %s", e_tddft
-                    )
-
-            # --- Dipole / Mulliken charges ---
-            props_file = os.path.join(base_dir, "properties.json")
-            if os.path.exists(props_file):
-                try:
-                    with open(props_file, "r", encoding="utf-8") as f:
-                        results.update(json.load(f))
-                except Exception as e_props:
-                    logging.warning(
-                        "[worker.py] LoadWorker: failed to load properties: %s",
-                        e_props,
-                    )
+                results.update(chk)
+            self._load_aux_files(base_dir, results)
 
             if self._stop_requested:
                 return
