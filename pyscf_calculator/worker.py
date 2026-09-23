@@ -25,9 +25,6 @@ try:
 except ImportError:
     pyscf = None
 
-_FINITE_DIFF_STEP = (
-    0.005  # Bohr, central-difference displacement for numeric derivatives
-)
 _HC_EV_NM = 1239.84193  # hc in eV·nm, for excitation wavelength conversion
 _HARTREE_TO_EV = 27.211386245988  # CODATA 2018, same value as pyscf.data.nist
 
@@ -325,87 +322,6 @@ class PySCFWorker(QThread):
         except Exception as _e:
             logging.warning("[worker.py] _build_mf grid silenced: %s", _e)
         return mf
-
-    def compute_numeric_hessian(self, mf, mol):
-        """
-        Manually compute Hessian via Finite Difference of Gradients.
-        Robust fallback for when Analytic Hessian fails (e.g. solvent surface issues).
-        """
-        self.log_signal.emit(
-            "  > Starting Finite Difference of Gradients (6 * N_atoms steps)...\n"
-        )
-
-        # Prepare Scanner
-        # g_scanner automatically handles re-building molecule and re-running SCF
-        try:
-            g_scanner = mf.nuc_grad_method().as_scanner()
-        except Exception:
-            # Fallback if as_scanner fails: just use mf.nuc_grad_method() and manual loop
-            grad_method = mf.nuc_grad_method()
-
-            def g_scanner(m):
-                mf_scan = mf.copy()
-                mf_scan.reset(m)
-                # apply solvent if needed? Copies should preserve it.
-                e = mf_scan.kernel()
-                g = grad_method(mf_scan).kernel()
-                return e, g
-
-        n_atoms = mol.natm
-        h_dim = n_atoms * 3
-        hessian = np.zeros((h_dim, h_dim))
-
-        delta = _FINITE_DIFF_STEP
-
-        # Current geometry in Bohr (PySCF internal)
-        mol_calc = mol.copy()
-        try:
-            coords_bohr = mol_calc.atom_coords(unit="Bohr")
-        except TypeError:
-            # Older pyscf has no unit= kwarg; atom_coords() is Bohr already,
-            # so this must NOT scale by the Angstrom conversion.
-            coords_bohr = mol_calc.atom_coords()
-
-        step_count = 0
-
-        for i_atom in range(n_atoms):
-            # Cooperative stop check between atoms
-            if self._stop_requested:
-                self.log_signal.emit("Numeric Hessian stopped by user.\n")
-                raise InterruptedError("Numeric Hessian stopped by user.")
-            for i_cart in range(3):  # x, y, z
-                # Construct displaced geometries
-                r_orig = coords_bohr[i_atom, i_cart]
-
-                # Plus
-                coords_bohr[i_atom, i_cart] = r_orig + delta
-                mol_calc.set_geom_(coords_bohr, unit="Bohr")
-                _, g_plus = g_scanner(mol_calc)
-
-                # Minus
-                coords_bohr[i_atom, i_cart] = r_orig - delta
-                mol_calc.set_geom_(coords_bohr, unit="Bohr")
-                _, g_minus = g_scanner(mol_calc)
-
-                # Restore
-                coords_bohr[i_atom, i_cart] = r_orig
-
-                # Central Difference
-                row_idx = i_atom * 3 + i_cart
-                hess_row = (g_plus - g_minus) / (2 * delta)
-
-                hessian[row_idx, :] = hess_row.flatten()
-
-                step_count += 1
-                if step_count % 3 == 0:
-                    self.log_signal.emit(f"    Atom {i_atom + 1} done...\n")
-
-        # Reshape to (natm, 3, natm, 3)
-        hessian = hessian.reshape((n_atoms, 3, n_atoms, 3))
-        # Symmetrize
-        hessian = 0.5 * (hessian + hessian.transpose(2, 3, 0, 1))
-
-        return hessian
 
     def run(self):
         if pyscf is None:

@@ -142,18 +142,6 @@ Covers `get_unique_path`, `rdkit_to_xyz`, and `update_molecule_from_xyz` for PDB
 
 ---
 
-### test_worker_numeric_hessian.py
-**Finite-difference Hessian computation**
-
-| Class | What is tested |
-|---|---|
-| `TestNumericHessianStop` | `_stop_requested=True` at entry raises `InterruptedError`; log message contains "stopped" |
-| `TestNumericHessianCompute` | Shape `(n,3,n,3)`, symmetry `H[i,j,k,l]==H[k,l,i,j]`, zero-gradient → zero Hessian, progress log per atom, start log message |
-| `TestNumericHessianFallback` | When `as_scanner()` raises, manual fallback branch returns a valid-shaped Hessian |
-| `TestNumericHessianAtomCoordsFallback` | When `mol.atom_coords(unit='Bohr')` raises `TypeError` (older PySCF), fallback to `atom_coords() * 1.8897` still produces valid symmetric Hessian |
-
----
-
 ### test_worker_property_worker.py
 **PropertyWorker HOMO/LUMO detection and task loop**
 
