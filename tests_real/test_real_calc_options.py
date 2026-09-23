@@ -272,6 +272,20 @@ def test_vv10_functional_with_dispersion_is_refused(run_job):
     assert res.errors and "VV10" in res.errors[0]
 
 
+def test_dispersion_without_the_package_is_a_clear_error(run_job):
+    """Where pyscf-dispersion cannot be installed (Apple Silicon Macs), a
+    D3/D4 choice must say what is missing -- and no job may start."""
+    try:
+        import pyscf.dispersion  # noqa: F401
+    except ImportError:
+        pass
+    else:
+        pytest.skip("pyscf-dispersion is installed here")
+    res = run_job(XYZ_H2, method="RKS", functional="pbe", dispersion="D3(BJ)")
+    assert res.errors and "pip install pyscf-dispersion" in res.errors[0]
+    assert not res.finished
+
+
 # ---------------------------------------------------------------------------
 # Job types not covered elsewhere
 # ---------------------------------------------------------------------------
