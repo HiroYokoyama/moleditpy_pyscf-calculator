@@ -198,3 +198,10 @@ def read_cube(path):
     vol = abs(np.linalg.det(vecs))
     data = np.array(" ".join(lines[6 + natm :]).split(), dtype=float)
     return data.reshape(dims), vol
+
+
+def pytest_configure(config):
+    config.addinivalue_line(
+        "markers",
+        "slow: minutes-long runs (the SN2 tutorial); deselect with -m 'not slow'",
+    )
