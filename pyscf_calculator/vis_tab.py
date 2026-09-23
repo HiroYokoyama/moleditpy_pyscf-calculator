@@ -492,6 +492,18 @@ class VisTab(QWidget):
             self.log(f"Found {len(cubes)} existing visualization files.")
             self.disable_existing_analysis_items(cubes)
 
+        if result_data.get("dipole_total_debye") is not None:
+            charges = result_data.get("mulliken_charges") or []
+            symbols = result_data.get("atom_symbols") or ["?"] * len(charges)
+            q_txt = ", ".join(
+                f"{s}{i + 1} {q:+.3f}"
+                for i, (s, q) in enumerate(zip(symbols, charges))
+            )
+            self.log(
+                f"Dipole moment: {result_data['dipole_total_debye']:.4f} Debye"
+                + (f" | Mulliken: {q_txt}" if q_txt else "")
+            )
+
         if result_data.get("thermo_data", None):
             self.thermo_data = result_data["thermo_data"]
             self.btn_show_thermo.setEnabled(True)

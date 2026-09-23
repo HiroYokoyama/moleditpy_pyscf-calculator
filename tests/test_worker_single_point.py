@@ -528,6 +528,53 @@ class TestRestrictedOpenShellScfType(unittest.TestCase):
         self.assertEqual(results.get("scf_type"), "RHF")
 
 
+class TestScfProperties(unittest.TestCase):
+    def _mf(self):
+        mf = MagicMock()
+        mf.mo_coeff = np.eye(2)
+        mf.dip_moment.return_value = np.array([0.0, 0.0, 1.5])
+        mf.mulliken_pop.return_value = (None, np.array([0.3, -0.3]))
+        mf.mol.natm = 2
+        mf.mol.atom_symbol.side_effect = lambda i: ["H", "F"][i]
+        return mf
+
+    def test_dipole_and_charges_are_collected(self):
+        props = _mod.PySCFWorker._scf_properties(self._mf())
+        self.assertEqual(props["dipole_debye"], [0.0, 0.0, 1.5])
+        self.assertAlmostEqual(props["dipole_total_debye"], 1.5)
+        self.assertEqual(props["mulliken_charges"], [0.3, -0.3])
+        self.assertEqual(props["atom_symbols"], ["H", "F"])
+
+    def test_debye_unit_is_requested(self):
+        mf = self._mf()
+        _mod.PySCFWorker._scf_properties(mf)
+        self.assertEqual(mf.dip_moment.call_args.kwargs["unit"], "Debye")
+
+    def test_no_orbitals_gives_nothing(self):
+        mf = self._mf()
+        mf.mo_coeff = None
+        self.assertEqual(_mod.PySCFWorker._scf_properties(mf), {})
+
+    def test_failure_gives_nothing(self):
+        mf = self._mf()
+        mf.dip_moment.side_effect = RuntimeError("boom")
+        self.assertEqual(_mod.PySCFWorker._scf_properties(mf), {})
+
+    def test_report_writes_properties_json(self):
+        w = _make_worker()
+        props = _mod.PySCFWorker._scf_properties(self._mf())
+        with tempfile.TemporaryDirectory() as tmpdir:
+            w.out_dir = tmpdir
+            w._report_scf_properties(props)
+            with open(os.path.join(tmpdir, "properties.json")) as fh:
+                import json
+
+                self.assertEqual(json.load(fh), props)
+        logs = " ".join(str(c) for c in w.log_signal.emit.call_args_list)
+        self.assertIn("Total=1.5000", logs)
+        self.assertIn("F   -0.3000", logs)
+
+
 class TestFunctionalAliases(unittest.TestCase):
     def test_m11_maps_to_its_libxc_components(self):
         self.assertEqual(_mod.resolve_xc("m11"), "hyb_mgga_x_m11,mgga_c_m11")

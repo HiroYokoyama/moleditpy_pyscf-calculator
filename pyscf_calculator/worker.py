@@ -311,6 +311,46 @@ class PySCFWorker(QThread):
         return finite_diff.Hessian(mf.nuc_grad_method())
 
     @staticmethod
+    def _scf_properties(mf):
+        """Dipole moment (Debye) and Mulliken charges of a finished SCF, or {}."""
+        try:
+            if mf.mo_coeff is None:
+                return {}
+            dip = np.asarray(mf.dip_moment(unit="Debye", verbose=0), dtype=float)
+            _, charges = mf.mulliken_pop(verbose=0)
+            mol = mf.mol
+            return {
+                "dipole_debye": dip.tolist(),
+                "dipole_total_debye": float(np.linalg.norm(dip)),
+                "mulliken_charges": np.asarray(charges, dtype=float).tolist(),
+                "atom_symbols": [mol.atom_symbol(i) for i in range(mol.natm)],
+            }
+        except Exception as exc:
+            logging.warning("[worker.py] SCF properties unavailable: %s", exc)
+            return {}
+
+    def _report_scf_properties(self, props):
+        dx, dy, dz = props["dipole_debye"]
+        lines = [
+            "\n===== SCF Properties =====\n",
+            f"Dipole moment (Debye): X={dx:.4f} Y={dy:.4f} Z={dz:.4f}  "
+            f"Total={props['dipole_total_debye']:.4f}\n",
+            "Mulliken charges:\n",
+        ]
+        for i, (sym, q) in enumerate(
+            zip(props["atom_symbols"], props["mulliken_charges"])
+        ):
+            lines.append(f"  {i + 1:>3} {sym:<3} {q:+.4f}\n")
+        self.log_signal.emit("".join(lines))
+        try:
+            with open(
+                os.path.join(self.out_dir, "properties.json"), "w", encoding="utf-8"
+            ) as fh:
+                json.dump(props, fh, indent=2)
+        except Exception as exc:
+            self.log_signal.emit(f"Warning: Failed to save properties.json: {exc}\n")
+
+    @staticmethod
     def _is_solvent_hessian(h_obj):
         """True when the Hessian object carries the solvent response
         (e.g. pyscf.solvent.hessian.pcm.ddCOSMOHessian)."""
@@ -1107,6 +1147,12 @@ class PySCFWorker(QThread):
                     # Already handled by top block but ensuring...
                     if not mf.e_tot:
                         mf.kernel()
+
+                # Dipole moment and Mulliken charges of the final SCF
+                scf_props = self._scf_properties(mf)
+                if scf_props:
+                    results.update(scf_props)
+                    self._report_scf_properties(scf_props)
 
                 # --- SAVE CHECKPOINT (ALWAYS) ---
                 # Checkpoint is already set to self.out_dir/pyscf.chk and written by mf.kernel()
@@ -2292,6 +2338,18 @@ class LoadWorker(QThread):
                 except Exception as e_tddft:
                     logging.warning(
                         "[worker.py] LoadWorker: failed to load TDDFT json: %s", e_tddft
+                    )
+
+            # --- Dipole / Mulliken charges ---
+            props_file = os.path.join(base_dir, "properties.json")
+            if os.path.exists(props_file):
+                try:
+                    with open(props_file, "r", encoding="utf-8") as f:
+                        results.update(json.load(f))
+                except Exception as e_props:
+                    logging.warning(
+                        "[worker.py] LoadWorker: failed to load properties: %s",
+                        e_props,
                     )
 
             if self._stop_requested:

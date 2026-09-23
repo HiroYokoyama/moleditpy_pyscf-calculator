@@ -142,6 +142,18 @@ class TestCheckpointScfTypeDetection(unittest.TestCase):
         lw, results = _run_load(chkfile, mo_e, mo_o)
         self.assertEqual(results["scf_type"], "ROKS")
 
+    def test_properties_json_is_merged_into_the_result(self):
+        import json as _json
+
+        chkfile = os.path.join(tempfile.mkdtemp(), "pyscf.chk")
+        with open(os.path.join(os.path.dirname(chkfile), "properties.json"), "w") as f:
+            _json.dump({"dipole_total_debye": 2.1, "mulliken_charges": [0.1]}, f)
+        lw, results = _run_load(
+            chkfile, np.array([-1.0, 0.2]), np.array([2.0, 0.0])
+        )
+        self.assertEqual(results["dipole_total_debye"], 2.1)
+        self.assertEqual(results["mulliken_charges"], [0.1])
+
     def test_rohf_1d_mo_occ_as_pyscf_writes_it(self):
         """PySCF stores ROHF/ROKS occupations as ONE 1-D array of 0/1/2."""
         chkfile = os.path.join(tempfile.mkdtemp(), "pyscf.chk")
