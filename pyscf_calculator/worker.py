@@ -29,6 +29,7 @@ _FINITE_DIFF_STEP = (
     0.005  # Bohr, central-difference displacement for numeric derivatives
 )
 _HC_EV_NM = 1239.84193  # hc in eV·nm, for excitation wavelength conversion
+_HARTREE_TO_EV = 27.211386245988  # CODATA 2018, same value as pyscf.data.nist
 
 
 class CaptureStdOut:
@@ -975,14 +976,25 @@ class PySCFWorker(QThread):
                         except Exception:
                             oscs = [0.0] * len(energies_exc)
 
-                        HARTREE_TO_EV = 27.2114
                         e_ground = mf.e_tot
+                        # td.e holds the excitation energies directly; fall
+                        # back to differencing total energies only without it.
+                        exc_au = getattr(td_obj, "e", None)
+                        if exc_au is None or np.ndim(exc_au) != 1:
+                            exc_au = [e - e_ground for e in energies_exc]
+                        exc_au = [float(x) for x in exc_au]
+
+                        td_conv = getattr(td_obj, "converged", None)
+                        if td_conv is not None and not np.all(td_conv):
+                            self.log_signal.emit(
+                                "WARNING: not all excited states converged; "
+                                "treat the affected states with caution.\n"
+                            )
 
                         tddft_list = []
 
                         for i, e_exc_tot in enumerate(energies_exc):
-                            exc_energy_au = e_exc_tot - e_ground
-                            exc_ev = exc_energy_au * HARTREE_TO_EV
+                            exc_ev = exc_au[i] * _HARTREE_TO_EV
 
                             if abs(exc_ev) > 1e-6:
                                 exc_nm = _HC_EV_NM / exc_ev

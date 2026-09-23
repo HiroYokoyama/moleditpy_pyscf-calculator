@@ -225,6 +225,22 @@ class TestTddftResults(unittest.TestCase):
         self.assertIn("wavelength_nm", first)
         self.assertEqual(first["oscillator_strength"], 0.05)
 
+    def test_excitation_energies_come_from_td_e_at_full_precision(self):
+        td = _make_td_obj([-0.8], oscs=[0.1])
+        td.e = np.array([0.2])
+        td.converged = np.array([True])
+        w, results, out_dir, _ = _run(_base_config(), FakeMF(e_tot=-1.0), td)
+        ev = results["tddft_data"][0]["excitation_energy_ev"]
+        self.assertAlmostEqual(ev, 0.2 * 27.211386245988, places=9)
+
+    def test_unconverged_excited_states_are_flagged(self):
+        td = _make_td_obj([-0.9, -0.8], oscs=[0.1, 0.1])
+        td.e = np.array([0.1, 0.2])
+        td.converged = np.array([True, False])
+        w, results, out_dir, _ = _run(_base_config(), FakeMF(e_tot=-1.0), td)
+        all_logs = " ".join(str(c) for c in w.log_signal.emit.call_args_list)
+        self.assertIn("not all excited states converged", all_logs)
+
     def test_oscillator_strength_exception_falls_back_to_zero(self):
         td = _make_td_obj([-0.9, -0.8], osc_raises=True)
         w, results, out_dir, _ = _run(_base_config(), FakeMF(e_tot=-1.0), td)
