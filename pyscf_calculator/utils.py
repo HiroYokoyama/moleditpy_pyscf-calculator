@@ -75,14 +75,23 @@ def update_molecule_from_xyz(context, xyz_content, mark_modified=True):
             new_mol = Chem.MolFromXYZBlock(raw_xyz)
 
     if new_mol:
+        # The XYZ carries no charge; take it from the molecule being replaced
+        # (same atoms). With charge=0 an ion either fails bond-order
+        # assignment or comes back as a spurious neutral radical.
+        charge = 0
+        try:
+            old_mol = context.current_molecule
+            if old_mol is not None and old_mol.GetNumAtoms() == new_mol.GetNumAtoms():
+                charge = int(Chem.GetFormalCharge(old_mol))
+        except Exception as _e:
+            logging.warning("Could not read the current molecule's charge: %s", _e)
+
         # determine bond and bond order by rdkit
         try:
             from rdkit.Chem import rdDetermineBonds
 
             rdDetermineBonds.DetermineConnectivity(new_mol)
-            rdDetermineBonds.DetermineBondOrders(
-                new_mol, charge=0
-            )  # Assuming neutral or use context?
+            rdDetermineBonds.DetermineBondOrders(new_mol, charge=charge)
         except ImportError:
             # Fallback for older RDKit?
             pass

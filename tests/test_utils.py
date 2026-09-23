@@ -115,5 +115,34 @@ class TestUtils(unittest.TestCase):
         self.assertEqual(context.current_molecule, "raw_mol")
 
 
+class TestBondOrderCharge(unittest.TestCase):
+    """Bond orders for a loaded XYZ must use the molecule's real charge."""
+
+    def _update(self, old_charge, old_natoms=3, new_natoms=3):
+        new_mol = MagicMock()
+        new_mol.GetNumAtoms.return_value = new_natoms
+        old_mol = MagicMock()
+        old_mol.GetNumAtoms.return_value = old_natoms
+        context = MagicMock()
+        context.current_molecule = old_mol
+        det = MagicMock()
+        with patch.object(utils, "Chem") as chem:
+            chem.MolFromXYZBlock.return_value = new_mol
+            chem.GetFormalCharge.return_value = old_charge
+            with patch.dict(
+                sys.modules,
+                {"rdkit.Chem": MagicMock(rdDetermineBonds=det)},
+            ):
+                xyz = chr(10).join(["3", "c", "O 0 0 0", "H 0 0 1", "H 0 1 0"])
+                utils.update_molecule_from_xyz(context, xyz)
+        return det.DetermineBondOrders.call_args
+
+    def test_anion_charge_is_passed_through(self):
+        self.assertEqual(self._update(-1).kwargs["charge"], -1)
+
+    def test_mismatched_atom_count_falls_back_to_neutral(self):
+        self.assertEqual(self._update(-1, old_natoms=5).kwargs["charge"], 0)
+
+
 if __name__ == "__main__":
     unittest.main()
