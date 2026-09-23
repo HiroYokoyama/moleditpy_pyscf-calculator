@@ -272,6 +272,7 @@ class PySCFDialog(QDialog):
             "functional": self.calc_tab.functional_combo.currentText(),
             "basis": self.calc_tab.basis_combo.currentText(),
             "check_symmetry": self.calc_tab.check_symmetry.isChecked(),
+            "break_symmetry": self.calc_tab.check_break_sym.isChecked(),
             "spin_cycles": self.calc_tab.spin_cycles.value(),
             "conv_tol": self.calc_tab.edit_conv.text(),
             "grid_level": self.calc_tab.spin_grid_level.value(),
@@ -301,6 +302,7 @@ class PySCFDialog(QDialog):
             "threads": 0,
             "memory": 4000,
             "check_symmetry": False,
+            "break_symmetry": False,
             "spin_cycles": 100,
             "conv_tol": "1e-9",
             "grid_level": 3,
@@ -334,6 +336,7 @@ class PySCFDialog(QDialog):
             self.calc_tab.spin_memory.setValue(int(defaults["memory"]))
 
             self.calc_tab.check_symmetry.setChecked(defaults["check_symmetry"])
+            self.calc_tab.check_break_sym.setChecked(bool(defaults["break_symmetry"]))
             self.calc_tab.spin_cycles.setValue(int(defaults["spin_cycles"]))
             self.calc_tab.edit_conv.setText(defaults["conv_tol"])
             self.calc_tab.spin_grid_level.setValue(int(defaults["grid_level"]))
@@ -374,6 +377,8 @@ class PySCFDialog(QDialog):
                 self.calc_tab.spin_memory.setValue(int(s["memory"]))
             if "check_symmetry" in s:
                 self.calc_tab.check_symmetry.setChecked(bool(s["check_symmetry"]))
+            if "break_symmetry" in s:
+                self.calc_tab.check_break_sym.setChecked(bool(s["break_symmetry"]))
             if "spin_cycles" in s:
                 self.calc_tab.spin_cycles.setValue(int(s["spin_cycles"]))
             if "conv_tol" in s:
@@ -445,6 +450,7 @@ class PySCFDialog(QDialog):
             self.settings["threads"] = self.calc_tab.spin_threads.value()
             self.settings["memory"] = self.calc_tab.spin_memory.value()
             self.settings["check_symmetry"] = self.calc_tab.check_symmetry.isChecked()
+            self.settings["break_symmetry"] = self.calc_tab.check_break_sym.isChecked()
             self.settings["spin_cycles"] = self.calc_tab.spin_cycles.value()
             self.settings["conv_tol"] = self.calc_tab.edit_conv.text()
             self.settings["grid_level"] = self.calc_tab.spin_grid_level.value()

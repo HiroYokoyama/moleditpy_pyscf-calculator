@@ -131,6 +131,7 @@ class TestGuiInternalState(unittest.TestCase):
         self.dialog.calc_tab.spin_threads.value.return_value = 8
         self.dialog.calc_tab.spin_memory.value.return_value = 8000
         self.dialog.calc_tab.check_symmetry.isChecked.return_value = True
+        self.dialog.calc_tab.check_break_sym.isChecked.return_value = True
         self.dialog.calc_tab.spin_cycles.value.return_value = 200
         self.dialog.calc_tab.edit_conv.text.return_value = "1e-8"
         self.dialog.calc_tab.spin_grid_level.value.return_value = 5
@@ -151,6 +152,7 @@ class TestGuiInternalState(unittest.TestCase):
         self.assertEqual(s["threads"], 8)
         self.assertEqual(s["memory"], 8000)
         self.assertEqual(s["check_symmetry"], True)
+        self.assertEqual(s["break_symmetry"], True)  # used to be dropped
         self.assertEqual(s["solvent"], "water")
         self.assertEqual(s["version"], "1.0.0")
 
