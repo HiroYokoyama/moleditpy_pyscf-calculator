@@ -209,7 +209,14 @@ def test_max_cycle_and_conv_tol_reach_pyscf(run_job):
     assert "SCF max_cycles = 37" in out
     assert "SCF conv_tol = 1e-07" in out
     assert "max_memory 1234 MB" in out
-    assert "PySCF running with 2 OpenMP threads" in res.log
+    # The plugin reports the thread count PySCF really uses. A PySCF built
+    # without OpenMP (the macOS wheel) stays at 1 whatever is requested.
+    reported = int(re.search(r"PySCF running with (\d+) OpenMP threads", res.log)[1])
+    assert reported == lib.num_threads()
+    saved = lib.num_threads()
+    has_openmp = lib.num_threads(3) == 3
+    lib.num_threads(saved)
+    assert reported == (2 if has_openmp else 1)
 
 
 def test_too_few_cycles_is_reported(run_job):
