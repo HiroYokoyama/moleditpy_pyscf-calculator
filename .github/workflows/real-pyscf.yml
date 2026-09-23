@@ -49,9 +49,17 @@ jobs:
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install pyscf geometric pyberny pyscf-dispersion \
+        pip install pyscf geometric pyberny \
           rdkit PyQt6 pyvista matplotlib pillow pytest
         python -c "import pyscf, geometric, rdkit; print('pyscf', pyscf.__version__)"
+
+    # No Apple Silicon wheel exists; the fallback (1.0.0) breaks `import
+    # pyscf`. The dispersion tests skip themselves without it.
+    - name: pyscf-dispersion (Linux)
+      if: runner.os == 'Linux'
+      run: |
+        pip install pyscf-dispersion
+        python -c "import pyscf.dispersion"
 
     - name: Real PySCF tests
       run: |

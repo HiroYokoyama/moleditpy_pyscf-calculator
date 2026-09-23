@@ -9,8 +9,10 @@ PLUGIN_DESCRIPTION = (
     "of Molecular Orbitals, Spin Density and Electrostatic Potential (ESP)."
 )
 PLUGIN_DEPENDENCIES = ["pyscf", "geometric", "numpy"]
-# extra features only (D3/D4 dispersion, fallback optimizer)
-PLUGIN_OPTIONAL_DEPENDENCIES = ["pyscf-dispersion", "pyberny"]
+# Extra features only. pyscf-dispersion (D3/D4) is deliberately not listed:
+# it has no Apple Silicon wheel, and the one pip falls back to there (1.0.0)
+# breaks `import pyscf` -- see README.
+PLUGIN_OPTIONAL_DEPENDENCIES = ["pyberny"]
 PLUGIN_SUPPORTED_MOLEDITPY_VERSION = ">=4.0.0, <5.0.0"
 PLUGIN_SUPPORTED_OS = ["macOS", "Linux", "WSL"]  # pyscf has no native Windows support
 

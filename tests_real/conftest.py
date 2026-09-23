@@ -45,9 +45,14 @@ def load_plugin_modules():
 
 @pytest.fixture(scope="session")
 def qcore():
-    from PyQt6.QtCore import QCoreApplication
-
-    return QCoreApplication.instance() or QCoreApplication([])
+    """The one Qt application for the whole session. It must be a full
+    QApplication when QtWidgets is available: a QCoreApplication created
+    first cannot be replaced, and the GUI tests' QWidgets would abort Qt."""
+    try:
+        from PyQt6.QtWidgets import QApplication
+    except ImportError:
+        from PyQt6.QtCore import QCoreApplication as QApplication
+    return QApplication.instance() or QApplication([])
 
 
 class JobResult:

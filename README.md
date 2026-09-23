@@ -88,6 +88,10 @@ pip install pyscf PyQt6 numpy geometric matplotlib
 pip install pyscf-dispersion pyberny   # optional
 ```
 > [!WARNING]
+> Do not install `pyscf-dispersion` on Apple Silicon Macs: it has no arm64 wheel, and the
+> version pip falls back to (1.0.0) makes `import pyscf` fail. The D3/D4 options then report
+> that the package is missing; everything else works.
+> [!WARNING]
 > PySCF installation may fail on Windows, so it may only work on MacOS or Linux.
 
 ### Setup

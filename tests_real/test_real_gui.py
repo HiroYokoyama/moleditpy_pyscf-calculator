@@ -25,8 +25,9 @@ from rdkit.Chem import AllChem
 
 
 @pytest.fixture(scope="module")
-def qapp():
-    return QApplication.instance() or QApplication([])
+def qapp(qcore):
+    assert isinstance(qcore, QApplication)  # see conftest.qcore
+    return qcore
 
 
 @pytest.fixture(scope="module")
