@@ -159,13 +159,10 @@ class TestSymmetryBreakingWiring(unittest.TestCase):
     def test_symmetry_breaking_triggers_on_the_restricted_case(self):
         """spin_2s == 0 is where a restricted guess needs breaking; the old
         condition was spin_2s > 0."""
-        self.assertIn("and spin_2s == 0", self.src)
-        self.assertNotIn(
-            "and spin_2s > 0",
-            self.src.split("should_break")[1][:600]
-            if "should_break" in self.src
-            else "",
-        )
+        # Behaviour is covered in test_worker_optimization_coverage
+        # (TestSymmetryBreaking); this only pins the condition's direction.
+        self.assertIn("and self._parse_spin_2s() == 0", self.src)
+        self.assertNotIn("_parse_spin_2s() > 0", self.src)
 
     def test_the_helper_is_used_at_the_call_site(self):
         self.assertIn("_broken_symmetry_guess(mf, mol)", self.src)

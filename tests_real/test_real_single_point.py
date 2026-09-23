@@ -102,5 +102,8 @@ def test_open_shell_rks_is_switched_to_uks(run_job, load_result):
     assert "Switching to UKS" in res.log
     assert load_result(res.results["chkfile"]).results["scf_type"] == "UHF"
     ref = dft.UKS(_mol(XYZ_OH, spin=1), xc="pbe").run(conv_tol=1e-10).e_tot
-    assert _chk_energy(res.results["chkfile"]) == pytest.approx(ref, abs=1e-6)
+    # OH's hole sits in one of two degenerate pi orbitals and the DFT grid
+    # is not rotationally invariant: which one the SCF picks (it varies with
+    # the OpenMP thread count) moves the energy by ~2e-6 Ha.
+    assert _chk_energy(res.results["chkfile"]) == pytest.approx(ref, abs=5e-6)
     assert np.isfinite(ref)
