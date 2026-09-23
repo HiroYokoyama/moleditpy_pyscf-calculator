@@ -105,7 +105,7 @@ def update_molecule_from_xyz(context, xyz_content, mark_modified=True):
             old_mol = context.current_molecule
             if old_mol is not None and old_mol.GetNumAtoms() == new_mol.GetNumAtoms():
                 charge = int(Chem.GetFormalCharge(old_mol))
-        except Exception as _e:
+        except (AttributeError, RuntimeError, TypeError, ValueError) as _e:
             logger.warning("Could not read the current molecule's charge: %s", _e)
 
         # determine bond and bond order by rdkit
@@ -117,7 +117,9 @@ def update_molecule_from_xyz(context, xyz_content, mark_modified=True):
         except ImportError:
             # Fallback for older RDKit?
             pass
-        except Exception as e:
+        # bond orders are optional: whatever RDKit raises, keep the
+        # connectivity-only molecule
+        except Exception as e:  # noqa: BLE001
             logger.warning("Could not determine bonds: %s", e)
 
         # Preserve Dirty State if requested NOT to mark modified
@@ -130,7 +132,7 @@ def update_molecule_from_xyz(context, xyz_content, mark_modified=True):
             if sm:
                 try:
                     was_dirty = getattr(sm, "has_unsaved_changes", False)
-                except Exception as _e:
+                except (AttributeError, RuntimeError, TypeError) as _e:
                     logger.warning(
                         "Failed to check dirty state in StateManager: %s", _e
                     )
@@ -146,7 +148,7 @@ def update_molecule_from_xyz(context, xyz_content, mark_modified=True):
                         sm.has_unsaved_changes = was_dirty
                     if hasattr(sm, "update_window_title"):
                         sm.update_window_title()
-                except Exception as _e:
+                except (AttributeError, RuntimeError, TypeError) as _e:
                     logger.warning(
                         "Failed to restore dirty state in StateManager: %s", _e
                     )

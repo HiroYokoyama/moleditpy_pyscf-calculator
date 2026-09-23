@@ -286,8 +286,8 @@ class FreqVisualizer(QWidget):
                 self.mw.view_3d_manager.plotter.remove_actor("pyscf_iso_p")
                 self.mw.view_3d_manager.plotter.remove_actor("pyscf_iso_n")
                 self.mw.view_3d_manager.plotter.remove_actor("pyscf_mapped")
-            except Exception as _e:
-                logger.warning("silenced: %s", _e)
+            except (AttributeError, RuntimeError) as _e:
+                logger.warning("cleanup skipped: %s", _e)
 
         if not self.chk_vectors.isChecked():
             try:
@@ -297,8 +297,8 @@ class FreqVisualizer(QWidget):
                     and self.mw.view_3d_manager.plotter
                 ):
                     self.mw.view_3d_manager.plotter.render()
-            except Exception as _e:
-                logger.warning("silenced: %s", _e)
+            except (AttributeError, RuntimeError) as _e:
+                logger.warning("cleanup skipped: %s", _e)
             return
 
         item = self.list_freq.currentItem()
@@ -310,8 +310,8 @@ class FreqVisualizer(QWidget):
                     and self.mw.view_3d_manager.plotter
                 ):
                     self.mw.view_3d_manager.plotter.render()
-            except Exception as _e:
-                logger.warning("silenced: %s", _e)
+            except (AttributeError, RuntimeError) as _e:
+                logger.warning("cleanup skipped: %s", _e)
             return
 
         idx = self.list_freq.indexOfTopLevelItem(item)
@@ -340,8 +340,8 @@ class FreqVisualizer(QWidget):
                     show_scalar_bar=False,
                 )
                 self.mw.view_3d_manager.plotter.render()
-        except Exception as _e:
-            logger.warning("silenced: %s", _e)
+        except (AttributeError, RuntimeError, ValueError) as _e:
+            logger.warning("cleanup skipped: %s", _e)
 
     def animate_frame(self):
         if not self.is_playing:
@@ -521,7 +521,7 @@ class FreqVisualizer(QWidget):
                 )
                 QMessageBox.information(self, "Success", f"Saved GIF to {file_path}")
 
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 -- Qt slot: an escaping exception aborts the host app (PyQt6)
             QMessageBox.critical(
                 self, "Error", f"Failed to save GIF: {e}\n{traceback.format_exc()}"
             )
@@ -548,8 +548,8 @@ class FreqVisualizer(QWidget):
                 self.vector_actor = None
                 # Do NOT render during cleanup. It causes Segfaults (0x100).
                 # self.mw.view_3d_manager.plotter.render()
-        except Exception as _e:
-            logger.warning("silenced: %s", _e)
+        except (AttributeError, RuntimeError) as _e:
+            logger.warning("cleanup skipped: %s", _e)
 
 
 class SpectrumDialog(QDialog):

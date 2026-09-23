@@ -121,5 +121,5 @@ class TddftTable(QDialog):
                     writer.writeheader()
                     writer.writerows(self.results)
                 QMessageBox.information(self, "Saved", f"Saved to {path}")
-        except Exception as e:
+        except (OSError, ValueError, csv.Error) as e:
             QMessageBox.critical(self, "Error", f"Failed to save: {e}")

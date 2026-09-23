@@ -266,14 +266,28 @@ class TestSafeStopWorker(unittest.TestCase):
         dlg._safe_stop_worker(worker)
         worker.terminate.assert_not_called()
 
-    def test_stream_close_exception_silenced(self):
+    def test_stream_is_closed(self):
         dlg = self._make_dlg()
         worker = MagicMock()
         worker.isRunning.return_value = True
-        worker._stream.close.side_effect = RuntimeError("boom")
+        # StreamToSignal.close() only sets a flag and cannot raise
         worker.wait.return_value = True
         dlg._safe_stop_worker(worker)  # must not raise
         self.assertTrue(worker._stop_requested)
+        worker._stream.close.assert_called_once()
+
+    def test_one_failed_disconnect_does_not_skip_the_rest(self):
+        """PyQt6 raises TypeError for a signal with no connections; a
+        single try around all four used to leave the later ones connected."""
+        dlg = self._make_dlg()
+        worker = MagicMock()
+        worker.isRunning.return_value = True
+        worker.wait.return_value = True
+        worker.finished_signal.disconnect.side_effect = TypeError("not connected")
+        dlg._safe_stop_worker(worker)
+        worker.error_signal.disconnect.assert_called_once()
+        worker.log_signal.disconnect.assert_called_once()
+        worker.result_signal.disconnect.assert_called_once()
 
     def test_disconnect_exception_silenced(self):
         dlg = self._make_dlg()
@@ -451,7 +465,7 @@ class TestLoadSettingsHistoryAndAutoLoad(unittest.TestCase):
 
         def _isabs(p):
             if p == "rel_result":
-                raise RuntimeError("boom")
+                raise TypeError("expected str")  # what isabs raises for bad input
             return real_isabs(p)
 
         with patch.object(_gui_mod.os.path, "isabs", side_effect=_isabs):

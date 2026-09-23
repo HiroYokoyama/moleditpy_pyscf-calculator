@@ -691,16 +691,61 @@ class TestStopCalculation(_BaseTabTest):
         self.tab.stop_calculation()
         self.tab.log.assert_not_called()
 
-    def test_stream_close_exception_silenced(self):
+    def test_stream_is_closed(self):
         worker = MagicMock()
         worker.isRunning.return_value = True
         worker._stream = MagicMock()
-        worker._stream.close.side_effect = RuntimeError("boom")
+        # StreamToSignal.close() only sets a flag and cannot raise
         worker.wait.return_value = True
         self.tab.worker = worker
         self.tab.log = MagicMock()
         self.tab.stop_calculation()  # must not raise
+        worker._stream.close.assert_called_once()
         worker.finished.connect.assert_called_with(self.tab._on_worker_stopped)
+
+    def test_stop_works_with_a_real_qthread_signal_set(self):
+        """PyQt6's QThread has started/finished only. Connecting the
+        nonexistent `terminated` signal raised AttributeError, so Stop (and
+        closing the dialog mid-job) failed with a real worker."""
+
+        class _Sig:
+            def __init__(self):
+                self.slots = []
+
+            def connect(self, slot):
+                self.slots.append(slot)
+
+            def disconnect(self):
+                self.slots.clear()
+
+        class _Worker:  # exactly the attributes a PyQt6 QThread worker has
+            def __init__(self):
+                self.finished = _Sig()
+                self.started = _Sig()
+                for name in ("log_signal", "finished_signal", "error_signal", "result_signal"):
+                    setattr(self, name, _Sig())
+                self._stream = None
+                self._stop_requested = False
+                self._running = True
+
+            def isRunning(self):
+                return self._running
+
+            def wait(self, _ms):
+                self._running = False  # stops cooperatively
+                return True
+
+            def terminate(self):
+                self._running = False
+
+        worker = _Worker()
+        self.tab.worker = worker
+        self.tab.log = MagicMock()
+        self.tab.cleanup_ui_state = MagicMock()
+        self.tab.stop_calculation()
+        self.assertTrue(worker._stop_requested)
+        self.assertIsNone(self.tab.worker)  # cleaned up once the thread ended
+        self.tab.cleanup_ui_state.assert_called_once()
 
     def test_disconnect_exception_silenced(self):
         worker = MagicMock()

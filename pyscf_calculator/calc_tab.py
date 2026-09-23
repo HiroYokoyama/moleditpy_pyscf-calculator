@@ -1,3 +1,4 @@
+import contextlib
 import logging
 import os
 
@@ -494,7 +495,7 @@ class CalcTab(QWidget):
                     f"Auto-Detect: Set Charge={charge}, Mult={suggested_spin} (Electrons={net_electrons})"
                 )
 
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 -- Qt slot: an escaping exception aborts the host app (PyQt6)
             QMessageBox.warning(self, "Error", f"Auto-detection failed: {e}")
 
     def validate_spin_settings(self):
@@ -508,7 +509,7 @@ class CalcTab(QWidget):
             try:
                 charge = int(self.charge_input.currentText())
                 mult = self.get_spin_value()
-            except Exception:
+            except (TypeError, ValueError):
                 return
 
             electrons = total_protons - charge
@@ -535,7 +536,7 @@ class CalcTab(QWidget):
                 self.spin_input.setToolTip(msg)
                 self.charge_input.setToolTip(msg)
 
-        except Exception as _e:
+        except Exception as _e:  # noqa: BLE001 -- Qt slot: an escaping exception aborts the host app (PyQt6)
             logger.warning("validate_spin_settings silenced: %s", _e)
 
     def browse_out_dir(self):
@@ -558,7 +559,7 @@ class CalcTab(QWidget):
         if getattr(self, "_scan_config_dlg", None) is not None:
             try:
                 self._scan_config_dlg.close()
-            except Exception as _e:
+            except (AttributeError, RuntimeError) as _e:
                 logger.warning("configure_scan close silenced: %s", _e)
 
         self._scan_config_dlg = ScanDialog(
@@ -581,7 +582,7 @@ class CalcTab(QWidget):
             if " " in txt:
                 return int(txt.split(" ")[0])
             return int(txt)
-        except Exception:
+        except (TypeError, ValueError, RuntimeError):  # RuntimeError: widget deleted
             return 1
 
     def run_calculation(self):
@@ -637,20 +638,19 @@ class CalcTab(QWidget):
                 final_out_dir = os.path.join(os.path.expanduser("~"), raw_out_dir)
 
         job_type = self.job_type_combo.currentText()
-        if "Scan" in job_type:
-            if not getattr(self, "scan_params", None):
-                reply = QMessageBox.question(
-                    self,
-                    "Scan Not Configured",
-                    "Scan parameters are missing. Configure now?",
-                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-                )
-                if reply == QMessageBox.StandardButton.Yes:
-                    self.configure_scan()
-                    if not self.scan_params:
-                        return
-                else:
-                    return
+        if "Scan" in job_type and not getattr(self, "scan_params", None):
+            reply = QMessageBox.question(
+                self,
+                "Scan Not Configured",
+                "Scan parameters are missing. Configure now?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            )
+            if reply != QMessageBox.StandardButton.Yes:
+                return
+            # The scan dialog is modeless: the job runs on the next click.
+            self.configure_scan()
+            if not self.scan_params:
+                return
 
         config = {
             "job_type": job_type,
@@ -679,7 +679,7 @@ class CalcTab(QWidget):
 
         try:
             os.makedirs(config["out_dir"], exist_ok=True)
-        except Exception as e:
+        except OSError as e:
             self.log(f"Error creating output directory: {e}")
             return
 
@@ -719,24 +719,25 @@ class CalcTab(QWidget):
         #    do not crash after we disconnect signals below.
         stream = getattr(self.worker, "_stream", None)
         if stream is not None:
-            try:
-                stream.close()  # Sets _destroyed = True; safe to call from GUI thread
-            except Exception as _e:
-                logger.warning("[calc_tab.py] silenced stream.close: %s", _e)
+            stream.close()  # only sets a flag; safe from the GUI thread
 
-        # 3. Disconnect signals AFTER invalidating the stream.
-        try:
-            self.worker.log_signal.disconnect()
-            self.worker.finished_signal.disconnect()
-            self.worker.error_signal.disconnect()
-            self.worker.result_signal.disconnect()
-        except Exception as _e:
-            logger.warning("[calc_tab.py] silenced signal disconnect: %s", _e)
+        # 3. Disconnect signals AFTER invalidating the stream -- each on its
+        #    own: PyQt6 raises TypeError for a signal with no connections,
+        #    which must not leave the others connected.
+        for sig in (
+            self.worker.log_signal,
+            self.worker.finished_signal,
+            self.worker.error_signal,
+            self.worker.result_signal,
+        ):
+            with contextlib.suppress(TypeError, RuntimeError):
+                sig.disconnect()
 
-        # 4. Connect deferred cleanup — self.worker is only set to None AFTER
-        #    the thread has fully exited, preventing use-after-free.
+        # 4. Deferred cleanup: self.worker is only set to None once the
+        #    thread has fully exited, preventing use-after-free. (QThread in
+        #    PyQt6 has no `terminated` signal -- connecting to it raised
+        #    AttributeError, so Stop and closing the dialog mid-job failed.)
         self.worker.finished.connect(self._on_worker_stopped)
-        self.worker.terminated.connect(self._on_worker_stopped)
 
         # 5. Give the cooperative flag 2 s to take effect before force-killing.
         if not self.worker.wait(2000):
@@ -745,16 +746,18 @@ class CalcTab(QWidget):
             # wait() after terminate() blocks until the OS has cleaned up.
             self.worker.wait(1000)
 
+        # A terminated thread does not reliably emit `finished`; once wait()
+        # has seen it end, clean up here (the call is idempotent).
+        if self.worker is not None and not self.worker.isRunning():
+            self._on_worker_stopped()
         self.log("Calculation stopped.")
-        # Do NOT call cleanup_ui_state() here — _on_worker_stopped handles it.
 
     def _on_worker_stopped(self):
-        """Called from finished/terminated signal once the thread has fully exited.
+        """Clean up once the worker thread has fully exited.
 
-        Both QThread.finished and QThread.terminated are connected during stop_calculation(),
-        so this method may be called twice on some platforms. The self.worker is None guard
-        prevents cleanup_ui_state() from running a second time, which could corrupt UI state
-        if the user has already started a new calculation.
+        Reached from QThread.finished and directly from stop_calculation(),
+        so it can run twice; the `self.worker is None` guard keeps the second
+        call from resetting the UI of a calculation started in between.
         """
         if self.worker is None:
             return  # Already cleaned up (duplicate signal delivery)

@@ -233,10 +233,9 @@ class EnergyDiagramDialog(QDialog):
                         center_y = rect.center().y()
                         dist = abs(y_click - center_y)
 
-                        if rect.contains(point):
-                            if dist < min_dist:
-                                min_dist = dist
-                                best_hit = (index, label, spin_suffix)
+                        if rect.contains(point) and dist < min_dist:
+                            min_dist = dist
+                            best_hit = (index, label, spin_suffix)
 
             if best_hit:
                 # best_hit is (index, label, spin_suffix)
@@ -309,15 +308,12 @@ class EnergyDiagramDialog(QDialog):
                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             )
 
-            if reply == QMessageBox.StandardButton.Yes:
-                if hasattr(self.parent(), "generate_specific_orbital"):
-                    self.status_label.setText(f"Generating {label}...")
-
-                    # Force index-based request as per user requirement
-                    # "make sure to use index num to generate or find"
-
-                    # We pass the explicit index to guaranteed unambiguous generation
-                    self.parent().generate_specific_orbital(index, label, spin_suffix)
+            if reply == QMessageBox.StandardButton.Yes and hasattr(
+                self.parent(), "generate_specific_orbital"
+            ):
+                self.status_label.setText(f"Generating {label}...")
+                # by index: the one unambiguous way to name the orbital
+                self.parent().generate_specific_orbital(index, label, spin_suffix)
 
     def mouseMoveEvent(self, event):
         # Check if hovering over a clickable orbital level (when not dragging)
@@ -502,7 +498,7 @@ class EnergyDiagramDialog(QDialog):
                 step = 2 * magnitude
             else:
                 step = magnitude
-        except Exception:
+        except (ValueError, OverflowError):  # log10 of a zero/negative span
             step = 1.0
 
         if step <= 0:

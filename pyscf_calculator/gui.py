@@ -1,3 +1,4 @@
+import contextlib
 import json
 import logging
 import os
@@ -143,13 +144,8 @@ class PySCFDialog(QDialog):
         else:
             self.tabs.addTab(QWidget(), "Vis (Error)")
 
-        # Exposing pointers for legacy access or inter-tab comms if needed
-        # self.out_dir_edit is in calc_tab.
-        # But vis_tab accesses parent_dialog.out_dir_edit...
-        # I need to proxy or fix access.
-        # FIX: VisTab uses self.parent_dialog.out_dir_edit.text() fallback.
-        # I should expose properties or direct objects.
-
+        # The tabs reach shared widgets through the dialog
+        # (e.g. VisTab uses parent_dialog.out_dir_edit / progress_bar).
         self.update_proxies()
 
     def update_proxies(self):
@@ -215,23 +211,22 @@ class PySCFDialog(QDialog):
     def _safe_stop_worker(self, worker):
         if worker and worker.isRunning():
             worker._stop_requested = True
-            try:
-                if getattr(worker, "_stream", None):
-                    worker._stream.close()
-            except Exception:
-                pass
+            if getattr(worker, "_stream", None):
+                worker._stream.close()  # only sets a flag
 
-            try:
-                if hasattr(worker, "finished_signal"):
-                    worker.finished_signal.disconnect()
-                if hasattr(worker, "error_signal"):
-                    worker.error_signal.disconnect()
-                if hasattr(worker, "log_signal"):
-                    worker.log_signal.disconnect()
-                if hasattr(worker, "result_signal"):
-                    worker.result_signal.disconnect()
-            except Exception:
-                pass
+            # Each signal on its own (LoadWorker has no log/result signal):
+            # PyQt6 raises TypeError for one with no connections, and a
+            # single try used to leave every later signal connected.
+            for name in (
+                "finished_signal",
+                "error_signal",
+                "log_signal",
+                "result_signal",
+            ):
+                sig = getattr(worker, name, None)
+                if sig is not None:
+                    with contextlib.suppress(TypeError, RuntimeError):
+                        sig.disconnect()
 
             if not worker.wait(1500):
                 worker.terminate()
@@ -387,7 +382,7 @@ class PySCFDialog(QDialog):
                 )
                 if current_path:
                     project_dir = os.path.dirname(current_path)
-            except Exception as _e:
+            except (AttributeError, RuntimeError) as _e:
                 logger.warning("load_settings project_dir silenced: %s", _e)
 
         for h_path in raw_history:
@@ -395,7 +390,7 @@ class PySCFDialog(QDialog):
             try:
                 if not os.path.isabs(h_path) and project_dir:
                     final_path = os.path.normpath(os.path.join(project_dir, h_path))
-            except Exception as _e:
+            except (TypeError, ValueError) as _e:
                 logger.warning("load_settings relpath silenced: %s", _e)
             self.calc_history.append(final_path)
 
@@ -447,10 +442,10 @@ class PySCFDialog(QDialog):
                             try:
                                 rel = os.path.relpath(h_path, project_dir)
                                 relative_history.append(rel)
-                            except Exception:
+                            except ValueError:  # e.g. another drive on Windows
                                 relative_history.append(h_path)
                         history_to_save = relative_history
-                except Exception as _e:
+                except (AttributeError, RuntimeError, TypeError) as _e:
                     logger.warning("update_internal_state relpath silenced: %s", _e)
 
         self.settings["calc_history"] = history_to_save
@@ -463,7 +458,7 @@ class PySCFDialog(QDialog):
                     self.settings["associated_filename"] = os.path.basename(
                         mw.init_manager.current_file_path
                     )
-        except Exception as _e:
+        except (AttributeError, RuntimeError, TypeError) as _e:
             logger.warning("update_internal_state associated_filename silenced: %s", _e)
 
     def save_settings(self):
