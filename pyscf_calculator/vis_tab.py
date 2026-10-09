@@ -1405,7 +1405,10 @@ class VisTab(QWidget):
 
     def close_freq_window(self):
         """Close frequency visualization dock/window if open."""
+        if self.freq_vis is not None:
+            _teardown(self.freq_vis.cleanup, "freq_vis.cleanup")
         if getattr(self, "freq_dock", None) is not None and self.freq_dock:
             _teardown(self.freq_dock.close, "freq_dock.close")
+            _teardown(self.freq_dock.deleteLater, "freq_dock.deleteLater")
         self.freq_dock = None
         self.freq_vis = None
