@@ -24,17 +24,21 @@ The second source scan covered all plugin modules, calculation dispatch, thread 
 | Recover property controls after failure | `624f999` |
 | Cancel cooperatively and defer teardown | `3402f7e` |
 | Clear stale results and delayed geometry callbacks | `a16b997` |
+| Support log sinks without cancellation state | `8d4510d` |
+| Emulate thread-finished signals in synchronous GUI tests | `bf88e6f` |
 
 Every fix commit includes `Assisted-by: GPT-6.1 Sol`. Regression tests accompany the fixes, including real Qt thread, dock, timer, and project-state tests. Tests use real RDKit molecules for geometry lifecycle checks. Linux/macOS CI runs the new real PySCF broken-symmetry regressions and runs Qt tests in a separate process from the mocked suite.
 
 ## Local validation
 
-- `tests/`: **933 passed, 3 skipped, 0 failures/errors** (936 collected).
+- `tests/`: **934 passed, 3 skipped, 0 failures/errors** (937 collected).
 - `tests_ui/`: **16 passed, 0 failures/errors**, using real offscreen PyQt6.
 - `tests_real/`: **12 modules skipped**, because PySCF is not installed in this Windows environment. Scientific regression outcomes require Linux/macOS CI.
 - Python compilation passed. Diff whitespace checks passed with the repository's existing CRLF convention.
 
 Each suite runs in its own process. TEMP/TMP were redirected to a workspace directory because the default temporary location caused initial test runs to stall.
+
+The first Linux/macOS CI run found two additional failures: a lightweight output-capture sink did not define `_stop_requested`, and the synchronous GUI harness bypassed the native `QThread.finished` notification. The helper now treats the cancellation flag as optional, with a dedicated regression test. The synchronous harness emits the native exit signal in `finally`, and cancellation tests wait for actual completion instead of using a fixed delay. Both follow-up fixes have separate commits. The scientific regressions added for broken-symmetry dispatch passed in the first CI run.
 
 ## Practical limits
 
