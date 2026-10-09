@@ -376,6 +376,7 @@ class PySCFWorker(QThread):
     def _apply_mf_settings(self, mf):
         """Apply max_cycle and conv_tol from config to mf."""
         mf.max_cycle = self.config.get("max_cycle", 100)
+        mf.callback = self._check_stop
         try:
             mf.conv_tol = float(self.config.get("conv_tol", "1e-9"))
         except (TypeError, ValueError):
@@ -383,6 +384,10 @@ class PySCFWorker(QThread):
                 "conv_tol %r is not a number; keeping PySCF's default",
                 self.config.get("conv_tol"),
             )
+
+    def _check_stop(self, envs=None):
+        if self._stop_requested:
+            raise InterruptedError("Calculation cancelled")
 
     def _new_step_mf(self, mol, method_name, functional):
         """A fresh, fully configured mf (solvent + SCF settings) for a scan point.
@@ -657,6 +662,7 @@ class PySCFWorker(QThread):
 
             results = {}
             if "Optimization" in job_type:
+                self._run_scf(mf, mol, method_name)
                 mol = self._optimize(mf, job_type, method_name, results)
                 if mol is None:
                     return
@@ -664,7 +670,7 @@ class PySCFWorker(QThread):
                 # starting geometry: the properties SCF needs a fresh mf.
                 mf = self._new_job_mf(mol, method_name, functional, chk_path)
 
-            if any(k in job_type for k in ("Optimization", "Energy", "Frequency")):
+            if any(k in job_type for k in ("Optimization", "Energy", "Frequency", "TDDFT")):
                 self._run_scf(mf, mol, method_name)
             if "Frequency" in job_type:
                 self._run_frequency(mf, mol, job_type, method_name, results)
@@ -907,16 +913,18 @@ class PySCFWorker(QThread):
         results["optimized_xyz"] = "\n".join(xyz_lines)
         return mol_eq
 
-    def _run_scf(self, mf, mol, method_name):
+    def _run_scf(self, mf, mol, method_name, dm0=None, force=False):
         """The job's SCF (skipped if already run), broken-symmetry guess
         for a closed-shell UHF/UKS when asked, convergence warning."""
-        if mf.e_tot:
+        self._check_stop()
+        if mf.e_tot and not force:
             return
         self._log(f"Running partial energy calculation using {method_name}...\n")
         # Only a spin-restricted guess needs breaking. With 2S > 0 the alpha
         # and beta occupations already differ.
         if (
-            self.config.get("break_symmetry", True)
+            dm0 is None
+            and self.config.get("break_symmetry", True)
             and method_name in ("UHF", "UKS")
             and self._parse_spin_2s() == 0
         ):
@@ -933,8 +941,11 @@ class PySCFWorker(QThread):
                     "(beta density removed from atom 1)...\n"
                 )
                 mf.kernel(dm0=dm0)
+        elif dm0 is not None:
+            mf.kernel(dm0=dm0)
         else:
             mf.kernel()
+        self._check_stop()
 
         # Energy / Optimization jobs used to report an unconverged SCF
         # energy without a word.
@@ -1049,7 +1060,7 @@ class PySCFWorker(QThread):
         self._log("Starting TDDFT Calculation...\n")
         if not mf.e_tot:
             self._log("Running SCF for TDDFT...\n")
-            mf.kernel()
+            self._run_scf(mf, mf.mol, method_name)
         if not mf.converged:
             self._log(
                 "WARNING: SCF did not converge before TDDFT. Results may be inaccurate.\n"
@@ -1301,7 +1312,7 @@ class PySCFWorker(QThread):
             mf_step.chkfile = os.path.join(self.out_dir, f"scan_step_{i + 1}.chk")
             mf_step.verbose = 0
 
-            mf_step.kernel(dm0=dm_prev)
+            self._run_scf(mf_step, mol_step, method_name, dm0=dm_prev, force=True)
             e_tot = mf_step.e_tot
 
             # An unconverged point can sit many kcal/mol off and would
@@ -1387,7 +1398,8 @@ class PySCFWorker(QThread):
         # Ensure initial molecule is converged so we have a good starting checkpoint for Step 0
         if not mf.e_tot:
             self._log("Ensuring initial SCF convergence before scanning...\n")
-            mf.kernel()
+            self._run_scf(mf, mol, method_name)
+        dm_prev = mf.make_rdm1() if getattr(mf, "converged", False) else None
 
         for i, val in enumerate(scan_values):
             # Cooperative stop check
@@ -1469,7 +1481,8 @@ class PySCFWorker(QThread):
                     self._log(f"  Warning: Failed to seed initial guess: {e_seed}\n")
                 # --------------------------------------------------------
 
-                mol_eq = optimize(step_mf, constraints=const_file)
+                self._run_scf(step_mf, step_mol, method_name, dm0=dm_prev, force=True)
+                mol_eq = optimize(step_mf, constraints=const_file, callback=self._check_stop)
 
                 # Force an explicit SCF calculation on the final optimized structure
                 # to ensure the energy is 100% accurate and matches the mol_eq coordinates.
@@ -1481,6 +1494,8 @@ class PySCFWorker(QThread):
                     step_mf.reset(mol_eq)
                     e_tot = step_mf.kernel()
                     step_converged = bool(getattr(step_mf, "converged", True))
+                    if step_converged:
+                        dm_prev = step_mf.make_rdm1()
                     self._log(f"  ✓ Final optimized energy: {e_tot:.8f} Ha\n")
                 # a failed point is reported and dropped, never fatal to the scan
                 except Exception as e:  # noqa: BLE001
