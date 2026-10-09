@@ -458,6 +458,20 @@ class VisTab(QWidget):
         except _GONE as cleanup_err:
             self.log(f"Warning during initial cleanup: {cleanup_err}")
 
+        self.chkfile_path = None
+        self.last_out_dir = result_data.get("out_dir")
+        self.mo_data = None
+        self.freq_data = None
+        self.thermo_data = None
+        self.optimized_xyz = None
+        self.parent_dialog.optimized_xyz = None
+        for button in (self.btn_show_diagram, self.btn_run_analysis, self.btn_show_thermo, self.btn_load_geom):
+            button.setEnabled(False)
+        self.loaded_file = None
+        self.vis_controls.setEnabled(False)
+        self.mapped_group.hide()
+        self.close_result_windows()
+
         if result_data.get("chkfile", None):
             self.chkfile_path = result_data["chkfile"]
             self.last_out_dir = os.path.dirname(self.chkfile_path)
@@ -524,6 +538,8 @@ class VisTab(QWidget):
         if should_update_geom and self.optimized_xyz:
 
             def update_and_finalize():
+                if generation != getattr(self, "_load_generation", 0) or getattr(self.parent_dialog, "closing", False) is True:
+                    return
                 # Strict Check: ONLY update source if it is an optimization result
                 is_opt = result_data.get("optimized_xyz", None) or getattr(
                     self, "_pending_is_opt", False
