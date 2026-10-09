@@ -85,6 +85,14 @@ def _pump(qapp, seconds=0.3):
         time.sleep(0.01)
 
 
+def _pump_until(qapp, predicate, timeout=10):
+    end = time.monotonic() + timeout
+    while not predicate() and time.monotonic() < end:
+        qapp.processEvents()
+        time.sleep(0.01)
+    assert predicate(), "Worker did not finish before the lifecycle timeout"
+
+
 @pytest.fixture
 def dialog(qapp, plugin, tmp_path, monkeypatch):
     # never pick up a developer's saved defaults
@@ -108,7 +116,12 @@ def _run_sync(plugin, monkeypatch):
 
     def start(self):
         started.append(self)
-        self.run()
+        try:
+            self.run()
+        finally:
+            # Calling run() directly bypasses QThread's native lifecycle.
+            # Emulate the actual exit notification, as well as job signals.
+            self.finished.emit()
 
     monkeypatch.setattr(plugin["worker"].PySCFWorker, "start", start)
     monkeypatch.setattr(plugin["worker"].LoadWorker, "start", start)
@@ -169,8 +182,7 @@ def test_stop_a_running_job(qapp, plugin, dialog):
     assert tab.worker is not None and tab.worker.isRunning()
 
     tab.stop_calculation()  # raised AttributeError ('terminated') before
-    _pump(qapp)
-    assert tab.worker is None
+    _pump_until(qapp, lambda: tab.worker is None)
     assert tab.run_btn.isEnabled() and not tab.stop_btn.isEnabled()
 
 
@@ -190,8 +202,7 @@ def test_closing_the_dialog_mid_job(qapp, plugin, dialog):
     tab.run_calculation()
     _pump(qapp, 1.0)
     dlg.close()  # closeEvent -> stop_calculation
-    _pump(qapp)
-    assert tab.worker is None
+    _pump_until(qapp, lambda: tab.worker is None)
 
 
 def test_settings_round_trip_through_real_widgets(qapp, dialog):
