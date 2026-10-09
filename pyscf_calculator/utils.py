@@ -138,6 +138,8 @@ def update_molecule_from_xyz(context, xyz_content, mark_modified=True):
                     )
 
         context.current_molecule = new_mol
+        if mark_modified:
+            context.mark_project_modified()
 
         # Restore Dirty State
         if should_suppress:
