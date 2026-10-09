@@ -64,3 +64,7 @@ jobs:
     - name: Real PySCF tests
       run: |
         python -m pytest tests_real -v -m "not slow" --durations=20
+
+    - name: Real Qt lifecycle regression tests
+      run: |
+        python -m pytest tests_ui -v

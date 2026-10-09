@@ -43,6 +43,7 @@ _FIELDS = (
     ("job_type", "job_type_combo", "combo", "Optimization + Frequency"),
     ("method", "method_combo", "combo", "RKS"),
     ("functional", "functional_combo", "combo", "b3lyp"),
+    ("nstates", "nstates_input", "int", 10),
     ("basis", "basis_combo", "combo", "sto-3g"),
     ("charge", "charge_input", "combo", "0"),
     ("spin", "spin_input", "combo", "1 (Singlet)"),
