@@ -441,6 +441,7 @@ class TestStopCalculationSequence(unittest.TestCase):
         tab = MagicMock(spec=CalcTab)
         tab.worker = mock_worker
         tab.log = MagicMock()
+        tab.stop_btn = MagicMock()
 
         return tab, mock_worker, mock_stream
 
@@ -485,16 +486,18 @@ class TestStopCalculationSequence(unittest.TestCase):
         CalcTab.stop_calculation(tab)
         worker.terminate.assert_not_called()
 
-    def test_terminate_called_on_timeout(self):
+    def test_cancellation_retains_worker_without_termination(self):
         tab, worker, _ = self._make_tab(wait_result=False)
         CalcTab.stop_calculation(tab)
-        worker.terminate.assert_called_once()
+        worker.terminate.assert_not_called()
+        worker.wait.assert_not_called()
+        self.assertIs(tab.worker, worker)
 
-    def test_finished_connected_for_deferred_cleanup(self):
-        """finished signal must be connected so cleanup happens after thread exit."""
+    def test_stop_defers_cleanup_to_existing_finished_connection(self):
         tab, worker, _ = self._make_tab()
         CalcTab.stop_calculation(tab)
-        worker.finished.connect.assert_called()
+        self.assertIs(tab.worker, worker)
+        worker.wait.assert_not_called()
 
 
 # ===========================================================================
@@ -517,14 +520,14 @@ class TestSafeStopWorker(unittest.TestCase):
         dialog._safe_stop_worker(worker)
         self.assertTrue(worker._stop_requested)
 
-    def test_safe_stop_calls_terminate_on_timeout(self):
+    def test_safe_stop_does_not_force_terminate(self):
         dialog = self._make_dialog()
         worker = MagicMock()
         worker.isRunning.return_value = True
-        worker.wait.return_value = False
         dialog._safe_stop_worker(worker)
-        worker.terminate.assert_called_once()
-        worker.wait.assert_has_calls([call(1500), call(500)])
+        worker.terminate.assert_not_called()
+        worker.wait.assert_not_called()
+        self.assertTrue(worker._stop_requested)
 
 
 if __name__ == "__main__":

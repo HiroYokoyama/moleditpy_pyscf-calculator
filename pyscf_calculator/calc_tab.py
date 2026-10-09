@@ -746,24 +746,8 @@ class CalcTab(QWidget):
             with contextlib.suppress(TypeError, RuntimeError):
                 sig.disconnect()
 
-        # 4. Deferred cleanup: self.worker is only set to None once the
-        #    thread has fully exited, preventing use-after-free. (QThread in
-        #    PyQt6 has no `terminated` signal -- connecting to it raised
-        #    AttributeError, so Stop and closing the dialog mid-job failed.)
-        self.worker.finished.connect(self._on_worker_stopped)
-
-        # 5. Give the cooperative flag 2 s to take effect before force-killing.
-        if not self.worker.wait(2000):
-            self.log("Force-terminating worker thread...")
-            self.worker.terminate()
-            # wait() after terminate() blocks until the OS has cleaned up.
-            self.worker.wait(1000)
-
-        # A terminated thread does not reliably emit `finished`; once wait()
-        # has seen it end, clean up here (the call is idempotent).
-        if self.worker is not None and not self.worker.isRunning():
-            self._on_worker_stopped()
-        self.log("Calculation stopped.")
+        self.stop_btn.setEnabled(False)
+        self.log("Cancellation requested; waiting for the current calculation step to exit safely.")
 
     def _on_worker_stopped(self):
         """Clean up once the worker thread has fully exited.

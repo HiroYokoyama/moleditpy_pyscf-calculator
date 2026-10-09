@@ -191,6 +191,7 @@ class TestSetupUI(unittest.TestCase):
 class _BaseTabTest(unittest.TestCase):
     def setUp(self):
         self.tab = CalcTab.__new__(CalcTab)
+        self.tab.worker = None
         self.tab.scan_params = None
 
         self.tab.job_type_combo = MagicMock()
@@ -222,6 +223,7 @@ class _BaseTabTest(unittest.TestCase):
         self.tab.solvent_combo = MagicMock()
 
         self.tab.parent_dialog = MagicMock()
+        self.tab.parent_dialog.vis_tab = None
         self.tab.parent_dialog.btn_load_geom = MagicMock()
         self.tab.parent_dialog.version = "1.2.3"
 
@@ -701,7 +703,7 @@ class TestStopCalculation(_BaseTabTest):
         self.tab.log = MagicMock()
         self.tab.stop_calculation()  # must not raise
         worker._stream.close.assert_called_once()
-        worker.finished.connect.assert_called_with(self.tab._on_worker_stopped)
+        worker.finished.connect.assert_not_called()
 
     def test_stop_works_with_a_real_qthread_signal_set(self):
         """PyQt6's QThread has started/finished only. Connecting the
@@ -749,7 +751,8 @@ class TestStopCalculation(_BaseTabTest):
         self.tab.cleanup_ui_state = MagicMock()
         self.tab.stop_calculation()
         self.assertTrue(worker._stop_requested)
-        self.assertIsNone(self.tab.worker)  # cleaned up once the thread ended
+        self.assertIs(self.tab.worker, worker)  # retained until QThread.finished
+        self.tab._on_worker_stopped()
         self.tab.cleanup_ui_state.assert_called_once()
 
     def test_disconnect_exception_silenced(self):
@@ -762,15 +765,16 @@ class TestStopCalculation(_BaseTabTest):
         self.tab.log = MagicMock()
         self.tab.stop_calculation()  # must not raise
 
-    def test_force_terminate_when_wait_times_out(self):
+    def test_cancellation_retains_worker_without_termination(self):
         worker = MagicMock()
         worker.isRunning.return_value = True
-        worker._stream = None
-        worker.wait.return_value = False
         self.tab.worker = worker
         self.tab.log = MagicMock()
         self.tab.stop_calculation()
-        worker.terminate.assert_called_once()
+        tab = self.tab
+        worker.terminate.assert_not_called()
+        worker.wait.assert_not_called()
+        self.assertIs(tab.worker, worker)
 
     def test_no_terminate_when_wait_succeeds(self):
         worker = MagicMock()
@@ -822,7 +826,7 @@ class TestOnFinishedAndOnError(_BaseTabTest):
         self.tab.cleanup_ui_state = MagicMock()
         self.tab.on_finished()
         self.tab.parent_dialog.update_internal_state.assert_called_once()
-        self.tab.cleanup_ui_state.assert_called_once()
+        self.tab.cleanup_ui_state.assert_not_called()
 
     def test_on_finished_with_context_and_splitter(self):
         mw = MagicMock()
@@ -850,7 +854,7 @@ class TestOnFinishedAndOnError(_BaseTabTest):
 
 class TestCleanupUiState(_BaseTabTest):
     def test_resets_ui_flags(self):
-        self.tab.worker = MagicMock()
+        self.tab.worker = None
         self.tab.cleanup_ui_state()
         self.tab.run_btn.setEnabled.assert_called_with(True)
         self.tab.stop_btn.setEnabled.assert_called_with(False)

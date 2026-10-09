@@ -54,7 +54,10 @@ def initialize(context):
                     dlg.raise_()
                     dlg.activateWindow()
                     return
-                dlg.close()
+                if dlg.close() is False:
+                    dlg.show()
+                    dlg.raise_()
+                    return  # A calculation is still exiting safely.
                 dlg.deleteLater()
             except RuntimeError:
                 pass

@@ -1447,3 +1447,11 @@ class VisTab(QWidget):
             _teardown(self.freq_dock.deleteLater, "freq_dock.deleteLater")
         self.freq_dock = None
         self.freq_vis = None
+
+    def close_result_windows(self):
+        for name in ("scan_dlg", "tddft_dlg", "energy_dlg"):
+            window = getattr(self, name, None)
+            if window is not None:
+                _teardown(window.close, f"{name}.close")
+                _teardown(window.deleteLater, f"{name}.deleteLater")
+                setattr(self, name, None)

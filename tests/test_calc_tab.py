@@ -143,6 +143,7 @@ CalcTab = _calc_tab_mod.CalcTab
 class TestCalcTabConfig(unittest.TestCase):
     def setUp(self):
         self.tab = CalcTab.__new__(CalcTab)
+        self.tab.worker = None
         self.tab.scan_params = None
 
         # Setup standard mocked UI components for configuration
@@ -173,6 +174,7 @@ class TestCalcTabConfig(unittest.TestCase):
         self.tab.solvent_combo = MagicMock()
 
         self.tab.parent_dialog = MagicMock()
+        self.tab.parent_dialog.vis_tab = None
         self.tab.parent_dialog.btn_load_geom = MagicMock()
 
         self.tab.progress_bar = MagicMock()
