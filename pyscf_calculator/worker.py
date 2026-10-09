@@ -279,10 +279,10 @@ def redirected_output(worker, log_file):
     """Route C-level and Python stdout/stderr into log_file and the worker's
     log signal for the duration of a job; always restore them."""
     while not _OUTPUT_LOCK.acquire(timeout=0.1):
-        if worker._stop_requested:
+        if getattr(worker, "_stop_requested", False):
             raise InterruptedError("Calculation cancelled while waiting for output capture")
     try:
-        if worker._stop_requested:
+        if getattr(worker, "_stop_requested", False):
             raise InterruptedError("Calculation cancelled")
         with _redirected_output(worker, log_file) as stream:
             yield stream
@@ -296,7 +296,7 @@ def _redirected_output(worker, log_file):
     f_log = capturer.__enter__()
     saved = (sys.stdout, sys.stderr)
     stream = StreamToSignal(worker.log_signal, target_stream=f_log)
-    worker._stream = stream  # the GUI may close() it before terminate()
+    worker._stream = stream  # the GUI may close() it when requesting cancellation
     sys.stdout = sys.stderr = stream
     try:
         yield stream

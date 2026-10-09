@@ -87,3 +87,15 @@ def test_partial_descriptor_setup_is_rolled_back(monkeypatch, tmp_path):
     restore.assert_called_once_with(101, capture.original_stdout_fd)
     close.assert_called_once_with(101)
     assert capture.log_file is None
+
+
+def test_capture_accepts_log_sink_without_cancellation_flag(monkeypatch, tmp_path):
+    mod = load_module(monkeypatch, "worker")
+    monkeypatch.setattr(mod, "CaptureStdOut", lambda path: open(path, "w", encoding="utf-8"))
+    worker = SimpleNamespace(log_signal=MagicMock())
+    path = tmp_path / "sink.log"
+    with mod.redirected_output(worker, path) as stream:
+        stream.write("log sink")
+    assert path.read_text() == "log sink"
+    worker.log_signal.emit.assert_called_once_with("log sink")
+    assert worker._stream is None
