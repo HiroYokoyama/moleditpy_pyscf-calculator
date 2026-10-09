@@ -12,7 +12,10 @@ from PyQt6.QtWidgets import (
     QPushButton,
     QVBoxLayout,
 )
+from rdkit import Chem
 from rdkit.Chem import rdMolTransforms
+
+from .utils import validate_scan_params
 
 logger = logging.getLogger(__name__)
 
@@ -201,12 +204,12 @@ class ScanDialog(QDialog):
             return
 
         mol = self.context.current_molecule
-        conf = mol.GetConformer()
 
         picked = self.selected_atoms
         val = 0.0
 
         try:
+            conf = mol.GetConformer()
             if len(picked) == 2:
                 self.scan_type = "Dist"
                 p1 = conf.GetAtomPosition(picked[0])
@@ -258,6 +261,8 @@ class ScanDialog(QDialog):
                 "end": end,
                 "steps": steps,
             }
+            validate_scan_params(self.scan_params, self.context.current_molecule.GetNumAtoms())
+            self.scan_params["molecule_signature"] = Chem.MolToSmiles(self.context.current_molecule)
             self.scan_configured.emit(self.scan_params)
 
             # Deactivate Selection Mode
@@ -274,12 +279,12 @@ class ScanDialog(QDialog):
 
             self.accept()
 
-        except ValueError:
+        except (ValueError, TypeError, AttributeError) as exc:
             QMessageBox.warning(
-                self, "Invalid Input", "Please enter valid numeric values."
+                self, "Invalid Input", str(exc)
             )
 
-    def closeEvent(self, event):
+    def _cleanup_selection(self):
         try:
             if (
                 getattr(self, "sel_timer", None) is not None
@@ -298,4 +303,11 @@ class ScanDialog(QDialog):
                     )
         except (AttributeError, RuntimeError) as _e:
             logger.warning("cleanup skipped: %s", _e)
+
+    def done(self, result):
+        self._cleanup_selection()
+        super().done(result)
+
+    def closeEvent(self, event):
+        self._cleanup_selection()
         super().closeEvent(event)

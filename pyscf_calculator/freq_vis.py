@@ -74,7 +74,7 @@ class FreqVisualizer(QWidget):
         # Store original coordinates as NumPy array
         self.base_coords = self.mol.GetConformer().GetPositions()
 
-        self.timer = QTimer()
+        self.timer = QTimer(self)
         self.timer.timeout.connect(self.animate_frame)
         self.animation_step = 0
         self.is_playing = False
@@ -537,6 +537,9 @@ class FreqVisualizer(QWidget):
             if getattr(self, "timer", None) is not None and self.timer.isActive():
                 self.timer.stop()
             self.is_playing = False
+            # Restore model coordinates without adding vectors or rendering
+            # into a window that may be in the middle of teardown.
+            self.mol.GetConformer().SetPositions(self.base_coords)
 
             if (
                 hasattr(self.mw, "view_3d_manager")
@@ -550,6 +553,10 @@ class FreqVisualizer(QWidget):
                 # self.mw.view_3d_manager.plotter.render()
         except (AttributeError, RuntimeError) as _e:
             logger.warning("cleanup skipped: %s", _e)
+
+    def hideEvent(self, event):
+        self.cleanup()
+        super().hideEvent(event)
 
 
 class SpectrumDialog(QDialog):

@@ -1,9 +1,32 @@
 import logging
 import os
+import math
 
 from rdkit import Chem
 
 logger = logging.getLogger(__name__)
+
+
+def validate_scan_params(params, natm):
+    """Reject invalid/stale atom selections and nonphysical scan bounds."""
+    sizes = {"Dist": 2, "Angle": 3, "Dihedral": 4}
+    kind = params.get("type")
+    atoms = params.get("atoms", [])
+    if kind not in sizes or len(atoms) != sizes[kind]:
+        raise ValueError("Select the correct number of atoms for the scan coordinate.")
+    if any(not isinstance(a, int) or isinstance(a, bool) or not 0 <= a < natm for a in atoms) or len(set(atoms)) != len(atoms):
+        raise ValueError("Scan atoms must be distinct indices in the current molecule. Reconfigure the scan.")
+    steps = params.get("steps")
+    if not isinstance(steps, int) or isinstance(steps, bool) or steps < 2:
+        raise ValueError("Scan steps must be an integer >= 2.")
+    for key in ("start", "end"):
+        value = float(params[key])
+        if not math.isfinite(value):
+            raise ValueError("Scan bounds must be finite numbers.")
+        if kind == "Dist" and value <= 0:
+            raise ValueError("Bond distances must be positive.")
+        if kind == "Angle" and not 0 < value < 180:
+            raise ValueError("Bond angles must be between 0 and 180 degrees.")
 
 
 def get_unique_path(path):
@@ -36,6 +59,8 @@ def read_xyz_frames(path):
         if not head.isdigit():
             break
         n_atoms = int(head)
+        if n_atoms < 1 or idx + n_atoms + 2 > len(lines):
+            raise ValueError("Incomplete XYZ trajectory frame")
         frames.append("\n".join(lines[idx : idx + n_atoms + 2]))
         idx += n_atoms + 2
     return frames
@@ -138,6 +163,8 @@ def update_molecule_from_xyz(context, xyz_content, mark_modified=True):
                     )
 
         context.current_molecule = new_mol
+        if mark_modified:
+            context.mark_project_modified()
 
         # Restore Dirty State
         if should_suppress:

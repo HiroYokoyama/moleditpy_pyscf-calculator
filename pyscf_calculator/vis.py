@@ -15,6 +15,8 @@ def parse_cube_data(filename):
     """
     if not filename or not os.path.exists(filename):
         raise FileNotFoundError(f"File not found: {filename}")
+    if os.path.getsize(filename) > 256 * 1024 * 1024:
+        raise ValueError("Cube file exceeds the 256 MiB loading limit.")
 
     with open(filename, "r") as f:
         lines = f.readlines()
@@ -44,6 +46,10 @@ def parse_cube_data(filename):
 
         is_angstrom_header = nx < 0 or ny < 0 or nz < 0
         nx, ny, nz = abs(nx), abs(ny), abs(nz)
+        if not all(np.all(np.isfinite(v)) for v in (origin_raw, x_vec_raw, y_vec_raw, z_vec_raw)):
+            raise ValueError("Cube header contains nonfinite coordinates.")
+        if min(nx, ny, nz) == 0 or nx * ny * nz > 2_000_000:
+            raise ValueError("Cube grid must contain 1 to 2,000,000 points.")
 
     except (ValueError, IndexError) as e:
         raise ValueError(f"Header parsing failed: {e}") from e
@@ -54,35 +60,41 @@ def parse_cube_data(filename):
 
     for _ in range(n_atoms):
         if current_line >= len(lines):
-            break
+            raise ValueError("Incomplete cube atom block")
         line = lines[current_line].split()
         current_line += 1
 
         try:
             if len(line) < 5:
                 # Potentially empty line or malformed
-                continue
+                raise ValueError("Malformed cube atom line")
             atomic_num = int(line[0])
             x, y, z = float(line[2]), float(line[3]), float(line[4])
+            if not np.all(np.isfinite([float(line[1]), x, y, z])):
+                raise ValueError("Nonfinite cube atom coordinates")
             atoms.append((atomic_num, np.array([x, y, z])))
-        except (ValueError, IndexError):
-            continue  # skip a malformed atom line
+        except (ValueError, IndexError) as exc:
+            raise ValueError("Malformed cube atom line") from exc
 
     # A negative atom count means the cube holds several data sets. The
     # DSET_IDS block (count + that many ids, possibly wrapped) sits *after*
     # the atom lines -- skipping a line before them consumed the first atom.
-    n_datasets = 1
+    n_datasets = int(tokens[4]) if len(tokens) > 4 else 1
     if n_atoms_raw < 0 and current_line < len(lines):
         try:
             parts = lines[current_line].split()
-            n_datasets = max(1, int(parts[0]))
-            consumed = len(parts) - 1
+            n_datasets = int(parts[0])
+            identifiers = [int(value) for value in parts[1:]]
             current_line += 1
-            while consumed < n_datasets and current_line < len(lines):
-                consumed += len(lines[current_line].split())
+            while len(identifiers) < n_datasets and current_line < len(lines):
+                identifiers.extend(int(value) for value in lines[current_line].split())
                 current_line += 1
-        except (ValueError, IndexError):
-            n_datasets = 1
+            if len(identifiers) != n_datasets:
+                raise ValueError("Incomplete cube dataset identifiers")
+        except (ValueError, IndexError) as exc:
+            raise ValueError("Malformed cube dataset identifiers") from exc
+    if n_datasets < 1 or nx * ny * nz * n_datasets > 2_000_000:
+        raise ValueError("Cube dataset size exceeds the loading limit.")
 
     # --- Volumetric Data Parsing ---
     # Find start of data
@@ -93,48 +105,30 @@ def parse_cube_data(filename):
             current_line += 1
             continue
 
-        # Check if this line looks like data (float)
-        try:
-            float(parts[0])
-            break  # Start of data found
-        except ValueError:
-            current_line += 1
-            continue
+        break
 
     if current_line >= len(lines):
         # Allow header-only validation if explicitly requested?
         # But for 'data', we need data.
         # Fallback for empty data
-        data_values = np.zeros(nx * ny * nz)
+        raise ValueError("Cube contains no volumetric data")
     else:
         # (np.fromstring with sep= is deprecated; this also stops at the
         # first non-number, as it did.)
         tokens = " ".join(lines[current_line:]).split()
         try:
             data_values = np.array(tokens, dtype=float)
-        except ValueError:
-            good = []
-            for tok in tokens:
-                try:
-                    good.append(float(tok))
-                except ValueError:
-                    break
-            data_values = np.array(good)
+        except ValueError as exc:
+            raise ValueError("Malformed cube volumetric data") from exc
 
     n_points = nx * ny * nz
     expected_size = n_points * n_datasets
     actual_size = len(data_values)
 
-    # Correct size mismatches defensively
-    if actual_size > expected_size:
-        # Truncate
-        data_values = data_values[:expected_size]
-    elif actual_size < expected_size:
-        # Pad with zeros
-        pad_size = expected_size - actual_size
-        if pad_size > 0:
-            pad = np.zeros(pad_size)
-            data_values = np.concatenate((data_values, pad))
+    if actual_size != expected_size:
+        raise ValueError(f"Cube data size mismatch: expected {expected_size}, found {actual_size}")
+    if not np.all(np.isfinite(data_values)):
+        raise ValueError("Cube contains nonfinite volumetric values")
 
     if n_datasets > 1:
         # Values are interleaved point by point; the first n_points of the

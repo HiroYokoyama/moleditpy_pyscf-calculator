@@ -43,6 +43,7 @@ _FIELDS = (
     ("job_type", "job_type_combo", "combo", "Optimization + Frequency"),
     ("method", "method_combo", "combo", "RKS"),
     ("functional", "functional_combo", "combo", "b3lyp"),
+    ("nstates", "nstates_input", "int", 10),
     ("basis", "basis_combo", "combo", "sto-3g"),
     ("charge", "charge_input", "combo", "0"),
     ("spin", "spin_input", "combo", "1 (Singlet)"),
@@ -182,6 +183,8 @@ class PySCFDialog(QDialog):
             logger.warning("%s", message)
 
     def on_results(self, result_data):
+        if self.closing or getattr(getattr(getattr(self, "calc_tab", None), "worker", None), "_stop_requested", False) is True:
+            return
         # Called by CalcTab worker
 
         self.log("Processing results...")
@@ -205,8 +208,6 @@ class PySCFDialog(QDialog):
     def on_error(self, err_msg):
         self.log(f"\nERROR: {err_msg}")
         QMessageBox.critical(self, "Error", err_msg)
-        if getattr(self, "calc_tab", None) is not None:
-            self.calc_tab.cleanup_ui_state()
 
     def _safe_stop_worker(self, worker):
         if worker and worker.isRunning():
@@ -228,9 +229,6 @@ class PySCFDialog(QDialog):
                     with contextlib.suppress(TypeError, RuntimeError):
                         sig.disconnect()
 
-            if not worker.wait(1500):
-                worker.terminate()
-                worker.wait(500)
 
     def closeEvent(self, event):
         self.closing = True
@@ -241,9 +239,24 @@ class PySCFDialog(QDialog):
 
         # Cleanup VisTab Actors/Workers
         if getattr(self, "vis_tab", None) is not None:
-            self.vis_tab.clear_3d_actors()
             self._safe_stop_worker(self.vis_tab.load_worker)
             self._safe_stop_worker(self.vis_tab.prop_worker)
+
+        workers = [
+            getattr(getattr(self, "calc_tab", None), "worker", None),
+            getattr(getattr(self, "vis_tab", None), "load_worker", None),
+            getattr(getattr(self, "vis_tab", None), "prop_worker", None),
+        ]
+        if any(w is not None and w.isRunning() for w in workers):
+            event.ignore()
+            # Retain the dialog and its workers until native calls return.
+            QTimer.singleShot(100, self.close)
+            return
+
+        if getattr(self, "vis_tab", None) is not None:
+            self.vis_tab.clear_3d_actors()
+            self.vis_tab.close_freq_window()
+            self.vis_tab.close_result_windows()
 
             # Close Dock
             if self.vis_tab.freq_dock:
@@ -267,10 +280,9 @@ class PySCFDialog(QDialog):
 
         if getattr(self, "vis_tab", None) is not None:
             self._safe_stop_worker(self.vis_tab.load_worker)
-            self.vis_tab.load_worker = None
 
             self._safe_stop_worker(self.vis_tab.prop_worker)
-            self.vis_tab.prop_worker = None
+            self.vis_tab._load_generation = getattr(self.vis_tab, "_load_generation", 0) + 1
 
             self.vis_tab.clear_3d_actors()
             self.vis_tab.chkfile_path = None
@@ -286,6 +298,7 @@ class PySCFDialog(QDialog):
             self.vis_tab.btn_show_thermo.setEnabled(False)
 
             self.vis_tab.close_freq_window()
+            self.vis_tab.close_result_windows()
 
             # Clear stale visualization state so the Isovalue/Opacity/ESP
             # controls (which stay enabled and connected to their update

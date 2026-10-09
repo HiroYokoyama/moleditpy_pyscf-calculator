@@ -391,6 +391,7 @@ VisTab = _vis_tab_mod.VisTab
 def _make_vis_tab(**overrides):
     vt = VisTab.__new__(VisTab)
     vt.parent_dialog = MagicMock()
+    vt.parent_dialog.calc_tab = None
     vt.parent_dialog.closing = False
     vt.context = MagicMock()
     vt.chkfile_path = "/fake/out/pyscf.chk"
@@ -666,17 +667,12 @@ class TestGenerateSpecificOrbital(unittest.TestCase):
 
 
 class TestOnPropFinished(unittest.TestCase):
-    def test_unchecks_and_disables_checked_items(self):
-        vt = _make_vis_tab(prop_worker=MagicMock())
-        it = _FakeListItem()
-        it.setCheckState(_CheckState.Checked)
-        it.setFlags(_ItemFlag.ItemIsEnabled)
-        vt.orb_list.addItem(it)
+    def test_custom_success_does_not_release_worker(self):
+        worker = MagicMock()
+        vt = _make_vis_tab(prop_worker=worker)
         vt.on_prop_finished()
-        self.assertIsNone(vt.prop_worker)
-        vt.btn_run_analysis.setEnabled.assert_called_with(True)
-        self.assertEqual(it.checkState(), _CheckState.Unchecked)
-        self.assertFalse(it.flags() & _ItemFlag.ItemIsEnabled)
+        self.assertIs(vt.prop_worker, worker)
+        vt.btn_run_analysis.setEnabled.assert_not_called()
 
 
 class TestOnPropResults(
@@ -1334,7 +1330,7 @@ class TestLoadResultFolder(unittest.TestCase):
                 patch.object(vt, "_add_to_history"),
             ):
                 vt.load_result_folder(path=d)
-            mock_scan.assert_called_once_with(os.path.abspath(d))
+            mock_scan.assert_called_once_with(os.path.abspath(d), update_structure=True)
 
     def test_missing_checkpoint_warns(self):
         vt = _make_vis_tab()
@@ -1537,7 +1533,7 @@ class TestOnLoadFinished(unittest.TestCase):
                 patch.object(vt, "finalize_load") as mock_final,
                 patch.object(vt, "clear_3d_actors"),
             ):
-                vt.on_load_finished({})
+                vt.on_load_finished({"out_dir": d})
         self.assertEqual(vt.file_list.count(), 1)
         mock_final.assert_called_once()
 

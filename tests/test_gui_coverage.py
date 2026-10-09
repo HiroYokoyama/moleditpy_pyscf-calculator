@@ -243,7 +243,7 @@ class TestOnError(unittest.TestCase):
         with patch.object(_gui_mod.QMessageBox, "critical") as mock_crit:
             dlg.on_error("bad")
         mock_crit.assert_called_once()
-        dlg.calc_tab.cleanup_ui_state.assert_called_once()
+        dlg.calc_tab.cleanup_ui_state.assert_not_called()
 
     def test_on_error_no_calc_tab_no_crash(self):
         dlg = _make_dialog_bare()
@@ -298,14 +298,13 @@ class TestSafeStopWorker(unittest.TestCase):
         worker.wait.return_value = True
         dlg._safe_stop_worker(worker)  # must not raise
 
-    def test_force_terminate_on_wait_timeout(self):
+    def test_stop_never_force_terminates(self):
         dlg = self._make_dlg()
         worker = MagicMock()
         worker.isRunning.return_value = True
-        worker._stream = None
-        worker.wait.return_value = False
         dlg._safe_stop_worker(worker)
-        worker.terminate.assert_called_once()
+        worker.terminate.assert_not_called()
+        worker.wait.assert_not_called()
 
     def test_no_terminate_when_wait_succeeds(self):
         dlg = self._make_dlg()
@@ -322,6 +321,9 @@ class TestCloseEvent(unittest.TestCase):
         dlg = _make_dialog_bare()
         dlg.calc_tab = MagicMock()
         dlg.vis_tab = MagicMock()
+        dlg.calc_tab.worker = None
+        dlg.vis_tab.load_worker = None
+        dlg.vis_tab.prop_worker = None
         dlg.vis_tab.freq_dock = MagicMock()
         dlg._safe_stop_worker = MagicMock()
 
@@ -331,12 +333,15 @@ class TestCloseEvent(unittest.TestCase):
         dlg.calc_tab.stop_calculation.assert_called_once()
         dlg.vis_tab.clear_3d_actors.assert_called_once()
         self.assertEqual(dlg._safe_stop_worker.call_count, 2)
-        dlg.vis_tab.freq_dock.close.assert_called_once()
+        dlg.vis_tab.close_freq_window.assert_called_once()
 
     def test_close_event_no_freq_dock(self):
         dlg = _make_dialog_bare()
         dlg.calc_tab = MagicMock()
         dlg.vis_tab = MagicMock()
+        dlg.calc_tab.worker = None
+        dlg.vis_tab.load_worker = None
+        dlg.vis_tab.prop_worker = None
         dlg.vis_tab.freq_dock = None
         dlg._safe_stop_worker = MagicMock()
 

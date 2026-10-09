@@ -186,33 +186,29 @@ class TestParseCubeValid(unittest.TestCase):
 
 
 class TestParseCubeSizeMismatch(unittest.TestCase):
-    def test_extra_data_truncated_to_expected_size(self):
+    def test_extra_data_rejected_to_expected_size(self):
         # 2×2×2 = 8 values, provide 10
         extra = _CUBE_TEMPLATE.format(
             data="  0.1  0.2  0.3  0.4  0.5  0.6  0.7  0.8  0.9  1.0\n"
         )
         path = _write_cube(extra)
         try:
-            result = parse_cube_data(path)
-            self.assertEqual(len(result["data_flat"]), 8)
+            with self.assertRaises(ValueError):
+                parse_cube_data(path)
         finally:
             os.unlink(path)
 
-    def test_short_data_padded_with_zeros(self):
+    def test_short_data_rejected_with_zeros(self):
         # Provide only 4 values for 8-element grid
         short = _CUBE_TEMPLATE.format(data="  0.1  0.2  0.3  0.4\n")
         path = _write_cube(short)
         try:
-            result = parse_cube_data(path)
-            self.assertEqual(len(result["data_flat"]), 8)
-            # Last 4 must be zero-padded
-            import numpy as np
-
-            np.testing.assert_array_equal(result["data_flat"][4:], [0.0] * 4)
+            with self.assertRaises(ValueError):
+                parse_cube_data(path)
         finally:
             os.unlink(path)
 
-    def test_empty_data_section_returns_zeros(self):
+    def test_empty_data_section_raises(self):
         # No data lines at all (just blank after atoms)
         no_data = textwrap.dedent("""\
             Comment 1
@@ -226,11 +222,8 @@ class TestParseCubeSizeMismatch(unittest.TestCase):
         """)
         path = _write_cube(no_data)
         try:
-            result = parse_cube_data(path)
-            self.assertEqual(len(result["data_flat"]), 8)
-            import numpy as np
-
-            np.testing.assert_array_equal(result["data_flat"], np.zeros(8))
+            with self.assertRaises(ValueError):
+                parse_cube_data(path)
         finally:
             os.unlink(path)
 
@@ -252,9 +245,9 @@ class TestParseCubeMOFormat(unittest.TestCase):
              2  0.283459  0.000000  0.000000
              2  0.000000  0.283459  0.000000
              2  0.000000  0.000000  0.283459
-             1  0  0.000000  0.000000  0.000000  0.000000
              1  0.000000  0.000000  0.000000  0.000000
              8  0.000000  1.889726  0.000000  0.000000
+             1 1
              0.1  0.2  0.3  0.4  0.5  0.6  0.7  0.8
         """)
         path = _write_cube(mo_cube)
@@ -279,6 +272,7 @@ class TestParseCubeMOFormat(unittest.TestCase):
             -2  0.000000  0.000000  0.283459
              1  0  0.000000  0.000000  0.000000
              8  0  1.889726  0.000000  0.000000
+             1 1
              0.1  0.2  0.3  0.4  0.5  0.6  0.7  0.8
         """)
         path = _write_cube(ang_cube)
@@ -295,7 +289,7 @@ class TestParseCubeMOFormat(unittest.TestCase):
 
 
 class TestParseCubeMalformedAtoms(unittest.TestCase):
-    def test_short_atom_line_is_skipped(self):
+    def test_short_atom_line_is_rejected(self):
         """An atom line with fewer than 5 tokens must be skipped, not crash."""
         cube = textwrap.dedent("""\
             Comment 1
@@ -310,9 +304,8 @@ class TestParseCubeMalformedAtoms(unittest.TestCase):
         """)
         path = _write_cube(cube)
         try:
-            result = parse_cube_data(path)
-            # Should return a result (possibly with 1 valid atom)
-            self.assertIsInstance(result, dict)
+            with self.assertRaises(ValueError):
+                parse_cube_data(path)
         finally:
             os.unlink(path)
 

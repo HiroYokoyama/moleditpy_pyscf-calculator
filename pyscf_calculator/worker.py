@@ -9,6 +9,7 @@ import os
 import re
 import shutil
 import sys
+import threading
 import traceback
 
 import numpy as np
@@ -33,6 +34,10 @@ except ImportError:
     pyscf = None
 
 logger = logging.getLogger(__name__)
+
+# File descriptors and sys.stdout belong to the process, not a QThread.
+# Serialize every worker's capture, including across multiple dialogs.
+_OUTPUT_LOCK = threading.Lock()
 
 _HC_EV_NM = 1239.84193  # hc in eV·nm, for excitation wavelength conversion
 # PySCF's own factor, so tables agree with its logs; CODATA 2018 fallback.
@@ -143,6 +148,7 @@ class CaptureStdOut:
         self.original_stderr_fd = None
         self.saved_stdout_fd = None
         self.saved_stderr_fd = None
+        self.log_file = None
 
     def __enter__(self):
         sys.stdout.flush()
@@ -163,17 +169,14 @@ class CaptureStdOut:
         except (AttributeError, OSError, ValueError):
             self.original_stderr_fd = 2
 
-        # Save Original FDs
-        if self.original_stdout_fd is not None:
+        try:
             self.saved_stdout_fd = os.dup(self.original_stdout_fd)
-        if self.original_stderr_fd is not None:
             self.saved_stderr_fd = os.dup(self.original_stderr_fd)
-
-        # Redirect FDs to Log File
-        if self.original_stdout_fd is not None:
             os.dup2(self.log_file.fileno(), self.original_stdout_fd)
-        if self.original_stderr_fd is not None:
             os.dup2(self.log_file.fileno(), self.original_stderr_fd)
+        except BaseException:
+            self.__exit__(*sys.exc_info())
+            raise
 
         return self.log_file
 
@@ -247,6 +250,7 @@ class StreamToSignal(io.TextIOBase):
             with contextlib.suppress(OSError, ValueError):
                 self.target_stream.write(text)
                 self.target_stream.flush()
+        return len(text)
 
     def flush(self):
         if self.target_stream:
@@ -274,11 +278,25 @@ class StreamToSignal(io.TextIOBase):
 def redirected_output(worker, log_file):
     """Route C-level and Python stdout/stderr into log_file and the worker's
     log signal for the duration of a job; always restore them."""
+    while not _OUTPUT_LOCK.acquire(timeout=0.1):
+        if getattr(worker, "_stop_requested", False):
+            raise InterruptedError("Calculation cancelled while waiting for output capture")
+    try:
+        if getattr(worker, "_stop_requested", False):
+            raise InterruptedError("Calculation cancelled")
+        with _redirected_output(worker, log_file) as stream:
+            yield stream
+    finally:
+        _OUTPUT_LOCK.release()
+
+
+@contextlib.contextmanager
+def _redirected_output(worker, log_file):
     capturer = CaptureStdOut(log_file)
     f_log = capturer.__enter__()
     saved = (sys.stdout, sys.stderr)
     stream = StreamToSignal(worker.log_signal, target_stream=f_log)
-    worker._stream = stream  # the GUI may close() it before terminate()
+    worker._stream = stream  # the GUI may close() it when requesting cancellation
     sys.stdout = sys.stderr = stream
     try:
         yield stream
@@ -376,6 +394,7 @@ class PySCFWorker(QThread):
     def _apply_mf_settings(self, mf):
         """Apply max_cycle and conv_tol from config to mf."""
         mf.max_cycle = self.config.get("max_cycle", 100)
+        mf.callback = self._check_stop
         try:
             mf.conv_tol = float(self.config.get("conv_tol", "1e-9"))
         except (TypeError, ValueError):
@@ -383,6 +402,10 @@ class PySCFWorker(QThread):
                 "conv_tol %r is not a number; keeping PySCF's default",
                 self.config.get("conv_tol"),
             )
+
+    def _check_stop(self, envs=None):
+        if self._stop_requested:
+            raise InterruptedError("Calculation cancelled")
 
     def _new_step_mf(self, mol, method_name, functional):
         """A fresh, fully configured mf (solvent + SCF settings) for a scan point.
@@ -587,19 +610,23 @@ class PySCFWorker(QThread):
             with redirected_output(self, log_file) as stream:
                 self._run_job(stream)
         except Exception as e:  # noqa: BLE001 -- thread boundary: report, never raise
-            self.error_signal.emit(str(e) + "\n" + traceback.format_exc())
+            if not self._stop_requested:
+                self.error_signal.emit(str(e) + "\n" + traceback.format_exc())
 
     def _make_job_dir(self):
         """A fresh job_<n> directory under the configured output root."""
         root_dir = self.config.get("out_dir") or os.path.join(
             os.path.dirname(os.path.abspath(__file__)), "output"
         )
+        os.makedirs(root_dir, exist_ok=True)
         n = 1
-        while os.path.exists(os.path.join(root_dir, f"job_{n}")):
-            n += 1
-        out_dir = os.path.join(root_dir, f"job_{n}")
-        os.makedirs(out_dir, exist_ok=True)
-        return out_dir
+        while True:
+            out_dir = os.path.join(root_dir, f"job_{n}")
+            try:
+                os.mkdir(out_dir)
+                return out_dir
+            except FileExistsError:
+                n += 1
 
     def _run_job(self, stream):
         n_threads = self.config.get("threads", 0)
@@ -654,6 +681,7 @@ class PySCFWorker(QThread):
 
             results = {}
             if "Optimization" in job_type:
+                self._run_scf(mf, mol, method_name)
                 mol = self._optimize(mf, job_type, method_name, results)
                 if mol is None:
                     return
@@ -661,7 +689,7 @@ class PySCFWorker(QThread):
                 # starting geometry: the properties SCF needs a fresh mf.
                 mf = self._new_job_mf(mol, method_name, functional, chk_path)
 
-            if any(k in job_type for k in ("Optimization", "Energy", "Frequency")):
+            if any(k in job_type for k in ("Optimization", "Energy", "Frequency", "TDDFT")):
                 self._run_scf(mf, mol, method_name)
             if "Frequency" in job_type:
                 self._run_frequency(mf, mol, job_type, method_name, results)
@@ -769,9 +797,10 @@ class PySCFWorker(QThread):
 
         body = [
             "",
-            f"from pyscf import gto, {'dft' if 'KS' in method_name else 'scf'}",
-            f"mol = gto.M(atom='''{clean_atom_str}''', ",
-            f"    basis='{cfg.get('basis')}', ",
+            f"from pyscf import gto, lib, {'dft' if 'KS' in method_name else 'scf'}",
+            *([f"lib.num_threads({int(n_threads)})"] if n_threads > 0 else []),
+            f"mol = gto.M(atom={clean_atom_str!r}, ",
+            f"    basis={cfg.get('basis', 'sto-3g')!r}, ",
             f"    charge={cfg.get('charge', 0)}, ",
             f"    spin={spin_2s}, ",
             f"    max_memory={cfg.get('memory', 4000)}, ",
@@ -783,7 +812,7 @@ class PySCFWorker(QThread):
             grid_level = cfg.get("grid_level", 3)
             body += [
                 f"mf = dft.{method_name}(mol)",
-                f"mf.xc = '{resolve_xc(functional)}'",
+                f"mf.xc = {resolve_xc(functional)!r}",
                 f"mf.grids.level = {grid_level}",
             ]
             if grid_level >= 4:
@@ -799,7 +828,16 @@ class PySCFWorker(QThread):
             logger.warning("conv_tol %r is not a number", cfg.get("conv_tol"))
         if solvent != "None (Vacuum)":
             body += ["mf = mf.ddCOSMO()", f"mf.with_solvent.eps = {eps_value}"]
-        body.append("mf.kernel()")
+        if cfg.get("break_symmetry", True) and method_name in ("UHF", "UKS") and spin_2s == 0:
+            body += [
+                "import numpy as np",
+                "dm0 = np.array(mf.get_init_guess(key='minao'), copy=True)",
+                "ao_start, ao_end = mol.aoslice_by_atom()[0][2:4]",
+                "dm0[1, ao_start:ao_end, ao_start:ao_end] = 0.0",
+                "mf.kernel(dm0=dm0)",
+            ]
+        else:
+            body.append("mf.kernel()")
         if "TDDFT" in job_type:
             body += [
                 "",
@@ -813,6 +851,7 @@ class PySCFWorker(QThread):
         with open(
             os.path.join(self.out_dir, "pyscf_input.py"), "w", encoding="utf-8"
         ) as f:
+            header = [line.replace("\r", "\\r").replace("\n", "\\n") for line in header]
             f.write("\n".join(header + body) + "\n")
 
     def _run_scan_job(self, mol, mf, job_type):
@@ -820,6 +859,7 @@ class PySCFWorker(QThread):
         if not scan_params:
             self.error_signal.emit("Scan parameters missing.")
             return
+        self._validate_scan_params(scan_params, mol.natm)
         results = {}
         if "Rigid" in job_type:
             self.run_rigid_scan(mol, mf, scan_params, results)
@@ -838,8 +878,15 @@ class PySCFWorker(QThread):
         except OSError as e_info:
             logger.warning("scan_info.json not written: %s", e_info)
 
-        self.result_signal.emit(results)
-        self.finished_signal.emit()
+        if not self._stop_requested:
+            self.result_signal.emit(results)
+            self.finished_signal.emit()
+
+    @staticmethod
+    def _validate_scan_params(params, natm):
+        from .utils import validate_scan_params
+
+        validate_scan_params(params, natm)
 
     def _optimize(self, mf, job_type, method_name, results):
         """Optimise (TS or minimum): the optimised mol, or None after reporting."""
@@ -850,7 +897,8 @@ class PySCFWorker(QThread):
         try:
             from pyscf.geomopt.geometric_solver import optimize
 
-            mol_eq = optimize(mf, **({"transition": True} if is_ts else {}))
+            self._check_stop()
+            mol_eq = optimize(mf, callback=self._check_stop, **({"transition": True} if is_ts else {}))
             header = (
                 "Generated by PySCF TS Optimization"
                 if is_ts
@@ -868,7 +916,7 @@ class PySCFWorker(QThread):
             try:
                 from pyscf.geomopt.berny_solver import optimize as optimize_berny
 
-                mol_eq = optimize_berny(mf)
+                mol_eq = optimize_berny(mf, callback=self._check_stop)
                 header = "Generated by PySCF Optimization (Berny)"
             except ImportError:
                 self.error_signal.emit(
@@ -876,6 +924,7 @@ class PySCFWorker(QThread):
                 )
                 return None
 
+        self._check_stop()
         coords = mol_eq.atom_coords(unit="Ang")
         xyz_lines = [f"{mol_eq.natm}", header]
         for i, c in enumerate(coords):
@@ -885,16 +934,18 @@ class PySCFWorker(QThread):
         results["optimized_xyz"] = "\n".join(xyz_lines)
         return mol_eq
 
-    def _run_scf(self, mf, mol, method_name):
+    def _run_scf(self, mf, mol, method_name, dm0=None, force=False):
         """The job's SCF (skipped if already run), broken-symmetry guess
         for a closed-shell UHF/UKS when asked, convergence warning."""
-        if mf.e_tot:
+        self._check_stop()
+        if mf.e_tot and not force:
             return
         self._log(f"Running partial energy calculation using {method_name}...\n")
         # Only a spin-restricted guess needs breaking. With 2S > 0 the alpha
         # and beta occupations already differ.
         if (
-            self.config.get("break_symmetry", True)
+            dm0 is None
+            and self.config.get("break_symmetry", True)
             and method_name in ("UHF", "UKS")
             and self._parse_spin_2s() == 0
         ):
@@ -911,8 +962,11 @@ class PySCFWorker(QThread):
                     "(beta density removed from atom 1)...\n"
                 )
                 mf.kernel(dm0=dm0)
+        elif dm0 is not None:
+            mf.kernel(dm0=dm0)
         else:
             mf.kernel()
+        self._check_stop()
 
         # Energy / Optimization jobs used to report an unconverged SCF
         # energy without a word.
@@ -925,6 +979,7 @@ class PySCFWorker(QThread):
     def _hessian(self, mf, mol):
         """Analytic or (by choice) finite-difference Hessian. Raises
         _FrequencySkipped when a solvated job has no usable solvent Hessian."""
+        self._check_stop()
         if self._wants_numerical_hessian():
             return self._numerical_hessian_obj(mf, mol).kernel()
         h_obj = mf.Hessian()
@@ -962,6 +1017,7 @@ class PySCFWorker(QThread):
         self._log("Calculating Hessian...\n")
         try:
             hessian = self._hessian(mf, mol)
+            self._check_stop()
 
             from pyscf.hessian import thermo
 
@@ -1011,6 +1067,8 @@ class PySCFWorker(QThread):
 
         except _FrequencySkipped as e_skip:
             self._log(f"Note: {e_skip}\n")
+        except InterruptedError:
+            raise
         except Exception as e_freq:  # noqa: BLE001 -- a failed Hessian must not lose the SCF result
             self._log(
                 f"Frequency analysis failed: {e_freq}\n{traceback.format_exc()}\n"
@@ -1027,7 +1085,7 @@ class PySCFWorker(QThread):
         self._log("Starting TDDFT Calculation...\n")
         if not mf.e_tot:
             self._log("Running SCF for TDDFT...\n")
-            mf.kernel()
+            self._run_scf(mf, mf.mol, method_name)
         if not mf.converged:
             self._log(
                 "WARNING: SCF did not converge before TDDFT. Results may be inaccurate.\n"
@@ -1045,10 +1103,13 @@ class PySCFWorker(QThread):
 
             self._log(f"Calculating {nstates} Excited States...\n")
             td_obj.kernel()
+            self._check_stop()
 
             tddft_list = self._tddft_rows(td_obj, mf.e_tot)
             results["tddft_data"] = tddft_list
             self._save_tddft(tddft_list)
+        except InterruptedError:
+            raise
         except Exception as e_td:  # noqa: BLE001 -- a failed TDDFT must not lose the SCF result
             self._log(f"TDDFT calculation failed: {e_td}\n{traceback.format_exc()}\n")
 
@@ -1127,6 +1188,7 @@ class PySCFWorker(QThread):
 
     def _finish(self, mf, chk_path, results):
         """SCF properties, MO data and the checkpoint path; emit the result."""
+        self._check_stop()
         scf_props = self._scf_properties(mf)
         if scf_props:
             results.update(scf_props)
@@ -1279,7 +1341,7 @@ class PySCFWorker(QThread):
             mf_step.chkfile = os.path.join(self.out_dir, f"scan_step_{i + 1}.chk")
             mf_step.verbose = 0
 
-            mf_step.kernel(dm0=dm_prev)
+            self._run_scf(mf_step, mol_step, method_name, dm0=dm_prev, force=True)
             e_tot = mf_step.e_tot
 
             # An unconverged point can sit many kcal/mol off and would
@@ -1365,7 +1427,8 @@ class PySCFWorker(QThread):
         # Ensure initial molecule is converged so we have a good starting checkpoint for Step 0
         if not mf.e_tot:
             self._log("Ensuring initial SCF convergence before scanning...\n")
-            mf.kernel()
+            self._run_scf(mf, mol, method_name)
+        dm_prev = mf.make_rdm1() if getattr(mf, "converged", False) else None
 
         for i, val in enumerate(scan_values):
             # Cooperative stop check
@@ -1447,7 +1510,8 @@ class PySCFWorker(QThread):
                     self._log(f"  Warning: Failed to seed initial guess: {e_seed}\n")
                 # --------------------------------------------------------
 
-                mol_eq = optimize(step_mf, constraints=const_file)
+                self._run_scf(step_mf, step_mol, method_name, dm0=dm_prev, force=True)
+                mol_eq = optimize(step_mf, constraints=const_file, callback=self._check_stop)
 
                 # Force an explicit SCF calculation on the final optimized structure
                 # to ensure the energy is 100% accurate and matches the mol_eq coordinates.
@@ -1458,9 +1522,14 @@ class PySCFWorker(QThread):
                     # cavity are only rebuilt for the new geometry by reset().
                     step_mf.reset(mol_eq)
                     e_tot = step_mf.kernel()
+                    self._check_stop()
                     step_converged = bool(getattr(step_mf, "converged", True))
+                    if step_converged:
+                        dm_prev = step_mf.make_rdm1()
                     self._log(f"  ✓ Final optimized energy: {e_tot:.8f} Ha\n")
                 # a failed point is reported and dropped, never fatal to the scan
+                except InterruptedError:
+                    raise
                 except Exception as e:  # noqa: BLE001
                     self._log(f"  ⚠ Failed final SCF, attempting fallback... {e}\n")
                     step_converged = False
@@ -1563,6 +1632,8 @@ class PySCFWorker(QThread):
                 )
 
             # geomeTRIC / PySCF can fail in many ways; report and stop the scan
+            except InterruptedError:
+                break
             except Exception as e:  # noqa: BLE001
                 self._log(f"  ✗ Optimization step {i + 1} failed: {e}\n")
                 self._log(traceback.format_exc())
@@ -1728,8 +1799,14 @@ class PropertyWorker(QThread):
         return get_unique_path(path)
 
     def _make_esp(self, tools, mol, mo_coeff, mo_occ):
-        f_esp = self._unique_path(os.path.join(self.out_dir, "esp.cube"))
-        f_dens = self._unique_path(os.path.join(self.out_dir, "density.cube"))
+        n = 0
+        while True:
+            suffix = f"_{n}" if n else ""
+            f_esp = os.path.join(self.out_dir, f"esp{suffix}.cube")
+            f_dens = os.path.join(self.out_dir, f"density{suffix}.cube")
+            if not os.path.exists(f_esp) and not os.path.exists(f_dens):
+                break
+            n += 1
         # Total density for the MEP, for RHF / UHF / ROHF alike
         dm_a, dm_b = self._spin_density_matrices(mo_coeff, mo_occ)
         dm = dm_a + dm_b

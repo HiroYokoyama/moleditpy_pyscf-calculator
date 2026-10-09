@@ -257,7 +257,7 @@ def _install_stubs():
             AlignCenter = 1
 
     qt_core.Qt = _Qt
-    qt_core.QTimer = MagicMock
+    qt_core.QTimer = lambda *args, **kwargs: MagicMock()
     qt_core.QPointF = _FakeQPointF
 
     pyqt6 = types.ModuleType("PyQt6")

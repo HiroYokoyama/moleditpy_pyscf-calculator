@@ -586,6 +586,13 @@ class CalcTab(QWidget):
             return 1
 
     def run_calculation(self):
+        if getattr(self, "worker", None) is not None:
+            self.log("Please wait for the previous worker to exit.")
+            return
+        vis = getattr(self.parent_dialog, "vis_tab", None)
+        if vis is not None and (vis.load_worker is not None or vis.prop_worker is not None):
+            self.log("Please wait for result loading or property generation to finish.")
+            return
         if not self.context or not self.context.current_molecule:
             msg = (
                 "Error: No molecule loaded. Please load a molecule in the main window."
@@ -638,6 +645,11 @@ class CalcTab(QWidget):
                 final_out_dir = os.path.join(os.path.expanduser("~"), raw_out_dir)
 
         job_type = self.job_type_combo.currentText()
+        if "Scan" in job_type and getattr(self, "scan_params", None):
+            signature = self.scan_params.get("molecule_signature")
+            if signature is not None and signature != Chem.MolToSmiles(self.context.current_molecule):
+                self.scan_params = None
+                self.log("The molecule has changed; reconfigure the scan atom selection.")
         if "Scan" in job_type and not getattr(self, "scan_params", None):
             reply = QMessageBox.question(
                 self,
@@ -703,6 +715,7 @@ class CalcTab(QWidget):
         self.worker.finished_signal.connect(self.on_finished)
         self.worker.error_signal.connect(self.on_error)
         self.worker.result_signal.connect(self.parent_dialog.on_results)
+        self.worker.finished.connect(self._on_worker_stopped)
 
         self.worker.start()
 
@@ -733,24 +746,8 @@ class CalcTab(QWidget):
             with contextlib.suppress(TypeError, RuntimeError):
                 sig.disconnect()
 
-        # 4. Deferred cleanup: self.worker is only set to None once the
-        #    thread has fully exited, preventing use-after-free. (QThread in
-        #    PyQt6 has no `terminated` signal -- connecting to it raised
-        #    AttributeError, so Stop and closing the dialog mid-job failed.)
-        self.worker.finished.connect(self._on_worker_stopped)
-
-        # 5. Give the cooperative flag 2 s to take effect before force-killing.
-        if not self.worker.wait(2000):
-            self.log("Force-terminating worker thread...")
-            self.worker.terminate()
-            # wait() after terminate() blocks until the OS has cleaned up.
-            self.worker.wait(1000)
-
-        # A terminated thread does not reliably emit `finished`; once wait()
-        # has seen it end, clean up here (the call is idempotent).
-        if self.worker is not None and not self.worker.isRunning():
-            self._on_worker_stopped()
-        self.log("Calculation stopped.")
+        self.stop_btn.setEnabled(False)
+        self.log("Cancellation requested; waiting for the current calculation step to exit safely.")
 
     def _on_worker_stopped(self):
         """Clean up once the worker thread has fully exited.
@@ -761,6 +758,11 @@ class CalcTab(QWidget):
         """
         if self.worker is None:
             return  # Already cleaned up (duplicate signal delivery)
+        sender = getattr(self, "sender", lambda: None)()
+        if sender is not None and sender is not self.worker:
+            return  # A queued signal from an older worker.
+        if self.worker._stop_requested:
+            self.log("Calculation stopped.")
         self.worker = None
         self.cleanup_ui_state()
 
@@ -792,7 +794,6 @@ class CalcTab(QWidget):
                     )
 
         self.log("\n---------------------------------\nCalculation Finished.")
-        self.cleanup_ui_state()
 
     def on_error(self, err_msg):
         self.log(f"\nERROR: {err_msg}")
@@ -800,7 +801,8 @@ class CalcTab(QWidget):
         self.cleanup_ui_state()
 
     def cleanup_ui_state(self):
+        if self.worker is not None:
+            return  # Only QThread.finished releases the worker.
         self.run_btn.setEnabled(True)
         self.stop_btn.setEnabled(False)
         self.progress_bar.hide()
-        self.worker = None

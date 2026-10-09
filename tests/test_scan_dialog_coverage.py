@@ -23,6 +23,10 @@ def _load_module_direct(relpath, module_name):
     src = os.path.normpath(src)
     spec = importlib.util.spec_from_file_location(module_name, src)
     mod = importlib.util.module_from_spec(spec)
+    package = types.ModuleType('_scan_dialog_test_package')
+    package.__path__ = [os.path.dirname(src)]
+    sys.modules['_scan_dialog_test_package'] = package
+    mod.__package__ = package.__name__
     sys.modules[module_name] = mod
     spec.loader.exec_module(mod)
     return mod
@@ -218,6 +222,7 @@ class TestAutoUpdateSelection(unittest.TestCase):
     def _make_dialog(self):
         dlg = ScanDialog.__new__(ScanDialog)
         dlg.context = MagicMock()
+        dlg.context.current_molecule.GetNumAtoms.return_value = 4
         dlg.selected_atoms = []
         dlg.lbl_selection = MagicMock()
         dlg.grp_params = MagicMock()
@@ -303,6 +308,7 @@ class TestCalculateCurrentValue(unittest.TestCase):
     def test_no_molecule_returns(self):
         dlg = self._make_dialog()
         dlg.context = MagicMock()
+        dlg.context.current_molecule.GetNumAtoms.return_value = 4
         dlg.context.current_molecule = None
         dlg.selected_atoms = [0, 1]
         dlg.calculate_current_value()
@@ -320,6 +326,7 @@ class TestCalculateCurrentValue(unittest.TestCase):
         conf.GetAtomPosition.side_effect = [p1, p2]
         mol.GetConformer.return_value = conf
         dlg.context = MagicMock()
+        dlg.context.current_molecule.GetNumAtoms.return_value = 4
         dlg.context.current_molecule = mol
         dlg.selected_atoms = [0, 1]
 
@@ -336,6 +343,7 @@ class TestCalculateCurrentValue(unittest.TestCase):
         conf = MagicMock()
         mol.GetConformer.return_value = conf
         dlg.context = MagicMock()
+        dlg.context.current_molecule.GetNumAtoms.return_value = 4
         dlg.context.current_molecule = mol
         dlg.selected_atoms = [0, 1, 2]
 
@@ -351,6 +359,7 @@ class TestCalculateCurrentValue(unittest.TestCase):
         conf = MagicMock()
         mol.GetConformer.return_value = conf
         dlg.context = MagicMock()
+        dlg.context.current_molecule.GetNumAtoms.return_value = 4
         dlg.context.current_molecule = mol
         dlg.selected_atoms = [0, 1, 2, 3]
 
@@ -369,6 +378,7 @@ class TestCalculateCurrentValue(unittest.TestCase):
         conf.GetAtomPosition.side_effect = RuntimeError("boom")
         mol.GetConformer.return_value = conf
         dlg.context = MagicMock()
+        dlg.context.current_molecule.GetNumAtoms.return_value = 4
         dlg.context.current_molecule = mol
         dlg.selected_atoms = [0, 1]
 
@@ -386,6 +396,8 @@ class TestAcceptScanStepsValidation(unittest.TestCase):
         dlg.scan_configured = MagicMock()
         dlg.scan_type = "Dist"
         dlg.selected_atoms = [0, 1]
+        dlg.context = MagicMock()
+        dlg.context.current_molecule.GetNumAtoms.return_value = 4
         dlg.mw = None
         return dlg
 

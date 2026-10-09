@@ -65,6 +65,7 @@ class ScanResultDialog(QDialog):
         context=None,
         scan_type="Coordinate",
         scan_result_dir=None,
+        update_structure=True,
     ):
         super().__init__(parent)
         self.setWindowTitle(f"Scan Results: {scan_type}")
@@ -78,6 +79,7 @@ class ScanResultDialog(QDialog):
         self.frame_idx = 0
         self.is_playing = False
         self.base_mol = None
+        self.update_structure = update_structure
 
         if self.trajectory and len(self.trajectory) > 0:
             self.create_base_molecule()
@@ -372,7 +374,7 @@ class ScanResultDialog(QDialog):
             self.base_mol = mol.GetMol()
 
             # Set as current molecule in context
-            if self.context:
+            if self.context and getattr(self, "update_structure", True):
                 self.context.current_molecule = self.base_mol
                 # context.current_molecule's setter only pushes the mol to
                 # the 3D view; it does not touch the unsaved-changes flag
@@ -439,6 +441,12 @@ class ScanResultDialog(QDialog):
     def update_viewer(self, idx):
         if not self.context or not self.trajectory:
             return
+        if not getattr(self, "update_structure", True):
+            # Auto-loading history is read-only until a frame is selected.
+            self.update_structure = True
+            if self.base_mol is not None:
+                self.context.current_molecule = self.base_mol
+                self.context.mark_project_modified()
 
         xyz = self.trajectory[idx]
 

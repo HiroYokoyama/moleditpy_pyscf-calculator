@@ -351,7 +351,7 @@ class TestPostOptimizationMF(unittest.TestCase):
         # the final SCF ran on a fresh mf built at mol_eq ...
         self.assertIs(_mod.scf.RHF.call_args_list[-1][0][0], mol_eq)
         self.assertEqual(len(second.kernel_calls), 1)
-        self.assertEqual(first.kernel_calls, [])
+        self.assertEqual(first.kernel_calls, [None])
         # ... carrying the user's SCF settings
         self.assertEqual(second.max_cycle, 321)
         self.assertEqual(second.conv_tol, 1e-7)

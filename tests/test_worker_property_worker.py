@@ -239,26 +239,12 @@ class TestPropertyWorkerStop(unittest.TestCase):
     def setUpClass(cls):
         cls.mod = _load_worker_mod(MagicMock())
 
-    def test_stop_before_tasks_breaks_loop(self):
-        """If _stop_requested is True before any task runs, loop exits early."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            mo_occ = np.array([2.0, 0.0])
-            _mock_pyscf_checkpoint(self.mod, mo_occ)
-            pw = _make_property_worker(self.mod, ["ESP"], tmpdir)
-            pw._stop_requested = True
-
-            with patch.object(self.mod, "CaptureStdOut") as mock_cap:
-                mock_cap.return_value.__enter__ = MagicMock(return_value=MagicMock())
-                mock_cap.return_value.__exit__ = MagicMock(return_value=False)
-                pw.run()
-
-            # finished_signal is still emitted (loop was just skipped)
-            pw.finished_signal.emit.assert_called_once()
-            # No error
-            pw.error_signal.emit.assert_not_called()
-            # The result must have empty files (ESP was skipped)
-            result = pw.result_signal.emit.call_args[0][0]
-            self.assertEqual(result["files"], [])
+    def test_stop_before_tasks_emits_no_result(self):
+        pw = _make_property_worker(self.mod, ["HOMO"], tempfile.mkdtemp())
+        pw._stop_requested = True
+        pw.run()
+        pw.result_signal.emit.assert_not_called()
+        pw.error_signal.emit.assert_not_called()
 
 
 if __name__ == "__main__":
