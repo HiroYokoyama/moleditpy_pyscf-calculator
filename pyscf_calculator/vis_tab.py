@@ -332,7 +332,7 @@ class VisTab(QWidget):
 
             # Load scan results
             try:
-                self.load_scan_results(d)
+                self.load_scan_results(d, update_structure=update_structure)
             except Exception as e:  # noqa: BLE001 -- Qt slot: an escaping exception aborts the host app (PyQt6)
                 self.log(f"Error loading scan results: {e}")
                 QMessageBox.warning(self, "Error", f"Failed to load scan results: {e}")
@@ -372,7 +372,7 @@ class VisTab(QWidget):
         self.parent_dialog.progress_bar.show()
         self.load_worker.start()
 
-    def load_scan_results(self, result_dir):
+    def load_scan_results(self, result_dir, update_structure=True):
         """Load scan results from a folder without checkpoint file."""
         self.log("Loading scan results...")
 
@@ -392,6 +392,10 @@ class VisTab(QWidget):
 
         if not ScanResultDialog:
             raise RuntimeError("ScanResultDialog not available")
+        old_dialog = getattr(self, "scan_dlg", None)
+        if old_dialog is not None:
+            _teardown(old_dialog.close, "scan_dlg.close")
+            _teardown(old_dialog.deleteLater, "scan_dlg.deleteLater")
         try:
             dlg = ScanResultDialog(
                 scan_result_dir=result_dir,
@@ -400,6 +404,7 @@ class VisTab(QWidget):
                 results=scan_results,
                 trajectory=trajectory,
                 scan_type=LoadWorker.load_scan_type(result_dir) or "Coordinate",
+                update_structure=update_structure,
             )
         except Exception as e:  # widget construction; re-raised with context
             raise RuntimeError(f"Failed to open scan dialog: {e}") from e
