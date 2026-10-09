@@ -119,6 +119,7 @@ VisTab = _vis_tab_mod.VisTab
 def _make_vis_tab():
     vt = VisTab.__new__(VisTab)
     vt.parent_dialog = MagicMock()
+    vt.parent_dialog.calc_tab = None
     vt.context = MagicMock()
     vt.chkfile_path = "/fake/out/pyscf.chk"
     vt.last_out_dir = "/fake/out"
@@ -167,17 +168,14 @@ class TestRunSpecificAnalysisBusyGuard(unittest.TestCase):
         # The original (still running) worker reference must be preserved.
         self.assertIs(vt.prop_worker, running_worker)
 
-    def test_allows_new_run_after_previous_worker_finished(self):
+    def test_retains_worker_until_finished_delivery(self):
         vt = _make_vis_tab()
-        finished_worker = MagicMock()
-        finished_worker.isRunning.return_value = False
-        vt.prop_worker = finished_worker
-
+        worker = MagicMock()
+        vt.prop_worker = worker
+        worker.isRunning.return_value = False
         with patch.object(_vis_tab_mod.os.path, "exists", return_value=True):
             vt.run_specific_analysis(["ESP"])
-
-        self.mock_worker_cls.assert_called_once()
-        self.assertIs(vt.prop_worker, self.mock_worker_instance)
+        self.assertIs(vt.prop_worker, worker)
 
     def test_missing_chkfile_path_returns_without_starting(self):
         vt = _make_vis_tab()

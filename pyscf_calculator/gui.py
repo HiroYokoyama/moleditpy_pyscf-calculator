@@ -206,8 +206,6 @@ class PySCFDialog(QDialog):
     def on_error(self, err_msg):
         self.log(f"\nERROR: {err_msg}")
         QMessageBox.critical(self, "Error", err_msg)
-        if getattr(self, "calc_tab", None) is not None:
-            self.calc_tab.cleanup_ui_state()
 
     def _safe_stop_worker(self, worker):
         if worker and worker.isRunning():

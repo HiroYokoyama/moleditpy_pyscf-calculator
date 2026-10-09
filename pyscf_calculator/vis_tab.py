@@ -95,6 +95,7 @@ class VisTab(QWidget):
         # Workers
         self.prop_worker = None
         self.load_worker = None
+        self._load_generation = 0
 
         self.setup_ui()
 
@@ -307,6 +308,10 @@ class VisTab(QWidget):
         self.parent_dialog.update_internal_state()
 
     def load_result_folder(self, path=None, update_structure=True, is_opt_job=False):
+        if self.load_worker is not None or self.prop_worker is not None:
+            QMessageBox.warning(self, "Busy", "Please wait for the current result or property worker to exit.")
+            return
+        self._load_generation = getattr(self, "_load_generation", 0) + 1
         self.loading_update_struct = update_structure
         self._pending_is_opt = is_opt_job
         d = path
@@ -367,6 +372,7 @@ class VisTab(QWidget):
         self.load_worker = LoadWorker(chk_path)
         self.load_worker.finished_signal.connect(self.on_load_finished)
         self.load_worker.error_signal.connect(self.parent_dialog.on_error)
+        self.load_worker.finished.connect(self._on_load_thread_finished)
 
         self.log(f"\nLoading result from: {d}...")
         self.parent_dialog.progress_bar.show()
@@ -421,6 +427,9 @@ class VisTab(QWidget):
             self._history_changed = False
 
     def on_load_finished(self, result_data):
+        if getattr(self.parent_dialog, "closing", False) is True or getattr(self.load_worker, "_stop_requested", False) is True:
+            return
+        generation = getattr(self, "_load_generation", 0)
         self.log("Result loaded successfully.")
         self.parent_dialog.progress_bar.hide()
 
@@ -570,7 +579,14 @@ class VisTab(QWidget):
                 self.log(f"Warning during finalize_load: {e}")
                 logger.exception("finalize_load error")
 
-        QTimer.singleShot(150, lambda: self.parent_dialog.tabs.setCurrentIndex(1))
+        QTimer.singleShot(150, lambda: self.parent_dialog.tabs.setCurrentIndex(1)
+                          if generation == getattr(self, "_load_generation", 0) and not self.parent_dialog.closing else None)
+
+    def _on_load_thread_finished(self):
+        if self.sender() is not self.load_worker:
+            return
+        self.load_worker = None
+        self.parent_dialog.progress_bar.hide()
 
     def finalize_load(self, result_data, cubes=None):
         if self.freq_vis:
@@ -902,6 +918,9 @@ class VisTab(QWidget):
         self.run_specific_analysis(tasks)
 
     def run_specific_analysis(self, tasks, out_d=None):
+        if getattr(getattr(self.parent_dialog, "calc_tab", None), "worker", None) is not None or self.load_worker is not None:
+            QMessageBox.warning(self, "Busy", "Please wait for the calculation or result load to finish.")
+            return
         if not self.chkfile_path:
             return
         if not os.path.exists(self.chkfile_path):
@@ -909,7 +928,7 @@ class VisTab(QWidget):
                 self, "Error", f"Checkpoint file missing at: {self.chkfile_path}"
             )
             return
-        if self.prop_worker is not None and self.prop_worker.isRunning():
+        if self.prop_worker is not None:
             # Without this guard, a second call (e.g. from double-clicking an
             # orbital in the Energy Diagram while the button-triggered
             # analysis is still running) would overwrite self.prop_worker
@@ -933,6 +952,7 @@ class VisTab(QWidget):
         self.prop_worker.finished_signal.connect(self.on_prop_finished)
         self.prop_worker.error_signal.connect(self.parent_dialog.on_error)
         self.prop_worker.result_signal.connect(self.on_prop_results)
+        self.prop_worker.finished.connect(self._on_prop_thread_finished)
 
         self.btn_run_analysis.setEnabled(False)
         self.parent_dialog.progress_bar.show()
@@ -946,17 +966,24 @@ class VisTab(QWidget):
 
     def on_prop_finished(self):
         self.log("\nAnalysis Finished.")
-        self.btn_run_analysis.setEnabled(True)
-        self.parent_dialog.progress_bar.hide()
+
+    def _on_prop_thread_finished(self):
+        if self.sender() is not self.prop_worker:
+            return
         self.prop_worker = None
-        for i in range(self.orb_list.count()):
-            item = self.orb_list.item(i)
-            if item.checkState() == Qt.CheckState.Checked:
-                item.setCheckState(Qt.CheckState.Unchecked)
-                item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEnabled)
+        self.btn_run_analysis.setEnabled(bool(self.chkfile_path))
+        self.parent_dialog.progress_bar.hide()
+
+    def _disable_generated_tasks(self, files):
+        if not files:
+            return
+        self.disable_existing_analysis_items(files)
 
     def on_prop_results(self, result_data):
+        if getattr(self.parent_dialog, "closing", False) is True or getattr(self.prop_worker, "_stop_requested", False) is True:
+            return
         new_files = result_data.get("files", [])
+        self._disable_generated_tasks(new_files)
         if new_files:
             self.log(f"Generated {len(new_files)} new files.")
 
