@@ -638,6 +638,11 @@ class CalcTab(QWidget):
                 final_out_dir = os.path.join(os.path.expanduser("~"), raw_out_dir)
 
         job_type = self.job_type_combo.currentText()
+        if "Scan" in job_type and getattr(self, "scan_params", None):
+            signature = self.scan_params.get("molecule_signature")
+            if signature is not None and signature != Chem.MolToSmiles(self.context.current_molecule):
+                self.scan_params = None
+                self.log("The molecule has changed; reconfigure the scan atom selection.")
         if "Scan" in job_type and not getattr(self, "scan_params", None):
             reply = QMessageBox.question(
                 self,

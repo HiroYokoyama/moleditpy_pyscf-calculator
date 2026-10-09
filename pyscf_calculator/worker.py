@@ -834,6 +834,7 @@ class PySCFWorker(QThread):
         if not scan_params:
             self.error_signal.emit("Scan parameters missing.")
             return
+        self._validate_scan_params(scan_params, mol.natm)
         results = {}
         if "Rigid" in job_type:
             self.run_rigid_scan(mol, mf, scan_params, results)
@@ -852,8 +853,15 @@ class PySCFWorker(QThread):
         except OSError as e_info:
             logger.warning("scan_info.json not written: %s", e_info)
 
-        self.result_signal.emit(results)
-        self.finished_signal.emit()
+        if not self._stop_requested:
+            self.result_signal.emit(results)
+            self.finished_signal.emit()
+
+    @staticmethod
+    def _validate_scan_params(params, natm):
+        from .utils import validate_scan_params
+
+        validate_scan_params(params, natm)
 
     def _optimize(self, mf, job_type, method_name, results):
         """Optimise (TS or minimum): the optimised mol, or None after reporting."""

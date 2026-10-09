@@ -16,6 +16,10 @@ def _load_module_direct(relpath, module_name):
     src = os.path.normpath(src)
     spec = importlib.util.spec_from_file_location(module_name, src)
     mod = importlib.util.module_from_spec(spec)
+    package = types.ModuleType('_scan_dialog_test_package')
+    package.__path__ = [os.path.dirname(src)]
+    sys.modules['_scan_dialog_test_package'] = package
+    mod.__package__ = package.__name__
     sys.modules[module_name] = mod
     spec.loader.exec_module(mod)
     return mod
@@ -94,6 +98,7 @@ ScanDialog = scan_mod.ScanDialog
 class TestScanDialog(unittest.TestCase):
     def setUp(self):
         self.context = MagicMock()
+        self.context.current_molecule.GetNumAtoms.return_value = 4
         self.context.get_main_window.return_value = None
         self.dialog = ScanDialog.__new__(ScanDialog)
 

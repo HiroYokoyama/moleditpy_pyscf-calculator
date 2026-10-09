@@ -389,6 +389,8 @@ class VisTab(QWidget):
             trajectory = read_xyz_frames(traj_path)
         except (OSError, ValueError) as e:
             raise RuntimeError(f"Failed to read trajectory: {e}") from e
+        if len(trajectory) != len(scan_results):
+            raise ValueError("Scan results and trajectory have different numbers of frames.")
 
         if not ScanResultDialog:
             raise RuntimeError("ScanResultDialog not available")

@@ -69,6 +69,10 @@ def _load_worker_mod():
     )
     spec = importlib.util.spec_from_file_location(module_name, src)
     mod = importlib.util.module_from_spec(spec)
+    package = types.ModuleType('_worker_scan_test_package')
+    package.__path__ = [os.path.dirname(src)]
+    sys.modules[package.__name__] = package
+    mod.__package__ = package.__name__
     sys.modules[module_name] = mod
     spec.loader.exec_module(mod)
     return mod
@@ -204,6 +208,8 @@ def _make_worker(config, xyz="H 0 0 0\nH 0 0 0.74"):
 
 def _run(config, fake_mf=None, chem_mock=None, rdmt_mock=None, block_imports=None):
     mock_mol = _make_mock_mol()
+    mock_mol.natm = max((config.get("scan_params") or {}).get("atoms", [0, 1])) + 1
+    mock_mol.atom_symbol.side_effect = lambda i: "H"
 
     gto_mock = MagicMock()
     gto_mock.M.return_value = mock_mol
@@ -321,7 +327,7 @@ class TestRigidScan(unittest.TestCase):
         chem_mock, _rw_mol, _conf = _make_rd_stub()
         scan_params = {
             "type": "Angle",
-            "atoms": [0, 1, 0],
+            "atoms": [0, 1, 2],
             "start": 100.0,
             "end": 110.0,
             "steps": 2,
@@ -336,7 +342,7 @@ class TestRigidScan(unittest.TestCase):
         chem_mock, _rw_mol, _conf = _make_rd_stub()
         scan_params = {
             "type": "Dihedral",
-            "atoms": [0, 1, 0, 1],
+            "atoms": [0, 1, 2, 3],
             "start": 0.0,
             "end": 30.0,
             "steps": 2,
@@ -347,41 +353,14 @@ class TestRigidScan(unittest.TestCase):
         w.finished_signal.emit.assert_called_once()
         self.assertEqual(len(results["scan_results"]), 2)
 
-    def test_stop_requested_breaks_loop_early(self):
-        chem_mock, _rw_mol, _conf = _make_rd_stub()
-        scan_params = {
-            "type": "Dist",
-            "atoms": [0, 1],
-            "start": 0.7,
-            "end": 0.9,
-            "steps": 5,
-        }
-
-        config = _base_config("Rigid Scan", scan_params)
-        mock_mol = _make_mock_mol()
-        gto_mock = MagicMock()
-        gto_mock.M.return_value = mock_mol
-        _mod.gto = gto_mock
-        fake_mf = FakeMF()
-        scf_mock = MagicMock()
-        scf_mock.RHF.return_value = fake_mf
-        _mod.scf = scf_mock
-        _mod.dft = MagicMock()
-        _mod.Chem = chem_mock
-
-        w = _make_worker(config)
+    def test_stop_before_start_emits_no_result(self):
+        params = {"type": "Dist", "atoms": [0, 1], "start": .7, "end": .9, "steps": 5}
+        w = _make_worker(_base_config("Rigid Scan", params))
         w._stop_requested = True
-        tmpdir = tempfile.mkdtemp()
-        w.config["out_dir"] = tmpdir
-        with patch.object(_mod, "CaptureStdOut") as mock_cap:
-            mock_cap.return_value.__enter__ = MagicMock(return_value=MagicMock())
-            mock_cap.return_value.__exit__ = MagicMock(return_value=False)
-            w.run()
-
-        results = w.result_signal.emit.call_args[0][0]
-        self.assertEqual(results["scan_results"], [])
-        all_logs = " ".join(str(c) for c in w.log_signal.emit.call_args_list)
-        self.assertIn("stopped by user", all_logs)
+        w.config["out_dir"] = tempfile.mkdtemp()
+        w.run()
+        w.result_signal.emit.assert_not_called()
+        w.error_signal.emit.assert_not_called()
 
     def test_sanitize_exception_falls_back_to_partial_update(self):
         chem_mock, rw_mol, _conf = _make_rd_stub()
@@ -391,7 +370,7 @@ class TestRigidScan(unittest.TestCase):
             "atoms": [0, 1],
             "start": 0.7,
             "end": 0.9,
-            "steps": 1,
+            "steps": 2,
         }
         w, _results, _out_dir = _run(
             _base_config("Rigid Scan", scan_params), chem_mock=chem_mock
@@ -427,14 +406,14 @@ class TestRigidScan(unittest.TestCase):
             "atoms": [0, 1],
             "start": 0.7,
             "end": 0.9,
-            "steps": 1,
+            "steps": 2,
         }
         w, results, _out_dir = _run(
             _base_config("Rigid Scan", scan_params, extra={"solvent": "Water"}),
             chem_mock=chem_mock,
         )
         w.finished_signal.emit.assert_called_once()
-        self.assertEqual(len(results["scan_results"]), 1)
+        self.assertEqual(len(results["scan_results"]), 2)
 
 
 # ===========================================================================
@@ -522,13 +501,13 @@ class TestRelaxedScan(unittest.TestCase):
             "atoms": [0, 1, 2],
             "start": 90.0,
             "end": 100.0,
-            "steps": 1,
+            "steps": 2,
         }
         w, results, _out_dir = _run(
             _base_config("Relaxed Scan", scan_params), fake_mf=FakeMF()
         )
         w.finished_signal.emit.assert_called_once()
-        self.assertEqual(len(results["scan_results"]), 1)
+        self.assertEqual(len(results["scan_results"]), 2)
 
     def test_dihedral_relaxed_scan_success(self):
         mol_eq = _make_mol_eq(
@@ -554,7 +533,7 @@ class TestRelaxedScan(unittest.TestCase):
             "atoms": [0, 1, 2, 3],
             "start": 0.0,
             "end": 30.0,
-            "steps": 1,
+            "steps": 2,
         }
         w, results, _out_dir = _run(
             _base_config("Relaxed Scan", scan_params),
@@ -563,45 +542,17 @@ class TestRelaxedScan(unittest.TestCase):
             rdmt_mock=rdmt,
         )
         w.finished_signal.emit.assert_called_once()
-        self.assertEqual(len(results["scan_results"]), 1)
+        self.assertEqual(len(results["scan_results"]), 2)
         self.assertEqual(results["scan_results"][0]["value"], 25.0)
 
-    def test_stop_requested_breaks_loop_early(self):
-        mol_eq = _make_mol_eq()
-        _install_geometric(mol_eq)
-        step_mf = MagicMock()
-        step_mf.kernel.return_value = -1.2
-        scf_mock = MagicMock()
-        scf_mock.RHF.return_value = step_mf
-        _mod.scf = scf_mock
-        _mod.dft = MagicMock()
-
-        scan_params = {
-            "type": "Dist",
-            "atoms": [0, 1],
-            "start": 0.7,
-            "end": 0.9,
-            "steps": 5,
-        }
-        config = _base_config("Relaxed Scan", scan_params)
-        mock_mol = _make_mock_mol()
-        gto_mock = MagicMock()
-        gto_mock.M.return_value = mock_mol
-        _mod.gto = gto_mock
-
-        w = _make_worker(config)
+    def test_stop_before_start_emits_no_result(self):
+        params = {"type": "Dist", "atoms": [0, 1], "start": .7, "end": .9, "steps": 5}
+        w = _make_worker(_base_config("Relaxed Scan", params))
         w._stop_requested = True
-        tmpdir = tempfile.mkdtemp()
-        w.config["out_dir"] = tmpdir
-        with patch.object(_mod, "CaptureStdOut") as mock_cap:
-            mock_cap.return_value.__enter__ = MagicMock(return_value=MagicMock())
-            mock_cap.return_value.__exit__ = MagicMock(return_value=False)
-            w.run()
-
-        results = w.result_signal.emit.call_args[0][0]
-        self.assertEqual(results["scan_results"], [])
-        all_logs = " ".join(str(c) for c in w.log_signal.emit.call_args_list)
-        self.assertIn("stopped by user", all_logs)
+        w.config["out_dir"] = tempfile.mkdtemp()
+        w.run()
+        w.result_signal.emit.assert_not_called()
+        w.error_signal.emit.assert_not_called()
 
     def test_step_optimization_exception_breaks_loop(self):
         mol_eq = _make_mol_eq()
