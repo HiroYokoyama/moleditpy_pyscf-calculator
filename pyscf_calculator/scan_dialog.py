@@ -279,7 +279,7 @@ class ScanDialog(QDialog):
                 self, "Invalid Input", "Please enter valid numeric values."
             )
 
-    def closeEvent(self, event):
+    def _cleanup_selection(self):
         try:
             if (
                 getattr(self, "sel_timer", None) is not None
@@ -298,4 +298,11 @@ class ScanDialog(QDialog):
                     )
         except (AttributeError, RuntimeError) as _e:
             logger.warning("cleanup skipped: %s", _e)
+
+    def done(self, result):
+        self._cleanup_selection()
+        super().done(result)
+
+    def closeEvent(self, event):
+        self._cleanup_selection()
         super().closeEvent(event)
