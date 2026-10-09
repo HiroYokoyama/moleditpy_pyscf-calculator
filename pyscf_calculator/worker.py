@@ -1728,8 +1728,14 @@ class PropertyWorker(QThread):
         return get_unique_path(path)
 
     def _make_esp(self, tools, mol, mo_coeff, mo_occ):
-        f_esp = self._unique_path(os.path.join(self.out_dir, "esp.cube"))
-        f_dens = self._unique_path(os.path.join(self.out_dir, "density.cube"))
+        n = 0
+        while True:
+            suffix = f"_{n}" if n else ""
+            f_esp = os.path.join(self.out_dir, f"esp{suffix}.cube")
+            f_dens = os.path.join(self.out_dir, f"density{suffix}.cube")
+            if not os.path.exists(f_esp) and not os.path.exists(f_dens):
+                break
+            n += 1
         # Total density for the MEP, for RHF / UHF / ROHF alike
         dm_a, dm_b = self._spin_density_matrices(mo_coeff, mo_occ)
         dm = dm_a + dm_b

@@ -1009,8 +1009,9 @@ class VisTab(QWidget):
         basename = os.path.basename(path)
 
         is_esp_pair = False
-        if basename.lower() == "esp.cube":
-            density_path = os.path.join(dirname, "density.cube")
+        esp_match = re.fullmatch(r"esp(_\d+)?\.cube", basename.lower())
+        if esp_match:
+            density_path = os.path.join(dirname, f"density{esp_match.group(1) or ''}.cube")
             if os.path.exists(density_path):
                 is_esp_pair = True
                 surf_file = density_path
