@@ -9,6 +9,7 @@ import os
 import re
 import shutil
 import sys
+import threading
 import traceback
 
 import numpy as np
@@ -33,6 +34,10 @@ except ImportError:
     pyscf = None
 
 logger = logging.getLogger(__name__)
+
+# File descriptors and sys.stdout belong to the process, not a QThread.
+# Serialize every worker's capture, including across multiple dialogs.
+_OUTPUT_LOCK = threading.Lock()
 
 _HC_EV_NM = 1239.84193  # hc in eV·nm, for excitation wavelength conversion
 # PySCF's own factor, so tables agree with its logs; CODATA 2018 fallback.
@@ -143,6 +148,7 @@ class CaptureStdOut:
         self.original_stderr_fd = None
         self.saved_stdout_fd = None
         self.saved_stderr_fd = None
+        self.log_file = None
 
     def __enter__(self):
         sys.stdout.flush()
@@ -163,17 +169,14 @@ class CaptureStdOut:
         except (AttributeError, OSError, ValueError):
             self.original_stderr_fd = 2
 
-        # Save Original FDs
-        if self.original_stdout_fd is not None:
+        try:
             self.saved_stdout_fd = os.dup(self.original_stdout_fd)
-        if self.original_stderr_fd is not None:
             self.saved_stderr_fd = os.dup(self.original_stderr_fd)
-
-        # Redirect FDs to Log File
-        if self.original_stdout_fd is not None:
             os.dup2(self.log_file.fileno(), self.original_stdout_fd)
-        if self.original_stderr_fd is not None:
             os.dup2(self.log_file.fileno(), self.original_stderr_fd)
+        except BaseException:
+            self.__exit__(*sys.exc_info())
+            raise
 
         return self.log_file
 
@@ -247,6 +250,7 @@ class StreamToSignal(io.TextIOBase):
             with contextlib.suppress(OSError, ValueError):
                 self.target_stream.write(text)
                 self.target_stream.flush()
+        return len(text)
 
     def flush(self):
         if self.target_stream:
@@ -274,6 +278,20 @@ class StreamToSignal(io.TextIOBase):
 def redirected_output(worker, log_file):
     """Route C-level and Python stdout/stderr into log_file and the worker's
     log signal for the duration of a job; always restore them."""
+    while not _OUTPUT_LOCK.acquire(timeout=0.1):
+        if worker._stop_requested:
+            raise InterruptedError("Calculation cancelled while waiting for output capture")
+    try:
+        if worker._stop_requested:
+            raise InterruptedError("Calculation cancelled")
+        with _redirected_output(worker, log_file) as stream:
+            yield stream
+    finally:
+        _OUTPUT_LOCK.release()
+
+
+@contextlib.contextmanager
+def _redirected_output(worker, log_file):
     capturer = CaptureStdOut(log_file)
     f_log = capturer.__enter__()
     saved = (sys.stdout, sys.stderr)
@@ -592,7 +610,8 @@ class PySCFWorker(QThread):
             with redirected_output(self, log_file) as stream:
                 self._run_job(stream)
         except Exception as e:  # noqa: BLE001 -- thread boundary: report, never raise
-            self.error_signal.emit(str(e) + "\n" + traceback.format_exc())
+            if not self._stop_requested:
+                self.error_signal.emit(str(e) + "\n" + traceback.format_exc())
 
     def _make_job_dir(self):
         """A fresh job_<n> directory under the configured output root."""
