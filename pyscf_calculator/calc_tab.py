@@ -586,6 +586,13 @@ class CalcTab(QWidget):
             return 1
 
     def run_calculation(self):
+        if getattr(self, "worker", None) is not None:
+            self.log("Please wait for the previous worker to exit.")
+            return
+        vis = getattr(self.parent_dialog, "vis_tab", None)
+        if vis is not None and (vis.load_worker is not None or vis.prop_worker is not None):
+            self.log("Please wait for result loading or property generation to finish.")
+            return
         if not self.context or not self.context.current_molecule:
             msg = (
                 "Error: No molecule loaded. Please load a molecule in the main window."
@@ -708,6 +715,7 @@ class CalcTab(QWidget):
         self.worker.finished_signal.connect(self.on_finished)
         self.worker.error_signal.connect(self.on_error)
         self.worker.result_signal.connect(self.parent_dialog.on_results)
+        self.worker.finished.connect(self._on_worker_stopped)
 
         self.worker.start()
 
@@ -766,6 +774,11 @@ class CalcTab(QWidget):
         """
         if self.worker is None:
             return  # Already cleaned up (duplicate signal delivery)
+        sender = getattr(self, "sender", lambda: None)()
+        if sender is not None and sender is not self.worker:
+            return  # A queued signal from an older worker.
+        if self.worker._stop_requested:
+            self.log("Calculation stopped.")
         self.worker = None
         self.cleanup_ui_state()
 
@@ -797,7 +810,6 @@ class CalcTab(QWidget):
                     )
 
         self.log("\n---------------------------------\nCalculation Finished.")
-        self.cleanup_ui_state()
 
     def on_error(self, err_msg):
         self.log(f"\nERROR: {err_msg}")
@@ -805,7 +817,8 @@ class CalcTab(QWidget):
         self.cleanup_ui_state()
 
     def cleanup_ui_state(self):
+        if self.worker is not None:
+            return  # Only QThread.finished releases the worker.
         self.run_btn.setEnabled(True)
         self.stop_btn.setEnabled(False)
         self.progress_bar.hide()
-        self.worker = None
