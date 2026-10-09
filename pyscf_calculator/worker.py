@@ -769,9 +769,10 @@ class PySCFWorker(QThread):
 
         body = [
             "",
-            f"from pyscf import gto, {'dft' if 'KS' in method_name else 'scf'}",
-            f"mol = gto.M(atom='''{clean_atom_str}''', ",
-            f"    basis='{cfg.get('basis')}', ",
+            f"from pyscf import gto, lib, {'dft' if 'KS' in method_name else 'scf'}",
+            *([f"lib.num_threads({int(n_threads)})"] if n_threads > 0 else []),
+            f"mol = gto.M(atom={clean_atom_str!r}, ",
+            f"    basis={cfg.get('basis', 'sto-3g')!r}, ",
             f"    charge={cfg.get('charge', 0)}, ",
             f"    spin={spin_2s}, ",
             f"    max_memory={cfg.get('memory', 4000)}, ",
@@ -783,7 +784,7 @@ class PySCFWorker(QThread):
             grid_level = cfg.get("grid_level", 3)
             body += [
                 f"mf = dft.{method_name}(mol)",
-                f"mf.xc = '{resolve_xc(functional)}'",
+                f"mf.xc = {resolve_xc(functional)!r}",
                 f"mf.grids.level = {grid_level}",
             ]
             if grid_level >= 4:
@@ -799,7 +800,16 @@ class PySCFWorker(QThread):
             logger.warning("conv_tol %r is not a number", cfg.get("conv_tol"))
         if solvent != "None (Vacuum)":
             body += ["mf = mf.ddCOSMO()", f"mf.with_solvent.eps = {eps_value}"]
-        body.append("mf.kernel()")
+        if cfg.get("break_symmetry", True) and method_name in ("UHF", "UKS") and spin_2s == 0:
+            body += [
+                "import numpy as np",
+                "dm0 = np.array(mf.get_init_guess(key='minao'), copy=True)",
+                "ao_start, ao_end = mol.aoslice_by_atom()[0][2:4]",
+                "dm0[1, ao_start:ao_end, ao_start:ao_end] = 0.0",
+                "mf.kernel(dm0=dm0)",
+            ]
+        else:
+            body.append("mf.kernel()")
         if "TDDFT" in job_type:
             body += [
                 "",
@@ -813,6 +823,7 @@ class PySCFWorker(QThread):
         with open(
             os.path.join(self.out_dir, "pyscf_input.py"), "w", encoding="utf-8"
         ) as f:
+            header = [line.replace("\r", "\\r").replace("\n", "\\n") for line in header]
             f.write("\n".join(header + body) + "\n")
 
     def _run_scan_job(self, mol, mf, job_type):
