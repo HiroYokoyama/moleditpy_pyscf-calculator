@@ -232,6 +232,7 @@ class TestWorkerMolBuildFailure(unittest.TestCase):
         with (
             patch("os.path.exists", return_value=False),
             patch("os.makedirs"),
+            patch("os.mkdir"),
             patch.object(self.mod, "CaptureStdOut") as mock_cap,
         ):
             mock_cap.return_value.__enter__ = MagicMock(return_value=MagicMock())
@@ -289,6 +290,7 @@ class TestWorkerMolBuildSuccessPath(unittest.TestCase):
         with (
             patch("os.path.exists", return_value=False),
             patch("os.makedirs"),
+            patch("os.mkdir"),
             patch.object(self.mod, "CaptureStdOut") as mock_cap,
         ):
             mock_cap.return_value.__enter__ = MagicMock(return_value=MagicMock())
@@ -321,8 +323,8 @@ class TestWorkerMolBuildSuccessPath(unittest.TestCase):
 
         # First call to exists() returns True (job_1 taken), second False (job_2 free)
         with (
-            patch("os.path.exists", side_effect=[True, False]),
             patch("os.makedirs"),
+            patch("os.mkdir", side_effect=[FileExistsError(), None]),
             patch.object(self.mod, "CaptureStdOut") as mock_cap,
         ):
             mock_cap.return_value.__enter__ = MagicMock(return_value=MagicMock())
@@ -354,6 +356,7 @@ class TestWorkerMolBuildSuccessPath(unittest.TestCase):
         with (
             patch("os.path.exists", return_value=False),
             patch("os.makedirs"),
+            patch("os.mkdir"),
             patch.object(self.mod, "CaptureStdOut") as mock_cap,
         ):
             mock_cap.return_value.__enter__ = MagicMock(return_value=MagicMock())
@@ -405,6 +408,7 @@ class TestWorkerSpinParsing(unittest.TestCase):
         with (
             patch("os.path.exists", return_value=False),
             patch("os.makedirs"),
+            patch("os.mkdir"),
             patch.object(self.mod, "CaptureStdOut") as mock_cap,
         ):
             mock_cap.return_value.__enter__ = MagicMock(return_value=MagicMock())

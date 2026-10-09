@@ -594,12 +594,15 @@ class PySCFWorker(QThread):
         root_dir = self.config.get("out_dir") or os.path.join(
             os.path.dirname(os.path.abspath(__file__)), "output"
         )
+        os.makedirs(root_dir, exist_ok=True)
         n = 1
-        while os.path.exists(os.path.join(root_dir, f"job_{n}")):
-            n += 1
-        out_dir = os.path.join(root_dir, f"job_{n}")
-        os.makedirs(out_dir, exist_ok=True)
-        return out_dir
+        while True:
+            out_dir = os.path.join(root_dir, f"job_{n}")
+            try:
+                os.mkdir(out_dir)
+                return out_dir
+            except FileExistsError:
+                n += 1
 
     def _run_job(self, stream):
         n_threads = self.config.get("threads", 0)
