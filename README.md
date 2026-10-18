@@ -6,7 +6,7 @@ This branch targets **MoleditPy 5.0.0a1–5.x** and uses **PySide6**. Plugin lic
 [![Python CI](https://github.com/HiroYokoyama/moleditpy_pyscf-calculator/actions/workflows/pytest.yml/badge.svg)](https://github.com/HiroYokoyama/moleditpy_pyscf-calculator/actions/workflows/pytest.yml)
 [![Real PySCF tests](https://github.com/HiroYokoyama/moleditpy_pyscf-calculator/actions/workflows/real-pyscf.yml/badge.svg)](https://github.com/HiroYokoyama/moleditpy_pyscf-calculator/actions/workflows/real-pyscf.yml)
 ![Test Coverage](https://img.shields.io/badge/coverage->90%25-green)
-[![MoleditPy](https://img.shields.io/badge/MoleditPy->=5.0.0a1-3577F7)](https://github.com/HiroYokoyama/python_molecular_editor)
+[![MoleditPy](https://img.shields.io/badge/MoleditPy->=5.0.0-3577F7)](https://github.com/HiroYokoyama/python_molecular_editor)
 [![GitHub tag](https://img.shields.io/github/v/tag/HiroYokoyama/moleditpy_pyscf-calculator?label=version)](https://github.com/HiroYokoyama/moleditpy_pyscf-calculator/tags)
 [![GitHub Downloads](https://img.shields.io/github/downloads/HiroYokoyama/moleditpy_pyscf-calculator/total)](https://github.com/HiroYokoyama/moleditpy_pyscf-calculator/releases)
 
