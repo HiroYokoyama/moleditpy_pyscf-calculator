@@ -9,6 +9,15 @@ from unittest.mock import MagicMock
 import pytest
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+os.environ.setdefault("QT_API", "pyside6")
+os.environ.setdefault("PYTEST_QT_API", "pyside6")
+
+
+def _flush_widget_deletions(app):
+    from PySide6.QtCore import QCoreApplication, QEvent
+
+    QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+    app.processEvents()
 
 
 @pytest.fixture(scope="session")
@@ -26,7 +35,12 @@ def plugin():
 @pytest.fixture(scope="session")
 def app(plugin):
     from PySide6.QtWidgets import QApplication
-    return QApplication.instance() or QApplication([])
+    application = QApplication.instance() or QApplication([])
+    yield application
+    for widget in application.topLevelWidgets():
+        widget.close()
+        widget.deleteLater()
+    _flush_widget_deletions(application)
 
 
 @pytest.fixture
@@ -41,13 +55,18 @@ def context(app):
     ctx.mark_project_modified.side_effect = lambda: setattr(mw.state_manager, "has_unsaved_changes", True)
     yield ctx
     mw.close()
+    mw.deleteLater()
+    _flush_widget_deletions(app)
 
 
 @pytest.fixture
-def dialog(plugin, context):
+def dialog(plugin, context, app):
     dlg = plugin("gui").PySCFDialog(context.get_main_window(), context, settings={})
     yield dlg
     dlg.close()
+    pump_until(app, lambda: dlg.calc_tab.worker is None)
+    dlg.deleteLater()
+    _flush_widget_deletions(app)
 
 
 def pump_until(app, predicate, timeout=3):

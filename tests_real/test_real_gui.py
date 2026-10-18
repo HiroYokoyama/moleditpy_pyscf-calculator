@@ -19,6 +19,7 @@ pytest.importorskip("pyvista")
 pytest.importorskip("matplotlib")
 
 from conftest import XYZ_H2, XYZ_H2O, load_plugin_modules
+from PySide6.QtCore import QCoreApplication, QEvent
 from PySide6.QtWidgets import QApplication
 from rdkit import Chem
 from rdkit.Chem import AllChem
@@ -100,14 +101,24 @@ def dialog(qapp, plugin, tmp_path, monkeypatch):
         plugin["gui"], "_defaults_path", lambda: str(tmp_path / "none.json")
     )
 
+    created = []
+
     def make(mol, settings=None):
         dlg = plugin["gui"].PySCFDialog(
             parent=None, context=_Context(mol), settings=settings or {}, version="test"
         )
         dlg.calc_tab.out_dir_edit.setText(str(tmp_path / "results"))
+        created.append(dlg)
         return dlg
 
-    return make
+    yield make
+    for dlg in created:
+        dlg.close()
+        # closeEvent requests cancellation and retains any active worker.
+        _pump_until(qapp, lambda: dlg.calc_tab.worker is None)
+        dlg.deleteLater()
+    QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+    qapp.processEvents()
 
 
 def _run_sync(plugin, monkeypatch):

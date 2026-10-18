@@ -28,6 +28,8 @@ jobs:
 
     env:
       QT_QPA_PLATFORM: offscreen
+      QT_API: pyside6
+      PYTEST_QT_API: pyside6
       OMP_NUM_THREADS: "2"
       PYTHONUNBUFFERED: "1"
 
