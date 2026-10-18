@@ -2,7 +2,7 @@
 Shared harness for the real-PySCF tests.
 
 These tests run the plugin's workers against a real PySCF (and, where
-needed, geomeTRIC / pyberny / RDKit / PyQt6). They live outside tests/
+needed, geomeTRIC / pyberny / RDKit / PySide6). They live outside tests/
 because that suite replaces sys.modules["pyscf"] with a MagicMock; the
 two must never share a process.
 
@@ -49,9 +49,9 @@ def qcore():
     QApplication when QtWidgets is available: a QCoreApplication created
     first cannot be replaced, and the GUI tests' QWidgets would abort Qt."""
     try:
-        from PyQt6.QtWidgets import QApplication
+        from PySide6.QtWidgets import QApplication
     except ImportError:
-        from PyQt6.QtCore import QCoreApplication as QApplication
+        from PySide6.QtCore import QCoreApplication as QApplication
     return QApplication.instance() or QApplication([])
 
 

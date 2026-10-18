@@ -11,7 +11,7 @@ import pytest
 
 pyscf = pytest.importorskip("pyscf")
 pytest.importorskip("rdkit")
-pytest.importorskip("PyQt6.QtCore")
+pytest.importorskip("PySide6.QtCore")
 pytest.importorskip("geometric")
 
 from conftest import read_cube

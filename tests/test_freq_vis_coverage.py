@@ -201,7 +201,7 @@ class _FakeQHeaderView(_AutoMock):
 
 
 def _install_stubs():
-    qt_widgets = types.ModuleType("PyQt6.QtWidgets")
+    qt_widgets = types.ModuleType("PySide6.QtWidgets")
     qt_widgets.QWidget = _QWidget
     qt_widgets.QDialog = _QDialog
     qt_widgets.QSpinBox = _FakeSpinBox
@@ -235,7 +235,7 @@ def _install_stubs():
         def setWidth(self, *a):
             pass
 
-    qt_gui = types.ModuleType("PyQt6.QtGui")
+    qt_gui = types.ModuleType("PySide6.QtGui")
     qt_gui.QPainter = _FakePainter
     qt_gui.QPen = _FakeQPen
     qt_gui.QColor = _FakeQColor
@@ -250,7 +250,7 @@ def _install_stubs():
         def __init__(self, *a, **k):
             pass
 
-    qt_core = types.ModuleType("PyQt6.QtCore")
+    qt_core = types.ModuleType("PySide6.QtCore")
 
     class _Qt:
         class AlignmentFlag:
@@ -260,15 +260,15 @@ def _install_stubs():
     qt_core.QTimer = lambda *args, **kwargs: MagicMock()
     qt_core.QPointF = _FakeQPointF
 
-    pyqt6 = types.ModuleType("PyQt6")
-    pyqt6.QtWidgets = qt_widgets
-    pyqt6.QtGui = qt_gui
-    pyqt6.QtCore = qt_core
+    pyside6 = types.ModuleType("PySide6")
+    pyside6.QtWidgets = qt_widgets
+    pyside6.QtGui = qt_gui
+    pyside6.QtCore = qt_core
 
-    sys.modules["PyQt6"] = pyqt6
-    sys.modules["PyQt6.QtWidgets"] = qt_widgets
-    sys.modules["PyQt6.QtGui"] = qt_gui
-    sys.modules["PyQt6.QtCore"] = qt_core
+    sys.modules["PySide6"] = pyside6
+    sys.modules["PySide6.QtWidgets"] = qt_widgets
+    sys.modules["PySide6.QtGui"] = qt_gui
+    sys.modules["PySide6.QtCore"] = qt_core
     sys.modules.setdefault("rdkit", MagicMock())
     sys.modules.setdefault("rdkit.Geometry", MagicMock())
     sys.modules.setdefault("PIL", MagicMock())

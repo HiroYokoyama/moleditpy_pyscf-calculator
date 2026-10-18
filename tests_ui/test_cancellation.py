@@ -4,15 +4,15 @@ from conftest import pump_until
 
 
 def test_stop_keeps_native_worker_until_exit(dialog, plugin, app):
-    from PyQt6.QtCore import QThread, pyqtSignal
+    from PySide6.QtCore import QThread, Signal
 
     gate = threading.Event()
 
     class Worker(QThread):
-        log_signal = pyqtSignal(str)
-        result_signal = pyqtSignal(dict)
-        error_signal = pyqtSignal(str)
-        finished_signal = pyqtSignal()
+        log_signal = Signal(str)
+        result_signal = Signal(dict)
+        error_signal = Signal(str)
+        finished_signal = Signal()
         _stop_requested = False
         _stream = None
 
@@ -40,7 +40,7 @@ def test_stop_keeps_native_worker_until_exit(dialog, plugin, app):
 
 
 def test_close_defers_until_worker_returns(dialog, app):
-    from PyQt6.QtCore import QThread
+    from PySide6.QtCore import QThread
     gate = threading.Event()
 
     class Worker(QThread):

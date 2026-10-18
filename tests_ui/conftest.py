@@ -13,7 +13,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 @pytest.fixture(scope="session")
 def plugin():
-    pytest.importorskip("PyQt6.QtWidgets")
+    pytest.importorskip("PySide6.QtWidgets")
     pytest.importorskip("rdkit")
     pytest.importorskip("pyvista")
     pytest.importorskip("matplotlib")
@@ -25,13 +25,13 @@ def plugin():
 
 @pytest.fixture(scope="session")
 def app(plugin):
-    from PyQt6.QtWidgets import QApplication
+    from PySide6.QtWidgets import QApplication
     return QApplication.instance() or QApplication([])
 
 
 @pytest.fixture
 def context(app):
-    from PyQt6.QtWidgets import QMainWindow
+    from PySide6.QtWidgets import QMainWindow
     from rdkit import Chem
     mw = QMainWindow()
     mw.state_manager = types.SimpleNamespace(has_unsaved_changes=False, update_window_title=lambda: None)

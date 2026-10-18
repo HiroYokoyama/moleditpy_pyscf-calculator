@@ -5,7 +5,7 @@ import numpy as np
 import pytest
 
 pyscf = pytest.importorskip("pyscf")
-pytest.importorskip("PyQt6.QtCore")
+pytest.importorskip("PySide6.QtCore")
 pytest.importorskip("rdkit")
 
 XYZ_STRETCHED_H2 = "2\nstretched singlet\nH 0 0 0\nH 0 0 2.5"

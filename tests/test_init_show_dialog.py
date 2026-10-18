@@ -16,17 +16,17 @@ from unittest.mock import MagicMock
 
 # ---------------------------------------------------------------------------
 # Install Qt stubs so that gui.py can be imported in a headless environment.
-# Must happen at module level (before any module that imports PyQt6 is loaded).
+# Must happen at module level (before any module that imports PySide6 is loaded).
 # ---------------------------------------------------------------------------
 def _install_qt_stubs():
-    qt_core = types.ModuleType("PyQt6.QtCore")
+    qt_core = types.ModuleType("PySide6.QtCore")
 
     class _QThread:
         def __init__(self):
             pass
 
     qt_core.QThread = _QThread
-    qt_core.pyqtSignal = lambda *a, **kw: MagicMock()
+    qt_core.Signal = lambda *a, **kw: MagicMock()
 
     class _Qt:
         class AlignmentFlag:
@@ -47,12 +47,12 @@ def _install_qt_stubs():
 
     qt_core.QTimer = _QTimer
 
-    pyqt6 = types.ModuleType("PyQt6")
-    pyqt6.QtCore = qt_core
-    sys.modules["PyQt6"] = pyqt6
-    sys.modules["PyQt6.QtCore"] = qt_core
+    pyside6 = types.ModuleType("PySide6")
+    pyside6.QtCore = qt_core
+    sys.modules["PySide6"] = pyside6
+    sys.modules["PySide6.QtCore"] = qt_core
 
-    qt_widgets = types.ModuleType("PyQt6.QtWidgets")
+    qt_widgets = types.ModuleType("PySide6.QtWidgets")
     for name in [
         "QWidget",
         "QDialog",
@@ -77,8 +77,8 @@ def _install_qt_stubs():
         "QToolTip",
     ]:
         setattr(qt_widgets, name, MagicMock)
-    pyqt6.QtWidgets = qt_widgets
-    sys.modules["PyQt6.QtWidgets"] = qt_widgets
+    pyside6.QtWidgets = qt_widgets
+    sys.modules["PySide6.QtWidgets"] = qt_widgets
 
     sys.modules.setdefault("rdkit", MagicMock())
     sys.modules.setdefault("rdkit.Chem", MagicMock())

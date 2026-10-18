@@ -8,7 +8,7 @@ PLUGIN_DEPENDENCIES = ["pyscf", "geometric", "numpy"]
 # Silicon: it has no arm64 wheel and the fallback (1.0.0) breaks
 # `import pyscf` -- see README.
 PLUGIN_OPTIONAL_DEPENDENCIES = ["pyscf-dispersion", "pyberny"]
-PLUGIN_SUPPORTED_MOLEDITPY_VERSION = ">=4.0.0, <5.0.0"
+PLUGIN_SUPPORTED_MOLEDITPY_VERSION = ">=5.0.0a1, <6.0.0"
 PLUGIN_SUPPORTED_OS = ["macOS", "Linux", "WSL"]  # pyscf has no native Windows support
 
 from .gui import PySCFDialog

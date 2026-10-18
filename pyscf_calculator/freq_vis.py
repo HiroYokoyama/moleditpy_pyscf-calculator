@@ -3,9 +3,9 @@ import time
 import traceback
 
 import numpy as np
-from PyQt6.QtCore import QPointF, Qt, QTimer
-from PyQt6.QtGui import QColor, QPainter, QPalette, QPen
-from PyQt6.QtWidgets import (
+from PySide6.QtCore import QPointF, Qt, QTimer
+from PySide6.QtGui import QColor, QPainter, QPalette, QPen
+from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
     QDialog,
@@ -521,7 +521,7 @@ class FreqVisualizer(QWidget):
                 )
                 QMessageBox.information(self, "Success", f"Saved GIF to {file_path}")
 
-        except Exception as e:  # noqa: BLE001 -- Qt slot: an escaping exception aborts the host app (PyQt6)
+        except Exception as e:  # noqa: BLE001 -- Qt slot: an escaping exception aborts the host app (PySide6)
             QMessageBox.critical(
                 self, "Error", f"Failed to save GIF: {e}\n{traceback.format_exc()}"
             )

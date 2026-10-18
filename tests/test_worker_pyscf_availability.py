@@ -41,13 +41,13 @@ except (ImportError, ValueError):
 
 def _install_qt_stubs(force=False):
     """
-    Install minimal PyQt6 stubs so worker.py can be imported headlessly.
+    Install minimal PySide6 stubs so worker.py can be imported headlessly.
     When *force* is True (used before loading a fresh worker module), stubs
     are written unconditionally so a previous test cannot leave a MagicMock
     QThread in place.  Without *force*, setdefault is used to avoid stomping
     on stubs already installed by other test files.
     """
-    qt_core = types.ModuleType("PyQt6.QtCore")
+    qt_core = types.ModuleType("PySide6.QtCore")
 
     class _QThread:
         def __init__(self):
@@ -70,10 +70,10 @@ def _install_qt_stubs(force=False):
             pass
 
     qt_core.QThread = _QThread
-    qt_core.pyqtSignal = lambda *a, **kw: MagicMock()
+    qt_core.Signal = lambda *a, **kw: MagicMock()
 
-    pyqt6 = types.ModuleType("PyQt6")
-    pyqt6.QtCore = qt_core
+    pyside6 = types.ModuleType("PySide6")
+    pyside6.QtCore = qt_core
 
     def _set(key, val):
         if force:
@@ -81,8 +81,8 @@ def _install_qt_stubs(force=False):
         else:
             sys.modules.setdefault(key, val)
 
-    _set("PyQt6", pyqt6)
-    _set("PyQt6.QtCore", qt_core)
+    _set("PySide6", pyside6)
+    _set("PySide6.QtCore", qt_core)
 
     rdkit = types.ModuleType("rdkit")
     rdkit_chem = types.ModuleType("rdkit.Chem")
@@ -101,7 +101,7 @@ def _load_worker_with_pyscf_mock(pyscf_value):
     Load worker.py from disk, injecting *pyscf_value* as the pyscf module.
     Re-installs Qt stubs before loading to guarantee a proper QThread base
     class regardless of which other test module was collected last and may have
-    replaced sys.modules["PyQt6.QtCore"].
+    replaced sys.modules["PySide6.QtCore"].
     Returns the loaded module.
     """
     # Each load needs a fresh module name to avoid cache collisions

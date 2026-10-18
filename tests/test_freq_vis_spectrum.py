@@ -56,9 +56,9 @@ def _install_stubs():
         def height(self):
             return 300
 
-    # Force-install: other test files may have set PyQt6.QtWidgets without
+    # Force-install: other test files may have set PySide6.QtWidgets without
     # QWidget, so we must overwrite to guarantee our stub is in place.
-    qt_widgets = types.ModuleType("PyQt6.QtWidgets")
+    qt_widgets = types.ModuleType("PySide6.QtWidgets")
     for name in [
         "QVBoxLayout",
         "QHBoxLayout",
@@ -81,24 +81,24 @@ def _install_stubs():
         setattr(qt_widgets, name, MagicMock)
     qt_widgets.QWidget = _QWidget
 
-    qt_gui = types.ModuleType("PyQt6.QtGui")
+    qt_gui = types.ModuleType("PySide6.QtGui")
     for name in ["QPainter", "QPen", "QColor", "QPalette"]:
         setattr(qt_gui, name, MagicMock)
 
-    qt_core = types.ModuleType("PyQt6.QtCore")
+    qt_core = types.ModuleType("PySide6.QtCore")
     qt_core.Qt = MagicMock()
     qt_core.QTimer = MagicMock
     qt_core.QPointF = MagicMock
 
-    pyqt6 = types.ModuleType("PyQt6")
-    pyqt6.QtWidgets = qt_widgets
-    pyqt6.QtGui = qt_gui
-    pyqt6.QtCore = qt_core
+    pyside6 = types.ModuleType("PySide6")
+    pyside6.QtWidgets = qt_widgets
+    pyside6.QtGui = qt_gui
+    pyside6.QtCore = qt_core
 
-    sys.modules["PyQt6"] = pyqt6
-    sys.modules["PyQt6.QtWidgets"] = qt_widgets
-    sys.modules["PyQt6.QtGui"] = qt_gui
-    sys.modules["PyQt6.QtCore"] = qt_core
+    sys.modules["PySide6"] = pyside6
+    sys.modules["PySide6.QtWidgets"] = qt_widgets
+    sys.modules["PySide6.QtGui"] = qt_gui
+    sys.modules["PySide6.QtCore"] = qt_core
     sys.modules.setdefault("rdkit", MagicMock())
     sys.modules.setdefault("rdkit.Geometry", MagicMock())
     sys.modules.setdefault("PIL", MagicMock())

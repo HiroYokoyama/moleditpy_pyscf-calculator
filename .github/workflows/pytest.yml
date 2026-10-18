@@ -29,7 +29,7 @@ jobs:
       run: |
         python -m pip install --upgrade pip
         pip install pytest pytest-cov mock numpy
-        # Note: The test suite uses Python-level mocking for PyQt6, PySide6, and RDKit
+        # Note: The test suite uses Python-level mocking for PySide6, and RDKit
         # to ensure fast, headless execution without X-servers or heavy dependencies.
 
     - name: Test with pytest
@@ -61,13 +61,13 @@ jobs:
       # matches the CI_MAIN_APP_SRC env var set below.
       # 'continue-on-error: false' so we catch network failures explicitly.
       run: |
-        git clone --depth 1 \
+        git clone --depth 1 --branch "${{ vars.MOLEDITPY_REF || 'migrate/pyside6-without-openbabel' }}" \
           https://github.com/HiroYokoyama/python_molecular_editor.git \
           ../python_molecular_editor
 
     - name: Install main app Python package (editable, no extras)
       # Install only the package metadata so PluginContext can be imported.
-      # We skip heavy GUI deps (pyvista, PyQt6) — they are mocked in tests.
+      # We skip heavy GUI deps (pyvista, PySide6) — they are mocked in tests.
       run: |
         pip install -e ../python_molecular_editor/moleditpy \
           --no-deps --quiet || true

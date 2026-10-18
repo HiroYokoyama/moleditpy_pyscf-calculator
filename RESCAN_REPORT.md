@@ -32,7 +32,7 @@ Every fix commit includes `Assisted-by: GPT-6.1 Sol`. Regression tests accompany
 ## Local validation
 
 - `tests/`: **934 passed, 3 skipped, 0 failures/errors** (937 collected).
-- `tests_ui/`: **16 passed, 0 failures/errors**, using real offscreen PyQt6.
+- `tests_ui/`: **16 passed, 0 failures/errors**, using real offscreen PySide6.
 - `tests_real/`: **12 modules skipped**, because PySCF is not installed in this Windows environment. Scientific regression outcomes require Linux/macOS CI.
 - Python compilation passed. Diff whitespace checks passed with the repository's existing CRLF convention.
 

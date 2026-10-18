@@ -3,7 +3,7 @@ import os
 
 import numpy as np
 import pyvista as pv
-from PyQt6.QtGui import QColor
+from PySide6.QtGui import QColor
 
 logger = logging.getLogger(__name__)
 

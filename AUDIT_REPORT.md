@@ -4,7 +4,7 @@ Reviewed 2026-10-09, version 4.0.3, commit `d89c65ea9fb8d76b49ff8280f626fac32d3b
 
 Scope: all 12 plugin Python modules, worker dispatch and scientific options, Qt lifecycle, result persistence/loading, cube parsing/rendering, host API interactions, tests, and CI configuration. Production code was not changed. This is a source review with targeted reproductions, not a guarantee that every defect has been found.
 
-Validation: **903 passed, 3 skipped, 0 failures/errors** in `tests/` (906 collected; JUnit record in `audit_junit.xml`). Initial runs stalled using the default temporary location; rerunning with TEMP/TMP under D:/DEVELOPMENT/DEV_MAIN completed. `tests_real/` skipped all 11 modules because PySCF is unavailable in this Windows environment. Compile checks passed. Real offscreen PyQt6 and RDKit were used for the targeted UI reproductions below. No full quantum-chemistry numerical validation was possible.
+Validation: **903 passed, 3 skipped, 0 failures/errors** in `tests/` (906 collected; JUnit record in `audit_junit.xml`). Initial runs stalled using the default temporary location; rerunning with TEMP/TMP under D:/DEVELOPMENT/DEV_MAIN completed. `tests_real/` skipped all 11 modules because PySCF is unavailable in this Windows environment. Compile checks passed. Real offscreen PySide6 and RDKit were used for the targeted UI reproductions below. No full quantum-chemistry numerical validation was possible.
 
 P1 = high priority (crash, incorrect scientific workflow, or cross-job corruption). P2 = normal priority (broken behavior, persistence, or lifecycle).
 

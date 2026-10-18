@@ -4,8 +4,8 @@ import logging
 import os
 import traceback
 
-from PyQt6.QtCore import QTimer
-from PyQt6.QtWidgets import (
+from PySide6.QtCore import QTimer
+from PySide6.QtWidgets import (
     QDialog,
     QMessageBox,
     QTabWidget,
@@ -216,7 +216,7 @@ class PySCFDialog(QDialog):
                 worker._stream.close()  # only sets a flag
 
             # Each signal on its own (LoadWorker has no log/result signal):
-            # PyQt6 raises TypeError for one with no connections, and a
+            # PySide6 raises TypeError for one with no connections, and a
             # single try used to leave every later signal connected.
             for name in (
                 "finished_signal",

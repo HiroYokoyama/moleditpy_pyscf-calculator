@@ -7,7 +7,7 @@ import pytest
 
 pyscf = pytest.importorskip("pyscf")
 pytest.importorskip("rdkit")
-pytest.importorskip("PyQt6.QtCore")
+pytest.importorskip("PySide6.QtCore")
 
 from conftest import XYZ_H2O, XYZ_OH, read_cube
 
@@ -73,7 +73,7 @@ def test_plugin_cube_parser_reads_real_pyscf_cubes(run_job, run_properties):
     """The viewer's parser (vis.parse_cube_data / build_grid_from_meta) on
     genuine PySCF cubes: atoms kept, grid shape and values intact."""
     pytest.importorskip("pyvista")
-    pytest.importorskip("PyQt6.QtGui")
+    pytest.importorskip("PySide6.QtGui")
     import importlib
 
     import numpy as np

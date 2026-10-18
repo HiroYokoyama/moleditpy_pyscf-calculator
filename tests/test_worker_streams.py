@@ -31,13 +31,13 @@ sys.modules["pyscf.scf"] = MagicMock()
 sys.modules["pyscf.dft"] = MagicMock()
 sys.modules["pyscf.solvent"] = MagicMock()
 
-qt_core = types.ModuleType("PyQt6.QtCore")
+qt_core = types.ModuleType("PySide6.QtCore")
 qt_core.QThread = MagicMock()
-qt_core.pyqtSignal = lambda *a, **k: MagicMock()
-pyqt6 = types.ModuleType("PyQt6")
-pyqt6.QtCore = qt_core
-sys.modules["PyQt6"] = pyqt6
-sys.modules["PyQt6.QtCore"] = qt_core
+qt_core.Signal = lambda *a, **k: MagicMock()
+pyside6 = types.ModuleType("PySide6")
+pyside6.QtCore = qt_core
+sys.modules["PySide6"] = pyside6
+sys.modules["PySide6.QtCore"] = qt_core
 
 worker_mod = _load_module_direct(
     os.path.join("pyscf_calculator", "worker.py"),

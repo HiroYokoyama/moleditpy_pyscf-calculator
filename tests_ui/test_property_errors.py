@@ -2,16 +2,16 @@ from conftest import pump_until
 
 
 def test_property_error_restores_analysis_without_clearing_calculation(dialog, plugin, app, monkeypatch, tmp_path):
-    from PyQt6.QtCore import QThread, pyqtSignal
-    from PyQt6.QtWidgets import QMessageBox
+    from PySide6.QtCore import QThread, Signal
+    from PySide6.QtWidgets import QMessageBox
     errors = []
     monkeypatch.setattr(QMessageBox, "critical", lambda *args: errors.append(args))
 
     class Worker(QThread):
-        log_signal = pyqtSignal(str)
-        finished_signal = pyqtSignal()
-        error_signal = pyqtSignal(str)
-        result_signal = pyqtSignal(dict)
+        log_signal = Signal(str)
+        finished_signal = Signal()
+        error_signal = Signal(str)
+        result_signal = Signal(dict)
 
         def __init__(self, *args):
             super().__init__()

@@ -11,7 +11,7 @@ def load_module(monkeypatch, name):
     package = types.ModuleType(package_name)
     package.__path__ = [str(Path(__file__).resolve().parents[1] / "pyscf_calculator")]
     monkeypatch.setitem(sys.modules, package_name, package)
-    core = types.ModuleType("PyQt6.QtCore")
+    core = types.ModuleType("PySide6.QtCore")
 
     class Thread:
         def __init__(self, *args):
@@ -22,9 +22,9 @@ def load_module(monkeypatch, name):
             pass
 
     core.QThread = Thread
-    core.pyqtSignal = lambda *args: MagicMock()
-    monkeypatch.setitem(sys.modules, "PyQt6.QtCore", core)
-    monkeypatch.setitem(sys.modules, "PyQt6.QtGui", types.SimpleNamespace(QColor=MagicMock()))
+    core.Signal = lambda *args: MagicMock()
+    monkeypatch.setitem(sys.modules, "PySide6.QtCore", core)
+    monkeypatch.setitem(sys.modules, "PySide6.QtGui", types.SimpleNamespace(QColor=MagicMock()))
     for dependency in ("pyscf", "pyscf.scf", "pyscf.dft", "pyscf.gto", "pyscf.solvent", "rdkit", "rdkit.Chem", "pyvista"):
         monkeypatch.setitem(sys.modules, dependency, MagicMock())
     module_name = f"{package_name}.{name}"

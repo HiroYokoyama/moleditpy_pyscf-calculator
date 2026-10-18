@@ -2,8 +2,8 @@ import contextlib
 import logging
 import os
 
-from PyQt6.QtCore import Qt, QTimer
-from PyQt6.QtWidgets import (
+from PySide6.QtCore import Qt, QTimer
+from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
     QDoubleSpinBox,
@@ -495,7 +495,7 @@ class CalcTab(QWidget):
                     f"Auto-Detect: Set Charge={charge}, Mult={suggested_spin} (Electrons={net_electrons})"
                 )
 
-        except Exception as e:  # noqa: BLE001 -- Qt slot: an escaping exception aborts the host app (PyQt6)
+        except Exception as e:  # noqa: BLE001 -- Qt slot: an escaping exception aborts the host app (PySide6)
             QMessageBox.warning(self, "Error", f"Auto-detection failed: {e}")
 
     def validate_spin_settings(self):
@@ -536,7 +536,7 @@ class CalcTab(QWidget):
                 self.spin_input.setToolTip(msg)
                 self.charge_input.setToolTip(msg)
 
-        except Exception as _e:  # noqa: BLE001 -- Qt slot: an escaping exception aborts the host app (PyQt6)
+        except Exception as _e:  # noqa: BLE001 -- Qt slot: an escaping exception aborts the host app (PySide6)
             logger.warning("validate_spin_settings silenced: %s", _e)
 
     def browse_out_dir(self):
@@ -735,7 +735,7 @@ class CalcTab(QWidget):
             stream.close()  # only sets a flag; safe from the GUI thread
 
         # 3. Disconnect signals AFTER invalidating the stream -- each on its
-        #    own: PyQt6 raises TypeError for a signal with no connections,
+        #    own: PySide6 raises TypeError for a signal with no connections,
         #    which must not leave the others connected.
         for sig in (
             self.worker.log_signal,

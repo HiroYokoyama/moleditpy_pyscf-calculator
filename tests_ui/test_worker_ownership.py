@@ -4,11 +4,11 @@ from conftest import pump_until
 
 
 def test_custom_success_does_not_release_running_property_worker(dialog, app):
-    from PyQt6.QtCore import QThread, pyqtSignal
+    from PySide6.QtCore import QThread, Signal
     gate = threading.Event()
 
     class Worker(QThread):
-        finished_signal = pyqtSignal()
+        finished_signal = Signal()
 
         def run(self):
             self.finished_signal.emit()

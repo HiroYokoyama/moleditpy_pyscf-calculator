@@ -4,12 +4,12 @@ from conftest import pump_until
 
 
 def test_calculation_success_retains_thread_until_native_exit(dialog, app):
-    from PyQt6.QtCore import QThread, pyqtSignal
+    from PySide6.QtCore import QThread, Signal
     gate = threading.Event()
     delivered = []
 
     class Worker(QThread):
-        finished_signal = pyqtSignal()
+        finished_signal = Signal()
         _stop_requested = False
 
         def run(self):

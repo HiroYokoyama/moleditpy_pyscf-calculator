@@ -1,7 +1,7 @@
 """The plugin's real Qt widgets (offscreen) wired to real PySCF runs.
 
 The mocked suite fakes every widget and worker, so it could not see e.g.
-that Stop connected a signal PyQt6's QThread does not have. These tests
+that Stop connected a signal PySide6's QThread does not have. These tests
 build the actual dialog, set options through the widgets, run jobs, stop
 a running one, round-trip the settings and open the result viewers."""
 
@@ -14,12 +14,12 @@ import pytest
 
 pyscf = pytest.importorskip("pyscf")
 pytest.importorskip("rdkit")
-pytest.importorskip("PyQt6.QtWidgets")
+pytest.importorskip("PySide6.QtWidgets")
 pytest.importorskip("pyvista")
 pytest.importorskip("matplotlib")
 
 from conftest import XYZ_H2, XYZ_H2O, load_plugin_modules
-from PyQt6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication
 from rdkit import Chem
 from rdkit.Chem import AllChem
 

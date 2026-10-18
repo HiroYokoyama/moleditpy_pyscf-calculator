@@ -24,7 +24,7 @@ from unittest.mock import MagicMock
 
 
 def _install_stubs():
-    qt_core = types.ModuleType("PyQt6.QtCore")
+    qt_core = types.ModuleType("PySide6.QtCore")
 
     class _Qt:
         class CursorShape:
@@ -35,16 +35,16 @@ def _install_stubs():
 
     qt_core.Qt = _Qt
 
-    qt_gui = types.ModuleType("PyQt6.QtGui")
+    qt_gui = types.ModuleType("PySide6.QtGui")
     for name in ["QPainter", "QPen", "QColor", "QFont", "QAction"]:
         setattr(qt_gui, name, MagicMock)
 
-    pyqt6 = sys.modules.get("PyQt6") or types.ModuleType("PyQt6")
-    pyqt6.QtCore = qt_core
-    pyqt6.QtGui = qt_gui
-    sys.modules.setdefault("PyQt6", pyqt6)
-    sys.modules.setdefault("PyQt6.QtCore", qt_core)
-    sys.modules.setdefault("PyQt6.QtGui", qt_gui)
+    pyside6 = sys.modules.get("PySide6") or types.ModuleType("PySide6")
+    pyside6.QtCore = qt_core
+    pyside6.QtGui = qt_gui
+    sys.modules.setdefault("PySide6", pyside6)
+    sys.modules.setdefault("PySide6.QtCore", qt_core)
+    sys.modules.setdefault("PySide6.QtGui", qt_gui)
 
     class _QDialog:
         def __init__(self, parent=None):
@@ -59,8 +59,8 @@ def _install_stubs():
         def setMouseTracking(self, *a):
             pass
 
-    qt_widgets = sys.modules.get("PyQt6.QtWidgets") or types.ModuleType(
-        "PyQt6.QtWidgets"
+    qt_widgets = sys.modules.get("PySide6.QtWidgets") or types.ModuleType(
+        "PySide6.QtWidgets"
     )
     qt_widgets.QDialog = _QDialog
     for name in [
@@ -76,8 +76,8 @@ def _install_stubs():
     qt_widgets.QHBoxLayout = lambda *a, **k: MagicMock()
     qt_widgets.QPushButton = lambda *a, **k: MagicMock()
     qt_widgets.QLabel = lambda *a, **k: MagicMock()
-    pyqt6.QtWidgets = qt_widgets
-    sys.modules.setdefault("PyQt6.QtWidgets", qt_widgets)
+    pyside6.QtWidgets = qt_widgets
+    sys.modules.setdefault("PySide6.QtWidgets", qt_widgets)
 
 
 _install_stubs()

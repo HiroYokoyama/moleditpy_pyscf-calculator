@@ -29,13 +29,13 @@ def _load_module_direct(relpath, module_name):
 
 
 def _install_stubs():
-    qt_core = types.ModuleType("PyQt6.QtCore")
+    qt_core = types.ModuleType("PySide6.QtCore")
 
     class _QThread:
         pass
 
     qt_core.QThread = _QThread
-    qt_core.pyqtSignal = lambda *a, **kw: MagicMock()
+    qt_core.Signal = lambda *a, **kw: MagicMock()
 
     class _Qt:
         pass
@@ -49,10 +49,10 @@ def _install_stubs():
 
     qt_core.QTimer = _QTimer
 
-    pyqt6 = types.ModuleType("PyQt6")
-    pyqt6.QtCore = qt_core
-    sys.modules["PyQt6"] = pyqt6
-    sys.modules["PyQt6.QtCore"] = qt_core
+    pyside6 = types.ModuleType("PySide6")
+    pyside6.QtCore = qt_core
+    sys.modules["PySide6"] = pyside6
+    sys.modules["PySide6.QtCore"] = qt_core
 
     class _QDialog:
         def __init__(self, *args, **kwargs):
@@ -71,7 +71,7 @@ def _install_stubs():
         def __init__(self, *args, **kwargs):
             pass
 
-    qt_widgets = types.ModuleType("PyQt6.QtWidgets")
+    qt_widgets = types.ModuleType("PySide6.QtWidgets")
     qt_widgets.QWidget = _QWidget
     qt_widgets.QDialog = _QDialog
 
@@ -100,8 +100,8 @@ def _install_stubs():
         "QToolTip",
     ]:
         setattr(qt_widgets, name, _widget_factory)
-    pyqt6.QtWidgets = qt_widgets
-    sys.modules["PyQt6.QtWidgets"] = qt_widgets
+    pyside6.QtWidgets = qt_widgets
+    sys.modules["PySide6.QtWidgets"] = qt_widgets
 
     sys.modules["rdkit"] = MagicMock()
     sys.modules["pyscf"] = None
@@ -277,7 +277,7 @@ class TestSafeStopWorker(unittest.TestCase):
         worker._stream.close.assert_called_once()
 
     def test_one_failed_disconnect_does_not_skip_the_rest(self):
-        """PyQt6 raises TypeError for a signal with no connections; a
+        """PySide6 raises TypeError for a signal with no connections; a
         single try around all four used to leave the later ones connected."""
         dlg = self._make_dlg()
         worker = MagicMock()

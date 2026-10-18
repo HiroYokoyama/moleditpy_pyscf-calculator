@@ -1,7 +1,7 @@
 # PySCF Calculator — Test Suite
 
 277 tests across 24 files. All run headlessly — no display server, no PySCF
-installation, no real Qt required. PyQt6, PySCF, and RDKit are fully mocked
+installation, no real Qt required. PySide6, PySCF, and RDKit are fully mocked
 at module level in each file that needs them.
 
 Tests that exercise the *real* PySCF library are decorated with

@@ -1,7 +1,7 @@
 import logging
 
-from PyQt6.QtCore import QTimer, pyqtSignal
-from PyQt6.QtWidgets import (
+from PySide6.QtCore import QTimer, Signal
+from PySide6.QtWidgets import (
     QDialog,
     QFormLayout,
     QGroupBox,
@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 
 
 class ScanDialog(QDialog):
-    scan_configured = pyqtSignal(dict)
+    scan_configured = Signal(dict)
 
     def __init__(self, parent=None, context=None, initial_params=None):
         super().__init__(parent)
@@ -239,7 +239,7 @@ class ScanDialog(QDialog):
             # Auto-fill End if empty? Maybe not, leave it to user
 
         # runs from the selection QTimer: an escaping exception aborts the
-        # host app (PyQt6); RDKit / host-state errors of any kind are shown
+        # host app (PySide6); RDKit / host-state errors of any kind are shown
         except Exception as e:  # noqa: BLE001
             self.lbl_current.setText("Error calc value")
             logger.warning("ScanDialog Calc Error: %s", e)

@@ -3,7 +3,7 @@
 ## Overview
 
 All tests run headlessly without a display server and without requiring PySCF or
-the real Qt library to be installed.  PyQt6, PySCF, and RDKit are fully mocked
+the real Qt library to be installed.  PySide6, PySCF, and RDKit are fully mocked
 at the Python module level.
 
 Tests that exercise the *real* PySCF library are decorated with
