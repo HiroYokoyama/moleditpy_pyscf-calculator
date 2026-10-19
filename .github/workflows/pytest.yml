@@ -17,11 +17,11 @@ permissions:
   contents: read
 
 env:
-  MOLEDITPY_REF: ${{ inputs.moleditpy_ref || vars.MOLEDITPY_REF || 'migrate/pyside6-without-openbabel' }}
+  MOLEDITPY_REF: ${{ inputs.moleditpy_ref || vars.MOLEDITPY_REF || 'main' }}
 
 jobs:
   # ---------------------------------------------------------------------------
-  # Standard test job — no external dependencies required
+  # Standard test job  Eno external dependencies required
   # ---------------------------------------------------------------------------
   test:
     runs-on: ubuntu-latest
@@ -46,7 +46,7 @@ jobs:
         python -m pytest --cov=pyscf_calculator tests/ -v
 
   # ---------------------------------------------------------------------------
-  # Integration test job — clones the main MoleditPy app to enable real
+  # Integration test job  Eclones the main MoleditPy app to enable real
   # PluginContext tests (TestWithRealPluginContext in test_plugin_integration.py)
   # ---------------------------------------------------------------------------
   test-integration:
@@ -79,7 +79,7 @@ jobs:
 
     - name: Install main app Python package (editable, no extras)
       # Install only the package metadata so PluginContext can be imported.
-      # We skip heavy GUI deps (pyvista, PySide6) — they are mocked in tests.
+      # We skip heavy GUI deps (pyvista, PySide6)  Ethey are mocked in tests.
       run: |
         pip install -e ../python_molecular_editor/moleditpy \
           --no-deps --quiet || true
