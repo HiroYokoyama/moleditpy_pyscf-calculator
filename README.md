@@ -131,4 +131,15 @@ Two suites:
 
 ## License & Disclaimer
 
-This project is licensed under the GNU General Public License v3.0 (GPLv3) - see the [LICENSE](LICENSE) file for details. As open-source software, it is provided 'as is' without warranty of any kind, and the author assumes no responsibility or liability for the results. Although outputs have been carefully verified, users are strongly encouraged to independently check and validate them for critical applications (such as publications). If you encounter any bugs, please open an issue.
+This project's first-party code uses the GNU General Public License v3.0 (GPLv3)
+with an explicit [geomeTRIC combination permission](GEOMETRIC_EXCEPTION).
+See [LICENSE](LICENSE) and [the dependency licensing notes](LICENSING.md).
+The release ZIP does not bundle the calculation libraries. geomeTRIC 1.1.1 has
+a BSD 3-clause **Non-AI** license with an additional restriction; it is not
+ordinary BSD-3-Clause. The plugin's permission allows the intended combination
+while preserving geomeTRIC's own terms.
+
+The software is provided 'as is' without warranty of any kind, and the author
+assumes no responsibility or liability for the results. Users should
+independently validate results for critical applications. Please open an issue
+if you encounter a bug.

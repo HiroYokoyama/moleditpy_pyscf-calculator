@@ -1,0 +1,25 @@
+PySCF Calculator geomeTRIC combination permission
+
+Copyright holder: Hiromichi Yokoyama / HiroYokoyama.
+
+The copyright holder grants the following additional permission under section 7
+of the GNU General Public License version 3 for the first-party PySCF Calculator
+code distributed with this notice:
+
+You may link or combine that code with the separately licensed geomeTRIC
+geometry optimizer, including versions carrying its BSD 3-clause Non-AI license,
+and use, modify and convey the resulting combination, provided you comply with
+the applicable terms of geomeTRIC and the other components. This permission also
+covers calling geomeTRIC through PySCF's geometry-optimization interface.
+
+The first-party PySCF Calculator code remains governed by GPLv3, including its
+source-availability and notice requirements. This permission removes only the
+obstacle imposed by that copyright holder's GPL grant to the combination
+described above. It does not relicense geomeTRIC, remove its restrictions, grant
+rights in another author's code, or declare geomeTRIC to be ordinary BSD-3-Clause
+or OSI-approved open-source software.
+
+Modified versions may retain this additional permission. Contributors offering
+changes under this permission must have authority to do so. Historical releases
+and third-party components retain their original grants. Recipients may remove
+this additional permission as GPLv3 section 7 permits.

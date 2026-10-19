@@ -1,3 +1,5 @@
+# First-party code: GPLv3 with the permission in GEOMETRIC_EXCEPTION.
+# Separately installed dependencies retain their own license terms.
 PLUGIN_NAME = "PySCF Calculator"
 PLUGIN_VERSION = "5.0.0"
 PLUGIN_AUTHOR = "HiroYokoyama"
