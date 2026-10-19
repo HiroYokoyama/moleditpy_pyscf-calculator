@@ -1,5 +1,5 @@
 def test_regenerated_esp_uses_matching_density_surface(plugin, dialog, tmp_path, monkeypatch):
-    from PyQt6.QtWidgets import QListWidgetItem
+    from PySide6.QtWidgets import QListWidgetItem
     tab = dialog.vis_tab
     for name in ("esp_2.cube", "density_2.cube"):
         (tmp_path / name).touch()

@@ -1,10 +1,12 @@
 # MoleditPy PySCF Calculator Plugin
 
+This branch targets **MoleditPy 5.0.0a1–5.x** and uses **PySide6**. Plugin licensing is unchanged.
+
 [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.18312165.svg)](https://doi.org/10.5281/zenodo.18312165)
 [![Python CI](https://github.com/HiroYokoyama/moleditpy_pyscf-calculator/actions/workflows/pytest.yml/badge.svg)](https://github.com/HiroYokoyama/moleditpy_pyscf-calculator/actions/workflows/pytest.yml)
 [![Real PySCF tests](https://github.com/HiroYokoyama/moleditpy_pyscf-calculator/actions/workflows/real-pyscf.yml/badge.svg)](https://github.com/HiroYokoyama/moleditpy_pyscf-calculator/actions/workflows/real-pyscf.yml)
 ![Test Coverage](https://img.shields.io/badge/coverage->90%25-green)
-[![MoleditPy](https://img.shields.io/badge/MoleditPy->=4.0.0-3577F7)](https://github.com/HiroYokoyama/python_molecular_editor)
+[![MoleditPy](https://img.shields.io/badge/MoleditPy->=5.0.0-3577F7)](https://github.com/HiroYokoyama/python_molecular_editor)
 [![GitHub tag](https://img.shields.io/github/v/tag/HiroYokoyama/moleditpy_pyscf-calculator?label=version)](https://github.com/HiroYokoyama/moleditpy_pyscf-calculator/tags)
 [![GitHub Downloads](https://img.shields.io/github/downloads/HiroYokoyama/moleditpy_pyscf-calculator/total)](https://github.com/HiroYokoyama/moleditpy_pyscf-calculator/releases)
 
@@ -77,14 +79,14 @@ Master quantum chemistry calculations in MoleditPy with step-by-step interactive
 
 ### Requirements
 - PySCF
-- PyQt6
+- PySide6
 - NumPy
 - GeomeTRIC
 - Matplotlib
 - Optional: `pyscf-dispersion` (D3/D4 corrections), `pyberny` (fallback optimizer)
 
 ```bash
-pip install pyscf PyQt6 numpy geometric matplotlib
+pip install pyscf PySide6 numpy geometric matplotlib
 pip install pyscf-dispersion pyberny   # optional
 ```
 > [!WARNING]
@@ -117,16 +119,27 @@ Two suites:
   python -m pytest tests/
   ```
 - `tests_real/` -- the plugin driven against **real PySCF** (plus geomeTRIC, RDKit and
-  offscreen PyQt6), each result checked against an independent PySCF reference: every
+  offscreen PySide6), each result checked against an independent PySCF reference: every
   calculation option on minimal molecules, the tutorials' results, the real GUI, and
   file logging. Modules skip themselves when a dependency is missing. PySCF has no
   native Windows build, so run it on Linux or macOS:
   ```bash
-  pip install pyscf geometric pyberny pyscf-dispersion rdkit PyQt6 pyvista matplotlib pytest
+  pip install pyscf geometric pyberny pyscf-dispersion rdkit PySide6 pyvista matplotlib pytest
   QT_QPA_PLATFORM=offscreen python -m pytest tests_real -m "not slow"   # ~2 min
   python -m pytest tests_real -m slow   # the full SN2 tutorial (~3 min)
   ```
 
 ## License & Disclaimer
 
-This project is licensed under the GNU General Public License v3.0 (GPLv3) - see the [LICENSE](LICENSE) file for details. As open-source software, it is provided 'as is' without warranty of any kind, and the author assumes no responsibility or liability for the results. Although outputs have been carefully verified, users are strongly encouraged to independently check and validate them for critical applications (such as publications). If you encounter any bugs, please open an issue.
+This project's first-party code uses the GNU General Public License v3.0 (GPLv3)
+with an explicit [geomeTRIC combination permission](GEOMETRIC_EXCEPTION).
+See [LICENSE](LICENSE) and [the dependency licensing notes](LICENSING.md).
+The release ZIP does not bundle the calculation libraries. geomeTRIC 1.1.1 has
+a BSD 3-clause **Non-AI** license with an additional restriction; it is not
+ordinary BSD-3-Clause. The plugin's permission allows the intended combination
+while preserving geomeTRIC's own terms.
+
+The software is provided 'as is' without warranty of any kind, and the author
+assumes no responsibility or liability for the results. Users should
+independently validate results for critical applications. Please open an issue
+if you encounter a bug.

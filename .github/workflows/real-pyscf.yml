@@ -1,7 +1,7 @@
 name: Real PySCF tests
 
 # tests_real/: the plugin driven against real PySCF (geomeTRIC, pyberny,
-# pyscf-dispersion, RDKit, offscreen PyQt6), every result checked against an
+# pyscf-dispersion, RDKit, offscreen PySide6), every result checked against an
 # independent PySCF reference. Separate from pytest.yml, which runs the fast
 # mocked suite. The minutes-long SN2 tutorial run is marked `slow` and left
 # out here; its real results are covered by tests_real/test_real_fixtures.py.
@@ -28,6 +28,8 @@ jobs:
 
     env:
       QT_QPA_PLATFORM: offscreen
+      QT_API: pyside6
+      PYTEST_QT_API: pyside6
       OMP_NUM_THREADS: "2"
       PYTHONUNBUFFERED: "1"
 
@@ -50,7 +52,7 @@ jobs:
       run: |
         python -m pip install --upgrade pip
         pip install pyscf geometric pyberny \
-          rdkit PyQt6 pyvista matplotlib pillow pytest
+          rdkit PySide6-Essentials pyvista matplotlib pillow pytest
         python -c "import pyscf, geometric, rdkit; print('pyscf', pyscf.__version__)"
 
     # No Apple Silicon wheel exists; the fallback (1.0.0) breaks `import

@@ -2,7 +2,7 @@
 Shared harness for the real-PySCF tests.
 
 These tests run the plugin's workers against a real PySCF (and, where
-needed, geomeTRIC / pyberny / RDKit / PyQt6). They live outside tests/
+needed, geomeTRIC / pyberny / RDKit / PySide6). They live outside tests/
 because that suite replaces sys.modules["pyscf"] with a MagicMock; the
 two must never share a process.
 
@@ -25,6 +25,8 @@ REPO = pathlib.Path(__file__).resolve().parent.parent
 PKG_DIR = REPO / "pyscf_calculator"
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+os.environ.setdefault("QT_API", "pyside6")
+os.environ.setdefault("PYTEST_QT_API", "pyside6")
 os.environ.setdefault("OMP_NUM_THREADS", "4")
 
 
@@ -49,10 +51,21 @@ def qcore():
     QApplication when QtWidgets is available: a QCoreApplication created
     first cannot be replaced, and the GUI tests' QWidgets would abort Qt."""
     try:
-        from PyQt6.QtWidgets import QApplication
+        from PySide6.QtWidgets import QApplication
     except ImportError:
-        from PyQt6.QtCore import QCoreApplication as QApplication
-    return QApplication.instance() or QApplication([])
+        from PySide6.QtCore import QCoreApplication as QApplication
+    app = QApplication.instance() or QApplication([])
+    yield app
+    # Close native widgets while their QApplication is still alive. Leaving
+    # signal-owned dialogs to interpreter teardown can crash PySide6 on Linux.
+    from PySide6.QtCore import QCoreApplication, QEvent
+
+    if hasattr(app, "topLevelWidgets"):
+        for widget in app.topLevelWidgets():
+            widget.close()
+            widget.deleteLater()
+    QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+    app.processEvents()
 
 
 class JobResult:

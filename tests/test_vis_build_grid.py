@@ -29,18 +29,18 @@ import numpy as np
 def _install_stubs():
     sys.modules.setdefault("pyvista", MagicMock())
 
-    qt_gui = types.ModuleType("PyQt6.QtGui")
+    qt_gui = types.ModuleType("PySide6.QtGui")
     qt_gui.QColor = MagicMock()
-    sys.modules.setdefault("PyQt6.QtGui", qt_gui)
+    sys.modules.setdefault("PySide6.QtGui", qt_gui)
 
-    qt_core = types.ModuleType("PyQt6.QtCore")
+    qt_core = types.ModuleType("PySide6.QtCore")
     qt_core.Qt = MagicMock()
-    sys.modules.setdefault("PyQt6.QtCore", qt_core)
+    sys.modules.setdefault("PySide6.QtCore", qt_core)
 
-    pyqt6 = sys.modules.get("PyQt6") or types.ModuleType("PyQt6")
-    pyqt6.QtGui = qt_gui
-    pyqt6.QtCore = qt_core
-    sys.modules.setdefault("PyQt6", pyqt6)
+    pyside6 = sys.modules.get("PySide6") or types.ModuleType("PySide6")
+    pyside6.QtGui = qt_gui
+    pyside6.QtCore = qt_core
+    sys.modules.setdefault("PySide6", pyside6)
     sys.modules.setdefault("rdkit", MagicMock())
     sys.modules.setdefault("rdkit.Chem", MagicMock())
 

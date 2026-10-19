@@ -8,7 +8,7 @@ import pytest
 
 pyscf = pytest.importorskip("pyscf")
 pytest.importorskip("rdkit")
-pytest.importorskip("PyQt6.QtCore")
+pytest.importorskip("PySide6.QtCore")
 
 from conftest import XYZ_H2, XYZ_H2O, XYZ_OH, load_plugin_modules
 from pyscf import gto, scf

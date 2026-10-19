@@ -44,7 +44,7 @@ LEVEL = {"method": "RKS", "functional": "b3lyp", "basis": "ma-def2-svp", "charge
 
 
 def run(worker, xyz, tmp, **cfg):
-    from PyQt6.QtCore import QCoreApplication
+    from PySide6.QtCore import QCoreApplication
 
     QCoreApplication.instance() or QCoreApplication([])
     out = {}

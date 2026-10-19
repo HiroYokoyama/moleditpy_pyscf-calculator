@@ -22,7 +22,7 @@ def _load_module_direct(relpath, module_name):
 
 
 def _install_stubs():
-    qt_core = types.ModuleType("PyQt6.QtCore")
+    qt_core = types.ModuleType("PySide6.QtCore")
 
     class _Qt:
         class AlignmentFlag:
@@ -31,10 +31,10 @@ def _install_stubs():
             AlignVCenter = 2
 
     qt_core.Qt = _Qt
-    pyqt6 = types.ModuleType("PyQt6")
-    pyqt6.QtCore = qt_core
-    sys.modules["PyQt6"] = pyqt6
-    sys.modules["PyQt6.QtCore"] = qt_core
+    pyside6 = types.ModuleType("PySide6")
+    pyside6.QtCore = qt_core
+    sys.modules["PySide6"] = pyside6
+    sys.modules["PySide6.QtCore"] = qt_core
 
     class _QDialog:
         def __init__(self, parent=None):
@@ -59,7 +59,7 @@ def _install_stubs():
         class ResizeMode:
             Stretch = 1
 
-    qt_widgets = types.ModuleType("PyQt6.QtWidgets")
+    qt_widgets = types.ModuleType("PySide6.QtWidgets")
     qt_widgets.QDialog = _QDialog
     qt_widgets.QWidget = _QWidget
     qt_widgets.QHeaderView = _QHeaderView
@@ -76,8 +76,8 @@ def _install_stubs():
 
     qt_widgets.QTableWidgetItem = lambda *a, **k: MagicMock()
 
-    pyqt6.QtWidgets = qt_widgets
-    sys.modules["PyQt6.QtWidgets"] = qt_widgets
+    pyside6.QtWidgets = qt_widgets
+    sys.modules["PySide6.QtWidgets"] = qt_widgets
 
 
 _install_stubs()

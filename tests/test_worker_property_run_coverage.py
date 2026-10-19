@@ -28,16 +28,16 @@ import numpy as np
 
 
 def _install_stubs(force=False):
-    qt_core = types.ModuleType("PyQt6.QtCore")
+    qt_core = types.ModuleType("PySide6.QtCore")
 
     class _QThread:
         def __init__(self):
             pass
 
     qt_core.QThread = _QThread
-    qt_core.pyqtSignal = lambda *a, **kw: MagicMock()
-    pyqt6 = types.ModuleType("PyQt6")
-    pyqt6.QtCore = qt_core
+    qt_core.Signal = lambda *a, **kw: MagicMock()
+    pyside6 = types.ModuleType("PySide6")
+    pyside6.QtCore = qt_core
 
     def _set(k, v):
         if force:
@@ -45,8 +45,8 @@ def _install_stubs(force=False):
         else:
             sys.modules.setdefault(k, v)
 
-    _set("PyQt6", pyqt6)
-    _set("PyQt6.QtCore", qt_core)
+    _set("PySide6", pyside6)
+    _set("PySide6.QtCore", qt_core)
     _set("rdkit", MagicMock())
     _set("rdkit.Chem", MagicMock())
     _set("rdkit.Chem.rdMolTransforms", MagicMock())

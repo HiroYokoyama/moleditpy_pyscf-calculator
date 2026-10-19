@@ -51,27 +51,27 @@ from unittest.mock import MagicMock
 
 
 def _install_stubs():
-    qt_core = sys.modules.get("PyQt6.QtCore")
+    qt_core = sys.modules.get("PySide6.QtCore")
     if qt_core is None or not hasattr(qt_core, "__file__"):
-        qt_core = types.ModuleType("PyQt6.QtCore")
+        qt_core = types.ModuleType("PySide6.QtCore")
 
         class _QThread:
             def __init__(self):
                 pass
 
         qt_core.QThread = _QThread
-        qt_core.pyqtSignal = lambda *a, **kw: MagicMock()
-        sys.modules["PyQt6.QtCore"] = qt_core
+        qt_core.Signal = lambda *a, **kw: MagicMock()
+        sys.modules["PySide6.QtCore"] = qt_core
 
-    pyqt6 = sys.modules.get("PyQt6")
-    if pyqt6 is None or not hasattr(pyqt6, "__file__"):
-        pyqt6 = types.ModuleType("PyQt6")
-        pyqt6.QtCore = qt_core
-        sys.modules["PyQt6"] = pyqt6
+    pyside6 = sys.modules.get("PySide6")
+    if pyside6 is None or not hasattr(pyside6, "__file__"):
+        pyside6 = types.ModuleType("PySide6")
+        pyside6.QtCore = qt_core
+        sys.modules["PySide6"] = pyside6
 
-    qt_widgets = sys.modules.get("PyQt6.QtWidgets")
+    qt_widgets = sys.modules.get("PySide6.QtWidgets")
     if qt_widgets is None or not hasattr(qt_widgets, "__file__"):
-        qt_widgets = types.ModuleType("PyQt6.QtWidgets")
+        qt_widgets = types.ModuleType("PySide6.QtWidgets")
         for name in [
             "QDialog",
             "QVBoxLayout",
@@ -100,14 +100,14 @@ def _install_stubs():
             "QStackedWidget",
         ]:
             setattr(qt_widgets, name, MagicMock)
-        pyqt6.QtWidgets = qt_widgets
-        sys.modules["PyQt6.QtWidgets"] = qt_widgets
+        pyside6.QtWidgets = qt_widgets
+        sys.modules["PySide6.QtWidgets"] = qt_widgets
 
-    qt_gui = sys.modules.get("PyQt6.QtGui")
+    qt_gui = sys.modules.get("PySide6.QtGui")
     if qt_gui is None or not hasattr(qt_gui, "__file__"):
         if qt_gui is None:
-            qt_gui = types.ModuleType("PyQt6.QtGui")
-            sys.modules["PyQt6.QtGui"] = qt_gui
+            qt_gui = types.ModuleType("PySide6.QtGui")
+            sys.modules["PySide6.QtGui"] = qt_gui
 
         # Define a mock QColor subclass to avoid spec restriction when instantiated with color string
         class MockQColor(MagicMock):
@@ -131,8 +131,8 @@ def _install_stubs():
         for name in ["QPainter", "QPen", "QAction", "QIcon"]:
             if not hasattr(qt_gui, name):
                 setattr(qt_gui, name, MagicMock)
-        pyqt6.QtGui = qt_gui
-        sys.modules["PyQt6.QtGui"] = qt_gui
+        pyside6.QtGui = qt_gui
+        sys.modules["PySide6.QtGui"] = qt_gui
 
     sys.modules.setdefault("rdkit", MagicMock())
     sys.modules.setdefault("rdkit.Chem", MagicMock())

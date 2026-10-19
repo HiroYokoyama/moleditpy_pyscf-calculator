@@ -2,8 +2,8 @@ import numpy as np
 
 
 def test_closing_dock_stops_animation_and_restores_coordinates(plugin, context, app):
-    from PyQt6.QtCore import Qt
-    from PyQt6.QtWidgets import QDockWidget
+    from PySide6.QtCore import Qt
+    from PySide6.QtWidgets import QDockWidget
     mw = context.get_main_window()
     mol = context.current_molecule
     base = mol.GetConformer().GetPositions().copy()

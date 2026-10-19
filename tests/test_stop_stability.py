@@ -43,8 +43,8 @@ def _load_module_direct(relpath, module_name):
 
 # --- Minimal stubs that satisfy worker.py's top-level imports ---
 def _install_stubs():
-    # PyQt6.QtCore stubs
-    qt_core = types.ModuleType("PyQt6.QtCore")
+    # PySide6.QtCore stubs
+    qt_core = types.ModuleType("PySide6.QtCore")
 
     # QThread stub: a plain class so PySCFWorker can inherit from it
     class _QThread:
@@ -68,7 +68,7 @@ def _install_stubs():
             pass
 
     qt_core.QThread = _QThread
-    qt_core.pyqtSignal = lambda *a, **kw: MagicMock()
+    qt_core.Signal = lambda *a, **kw: MagicMock()
 
     # Qt namespace stub (needed by calc_tab: Qt.CursorShape.PointingHandCursor etc.)
     class _Qt:
@@ -91,13 +91,13 @@ def _install_stubs():
 
     qt_core.QTimer = _QTimer
 
-    pyqt6 = types.ModuleType("PyQt6")
-    pyqt6.QtCore = qt_core
-    sys.modules["PyQt6"] = pyqt6
-    sys.modules["PyQt6.QtCore"] = qt_core
+    pyside6 = types.ModuleType("PySide6")
+    pyside6.QtCore = qt_core
+    sys.modules["PySide6"] = pyside6
+    sys.modules["PySide6.QtCore"] = qt_core
 
-    # PyQt6.QtWidgets stubs (needed by calc_tab)
-    qt_widgets = types.ModuleType("PyQt6.QtWidgets")
+    # PySide6.QtWidgets stubs (needed by calc_tab)
+    qt_widgets = types.ModuleType("PySide6.QtWidgets")
     for name in [
         "QWidget",
         "QVBoxLayout",
@@ -123,8 +123,8 @@ def _install_stubs():
         "QToolTip",
     ]:
         setattr(qt_widgets, name, MagicMock)
-    pyqt6.QtWidgets = qt_widgets
-    sys.modules["PyQt6.QtWidgets"] = qt_widgets
+    pyside6.QtWidgets = qt_widgets
+    sys.modules["PySide6.QtWidgets"] = qt_widgets
 
     # rdkit stubs
     rdkit = types.ModuleType("rdkit")

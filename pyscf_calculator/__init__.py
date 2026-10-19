@@ -1,5 +1,7 @@
+# First-party code: GPLv3 with the permission in GEOMETRIC_EXCEPTION.
+# Separately installed dependencies retain their own license terms.
 PLUGIN_NAME = "PySCF Calculator"
-PLUGIN_VERSION = "4.0.4"
+PLUGIN_VERSION = "5.0.0"
 PLUGIN_AUTHOR = "HiroYokoyama"
 PLUGIN_DESCRIPTION = "Perform PySCF quantum chemistry calculations directly in MoleditPy. Features: Single Point Energy (RHF/UHF/DFT), Geometry Optimization (GeomeTRIC/Berny), Frequency Analysis, and interactive 3D visualization of Molecular Orbitals (HOMO/LUMO) and Electrostatic Potential (ESP) mapped on Density surfaces."
 PLUGIN_DEPENDENCIES = ["pyscf", "geometric", "numpy"]
@@ -8,7 +10,7 @@ PLUGIN_DEPENDENCIES = ["pyscf", "geometric", "numpy"]
 # Silicon: it has no arm64 wheel and the fallback (1.0.0) breaks
 # `import pyscf` -- see README.
 PLUGIN_OPTIONAL_DEPENDENCIES = ["pyscf-dispersion", "pyberny"]
-PLUGIN_SUPPORTED_MOLEDITPY_VERSION = ">=4.0.0, <5.0.0"
+PLUGIN_SUPPORTED_MOLEDITPY_VERSION = ">=5.0.0, <6.0.0"
 PLUGIN_SUPPORTED_OS = ["macOS", "Linux", "WSL"]  # pyscf has no native Windows support
 
 from .gui import PySCFDialog

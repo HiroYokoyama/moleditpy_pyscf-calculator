@@ -13,7 +13,7 @@ import threading
 import traceback
 
 import numpy as np
-from PyQt6.QtCore import QThread, pyqtSignal
+from PySide6.QtCore import QThread, Signal
 
 try:
     from rdkit import Chem
@@ -327,10 +327,10 @@ class _FrequencySkipped(Exception):
 
 
 class PySCFWorker(QThread):
-    log_signal = pyqtSignal(str)
-    finished_signal = pyqtSignal()
-    error_signal = pyqtSignal(str)
-    result_signal = pyqtSignal(dict)  # Pass back data like XYZ, Cube paths
+    log_signal = Signal(str)
+    finished_signal = Signal()
+    error_signal = Signal(str)
+    result_signal = Signal(dict)  # Pass back data like XYZ, Cube paths
 
     _log = _log_to_file
 
@@ -1658,10 +1658,10 @@ class PySCFWorker(QThread):
 
 
 class PropertyWorker(QThread):
-    log_signal = pyqtSignal(str)
-    finished_signal = pyqtSignal()
-    error_signal = pyqtSignal(str)
-    result_signal = pyqtSignal(dict)  # {"files": [cube paths]}
+    log_signal = Signal(str)
+    finished_signal = Signal()
+    error_signal = Signal(str)
+    result_signal = Signal(dict)  # {"files": [cube paths]}
 
     _log = _log_to_file
 
@@ -1872,8 +1872,8 @@ class PropertyWorker(QThread):
 
 
 class LoadWorker(QThread):
-    finished_signal = pyqtSignal(dict)
-    error_signal = pyqtSignal(str)
+    finished_signal = Signal(dict)
+    error_signal = Signal(str)
 
     def __init__(self, chkfile):
         super().__init__()

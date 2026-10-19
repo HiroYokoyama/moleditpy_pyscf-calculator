@@ -22,8 +22,8 @@ def _load_module_direct(relpath, module_name):
 
 
 def _install_stubs():
-    qt_core = types.ModuleType("PyQt6.QtCore")
-    qt_core.pyqtSignal = lambda *a, **kw: MagicMock()
+    qt_core = types.ModuleType("PySide6.QtCore")
+    qt_core.Signal = lambda *a, **kw: MagicMock()
 
     class _Qt:
         class Orientation:
@@ -53,10 +53,10 @@ def _install_stubs():
 
     qt_core.QTimer = _QTimer
 
-    pyqt6 = types.ModuleType("PyQt6")
-    pyqt6.QtCore = qt_core
-    sys.modules["PyQt6"] = pyqt6
-    sys.modules["PyQt6.QtCore"] = qt_core
+    pyside6 = types.ModuleType("PySide6")
+    pyside6.QtCore = qt_core
+    sys.modules["PySide6"] = pyside6
+    sys.modules["PySide6.QtCore"] = qt_core
 
     class _QDialog:
         def __init__(self, parent=None):
@@ -93,7 +93,7 @@ def _install_stubs():
         def blockSignals(self, *a):
             pass
 
-    qt_widgets = types.ModuleType("PyQt6.QtWidgets")
+    qt_widgets = types.ModuleType("PySide6.QtWidgets")
     qt_widgets.QDialog = _QDialog
     qt_widgets.QSlider = _QSlider
 
@@ -116,8 +116,8 @@ def _install_stubs():
     ]:
         setattr(qt_widgets, name, MagicMock)
 
-    pyqt6.QtWidgets = qt_widgets
-    sys.modules["PyQt6.QtWidgets"] = qt_widgets
+    pyside6.QtWidgets = qt_widgets
+    sys.modules["PySide6.QtWidgets"] = qt_widgets
 
     sys.modules["rdkit"] = MagicMock()
     sys.modules["rdkit.Chem"] = MagicMock()

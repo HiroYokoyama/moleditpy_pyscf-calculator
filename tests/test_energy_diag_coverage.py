@@ -20,7 +20,7 @@ __init__). This file targets:
   - paintEvent (RHF + UHF + eV/Hartree unit branches)
 
 Stub strategy follows test_energy_diag.py / test_energy_diag_branches.py
-(custom lightweight QDialog stub, no PyQt6 installed), extended with:
+(custom lightweight QDialog stub, no PySide6 installed), extended with:
   - a real-geometry FakeQRect (left/right/center/contains) since
     mousePressEvent/mouseMoveEvent do real hit-testing against QRects stored
     in self.hit_zones by paintEvent.
@@ -167,7 +167,7 @@ class _FakeQToolTip:
 
 
 def _install_stubs():
-    qt_core = types.ModuleType("PyQt6.QtCore")
+    qt_core = types.ModuleType("PySide6.QtCore")
 
     class _Qt:
         class CursorShape:
@@ -204,19 +204,19 @@ def _install_stubs():
         def __init__(self, *a, **k):
             pass
 
-    qt_gui = types.ModuleType("PyQt6.QtGui")
+    qt_gui = types.ModuleType("PySide6.QtGui")
     qt_gui.QPainter = _FakePainter
     qt_gui.QPen = _FakeQPen
     qt_gui.QColor = _FakeQColor
     qt_gui.QFont = _FakeQFont
     qt_gui.QAction = _FakeQAction
 
-    pyqt6 = types.ModuleType("PyQt6")
-    pyqt6.QtCore = qt_core
-    pyqt6.QtGui = qt_gui
-    sys.modules["PyQt6"] = pyqt6
-    sys.modules["PyQt6.QtCore"] = qt_core
-    sys.modules["PyQt6.QtGui"] = qt_gui
+    pyside6 = types.ModuleType("PySide6")
+    pyside6.QtCore = qt_core
+    pyside6.QtGui = qt_gui
+    sys.modules["PySide6"] = pyside6
+    sys.modules["PySide6.QtCore"] = qt_core
+    sys.modules["PySide6.QtGui"] = qt_gui
 
     class _QDialog:
         def __init__(self, parent=None):
@@ -231,7 +231,7 @@ def _install_stubs():
         def setMouseTracking(self, *a):
             pass
 
-    qt_widgets = types.ModuleType("PyQt6.QtWidgets")
+    qt_widgets = types.ModuleType("PySide6.QtWidgets")
     qt_widgets.QDialog = _QDialog
     qt_widgets.QFileDialog = _FakeQFileDialog
     qt_widgets.QMessageBox = _FakeQMessageBox
@@ -249,8 +249,8 @@ def _install_stubs():
     qt_widgets.QPushButton = lambda *a, **k: MagicMock()
     qt_widgets.QLabel = lambda *a, **k: MagicMock()
 
-    pyqt6.QtWidgets = qt_widgets
-    sys.modules["PyQt6.QtWidgets"] = qt_widgets
+    pyside6.QtWidgets = qt_widgets
+    sys.modules["PySide6.QtWidgets"] = qt_widgets
 
 
 _install_stubs()
@@ -654,9 +654,9 @@ class TestUpdateUnit(unittest.TestCase):
 
 class TestPaintEvent(unittest.TestCase):
     # These tests re-run _install_stubs() at execution time; snapshot/restore the
-    # PyQt6 sys.modules entries so that clobber doesn't leak into later test files
+    # PySide6 sys.modules entries so that clobber doesn't leak into later test files
     # (e.g. test_plugin_integration.py's real-context QColor/QFont).
-    _QT_KEYS = ("PyQt6", "PyQt6.QtCore", "PyQt6.QtGui", "PyQt6.QtWidgets")
+    _QT_KEYS = ("PySide6", "PySide6.QtCore", "PySide6.QtGui", "PySide6.QtWidgets")
 
     def setUp(self):
         self._qt_snapshot = {k: sys.modules.get(k) for k in self._QT_KEYS}
@@ -672,8 +672,8 @@ class TestPaintEvent(unittest.TestCase):
         d = _make_dialog(RHF_DATA)
         d.unit_combo = types.SimpleNamespace(currentText=lambda: "eV")
         _install_stubs()  # re-assert QRect etc. in case another test module
-        # clobbered sys.modules["PyQt6.QtCore"] since our module-level import;
-        # paintEvent() does `from PyQt6.QtCore import QRect` at call time.
+        # clobbered sys.modules["PySide6.QtCore"] since our module-level import;
+        # paintEvent() does `from PySide6.QtCore import QRect` at call time.
         d.paintEvent(MagicMock())
         self.assertGreater(len(d.hit_zones), 0)
         # Every level within view should have produced a hit zone tuple
@@ -685,16 +685,16 @@ class TestPaintEvent(unittest.TestCase):
         d = _make_dialog(RHF_DATA)
         d.unit_combo = types.SimpleNamespace(currentText=lambda: "Hartree")
         _install_stubs()  # re-assert QRect etc. in case another test module
-        # clobbered sys.modules["PyQt6.QtCore"] since our module-level import;
-        # paintEvent() does `from PyQt6.QtCore import QRect` at call time.
+        # clobbered sys.modules["PySide6.QtCore"] since our module-level import;
+        # paintEvent() does `from PySide6.QtCore import QRect` at call time.
         d.paintEvent(MagicMock())
 
     def test_uhf_two_columns_no_crash(self):
         d = _make_dialog(UHF_DATA)
         d.unit_combo = types.SimpleNamespace(currentText=lambda: "eV")
         _install_stubs()  # re-assert QRect etc. in case another test module
-        # clobbered sys.modules["PyQt6.QtCore"] since our module-level import;
-        # paintEvent() does `from PyQt6.QtCore import QRect` at call time.
+        # clobbered sys.modules["PySide6.QtCore"] since our module-level import;
+        # paintEvent() does `from PySide6.QtCore import QRect` at call time.
         d.paintEvent(MagicMock())
         # UHF must produce spin-tagged hit zones ("_A"/"_B")
         suffixes = {spin for _, _, _, spin in d.hit_zones}
@@ -710,8 +710,8 @@ class TestPaintEvent(unittest.TestCase):
         d = _make_dialog(somo_data)
         d.unit_combo = types.SimpleNamespace(currentText=lambda: "eV")
         _install_stubs()  # re-assert QRect etc. in case another test module
-        # clobbered sys.modules["PyQt6.QtCore"] since our module-level import;
-        # paintEvent() does `from PyQt6.QtCore import QRect` at call time.
+        # clobbered sys.modules["PySide6.QtCore"] since our module-level import;
+        # paintEvent() does `from PySide6.QtCore import QRect` at call time.
         d.paintEvent(MagicMock())
 
     def test_empty_energies_no_crash(self):
@@ -719,8 +719,8 @@ class TestPaintEvent(unittest.TestCase):
         d = _make_dialog(empty_data)
         d.unit_combo = types.SimpleNamespace(currentText=lambda: "eV")
         _install_stubs()  # re-assert QRect etc. in case another test module
-        # clobbered sys.modules["PyQt6.QtCore"] since our module-level import;
-        # paintEvent() does `from PyQt6.QtCore import QRect` at call time.
+        # clobbered sys.modules["PySide6.QtCore"] since our module-level import;
+        # paintEvent() does `from PySide6.QtCore import QRect` at call time.
         d.paintEvent(MagicMock())
         self.assertEqual(d.hit_zones, [])
 
@@ -733,8 +733,8 @@ class TestPaintEvent(unittest.TestCase):
         d = _make_dialog(roks_data)
         d.unit_combo = types.SimpleNamespace(currentText=lambda: "eV")
         _install_stubs()  # re-assert QRect etc. in case another test module
-        # clobbered sys.modules["PyQt6.QtCore"] since our module-level import;
-        # paintEvent() does `from PyQt6.QtCore import QRect` at call time.
+        # clobbered sys.modules["PySide6.QtCore"] since our module-level import;
+        # paintEvent() does `from PySide6.QtCore import QRect` at call time.
         d.paintEvent(MagicMock())
         labels = {label for _, _, label, _ in d.hit_zones}
         self.assertIn("SOMO", labels)

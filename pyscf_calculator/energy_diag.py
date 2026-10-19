@@ -2,9 +2,9 @@ import glob
 import math
 import os
 
-from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QAction, QColor, QFont, QPainter, QPen
-from PyQt6.QtWidgets import (
+from PySide6.QtCore import Qt
+from PySide6.QtGui import QAction, QColor, QFont, QPainter, QPen
+from PySide6.QtWidgets import (
     QApplication,
     QComboBox,
     QDialog,
@@ -431,7 +431,7 @@ class EnergyDiagramDialog(QDialog):
 
         # Reset Hit Zones
         self.hit_zones = []  # List of (QRect, index, label)
-        from PyQt6.QtCore import (
+        from PySide6.QtCore import (
             QRect,  # pylint: disable=import-outside-toplevel
         )
 

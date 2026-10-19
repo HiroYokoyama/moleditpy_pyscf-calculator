@@ -8,7 +8,7 @@ under test reads/writes -- same technique as tests/test_vis_tab.py.
 
 Rather than relying on which stub happens to win the sys.modules setdefault
 race across test files (fragile - see the incident where a plain assignment
-in another new test file corrupted PyQt6.QtGui for test_plugin_integration.py
+in another new test file corrupted PySide6.QtGui for test_plugin_integration.py
 real-context tests), the Qt names this module actually touches (Qt, QTimer,
 QListWidgetItem, QMessageBox, QFileDialog, QColorDialog, QDialog,
 QTableWidget, QTableWidgetItem, QHeaderView) are rebound directly on our own
@@ -30,11 +30,11 @@ from unittest.mock import MagicMock, patch
 
 
 def _install_minimal_stubs():
-    # Plain assignment (not setdefault) for QtCore/QtWidgets/PyQt6, mirroring
+    # Plain assignment (not setdefault) for QtCore/QtWidgets/PySide6, mirroring
     # tests/test_vis_tab.py's proven-working pattern: VisTab subclasses
     # QWidget at class-definition time (module exec), so QWidget MUST be a
     # plain-Python fake *before* vis_tab.py is exec'd here -- if an earlier
-    # test file already fully imported the real PyQt6.QtWidgets (e.g. for
+    # test file already fully imported the real PySide6.QtWidgets (e.g. for
     # test_plugin_integration.py's real-context tests) and we merely reused
     # it (setdefault / hasattr-merge), VisTab would subclass the real
     # sip-wrapped QWidget, and __new__() (which skips __init__) then raises
@@ -42,20 +42,20 @@ def _install_minimal_stubs():
     # attribute access. Rebinding Qt/QTimer/etc. post-load (below) cannot fix
     # this retroactively since the base class is fixed at class-definition
     # time.
-    qt_core = types.ModuleType("PyQt6.QtCore")
+    qt_core = types.ModuleType("PySide6.QtCore")
     qt_core.Qt = MagicMock()
     qt_core.QTimer = MagicMock()
-    sys.modules["PyQt6.QtCore"] = qt_core
+    sys.modules["PySide6.QtCore"] = qt_core
 
-    pyqt6 = types.ModuleType("PyQt6")
-    pyqt6.QtCore = qt_core
-    sys.modules["PyQt6"] = pyqt6
+    pyside6 = types.ModuleType("PySide6")
+    pyside6.QtCore = qt_core
+    sys.modules["PySide6"] = pyside6
 
     class _QWidget:
         def __init__(self, *args, **kwargs):
             pass
 
-    qt_widgets = types.ModuleType("PyQt6.QtWidgets")
+    qt_widgets = types.ModuleType("PySide6.QtWidgets")
     qt_widgets.QWidget = _QWidget
     for name in [
         "QVBoxLayout",
@@ -79,8 +79,8 @@ def _install_minimal_stubs():
         "QColorDialog",
     ]:
         setattr(qt_widgets, name, MagicMock)
-    pyqt6.QtWidgets = qt_widgets
-    sys.modules["PyQt6.QtWidgets"] = qt_widgets
+    pyside6.QtWidgets = qt_widgets
+    sys.modules["PySide6.QtWidgets"] = qt_widgets
 
     sys.modules["rdkit"] = MagicMock()
     sys.modules["pyscf"] = None

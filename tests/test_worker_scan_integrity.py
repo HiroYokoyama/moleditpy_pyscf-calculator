@@ -24,8 +24,8 @@ from unittest.mock import MagicMock
 
 
 def _install_stubs():
-    pyqt6 = types.ModuleType("PyQt6")
-    qt_core = types.ModuleType("PyQt6.QtCore")
+    pyside6 = types.ModuleType("PySide6")
+    qt_core = types.ModuleType("PySide6.QtCore")
 
     class _QThread:
         def __init__(self, *a, **k):
@@ -36,10 +36,10 @@ def _install_stubs():
             return None
 
     qt_core.QThread = _QThread
-    qt_core.pyqtSignal = lambda *a, **k: MagicMock()
-    pyqt6.QtCore = qt_core
-    sys.modules["PyQt6"] = pyqt6
-    sys.modules["PyQt6.QtCore"] = qt_core
+    qt_core.Signal = lambda *a, **k: MagicMock()
+    pyside6.QtCore = qt_core
+    sys.modules["PySide6"] = pyside6
+    sys.modules["PySide6.QtCore"] = qt_core
     for name in ("rdkit", "rdkit.Chem", "rdkit.Chem.rdMolTransforms"):
         sys.modules.setdefault(name, MagicMock())
 

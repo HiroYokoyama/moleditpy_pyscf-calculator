@@ -3,8 +3,8 @@ import logging
 import os
 
 import matplotlib
-from PyQt6.QtCore import Qt, QTimer
-from PyQt6.QtWidgets import (
+from PySide6.QtCore import Qt, QTimer
+from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
     QComboBox,
@@ -392,7 +392,7 @@ class ScanResultDialog(QDialog):
             ):
                 mw.view_3d_manager.plotter.update()
                 mw.view_3d_manager.plotter.render()
-        # runs while the dialog is built: log, never abort the host (PyQt6)
+        # runs while the dialog is built: log, never abort the host (PySide6)
         except Exception:
             logger.exception("Error creating base molecule")
 

@@ -53,4 +53,6 @@ We maintain high code quality standards. Before submitting a Pull Request (PR), 
 
 ## 6. License
 
-By contributing, you agree that your contributions will be licensed under the project's license.
+By contributing, you agree that your contributions will be licensed under the
+project's GPLv3 license with the additional permission in `GEOMETRIC_EXCEPTION`,
+to the extent you have authority to grant it. Third-party code retains its own terms.

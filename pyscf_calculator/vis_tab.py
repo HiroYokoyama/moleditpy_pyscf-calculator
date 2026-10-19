@@ -5,8 +5,8 @@ import logging
 import os
 import re
 
-from PyQt6.QtCore import Qt, QTimer
-from PyQt6.QtWidgets import (
+from PySide6.QtCore import Qt, QTimer
+from PySide6.QtWidgets import (
     QColorDialog,
     QComboBox,
     QDialog,
@@ -338,7 +338,7 @@ class VisTab(QWidget):
             # Load scan results
             try:
                 self.load_scan_results(d, update_structure=update_structure)
-            except Exception as e:  # noqa: BLE001 -- Qt slot: an escaping exception aborts the host app (PyQt6)
+            except Exception as e:  # noqa: BLE001 -- Qt slot: an escaping exception aborts the host app (PySide6)
                 self.log(f"Error loading scan results: {e}")
                 QMessageBox.warning(self, "Error", f"Failed to load scan results: {e}")
             return
@@ -500,7 +500,7 @@ class VisTab(QWidget):
 
         try:
             self.populate_analysis_options()
-        except Exception as e:  # noqa: BLE001 -- Qt slot: an escaping exception aborts the host app (PyQt6)
+        except Exception as e:  # noqa: BLE001 -- Qt slot: an escaping exception aborts the host app (PySide6)
             self.log(f"ERROR populating analysis options: {e}")
 
         self.file_list.clear()
@@ -577,7 +577,7 @@ class VisTab(QWidget):
                 if is_manual_load and uim and hasattr(uim, "minimize_2d_panel"):
                     _teardown(uim.minimize_2d_panel, "minimize_2d_panel")
 
-                # Qt slot: an escaping exception aborts the host app (PyQt6)
+                # Qt slot: an escaping exception aborts the host app (PySide6)
                 try:
                     self.finalize_load(result_data, cubes)
                 except Exception as e:
@@ -588,7 +588,7 @@ class VisTab(QWidget):
             QTimer.singleShot(100, update_and_finalize)
 
         else:
-            # Qt slot: an escaping exception aborts the host app (PyQt6)
+            # Qt slot: an escaping exception aborts the host app (PySide6)
             try:
                 self.finalize_load(result_data, cubes)
             except Exception as e:
@@ -652,7 +652,7 @@ class VisTab(QWidget):
                     )
                     self.freq_dock.show()
                     self.freq_dock.raise_()
-            except Exception as e:  # noqa: BLE001 -- Qt slot: an escaping exception aborts the host app (PyQt6)
+            except Exception as e:  # noqa: BLE001 -- Qt slot: an escaping exception aborts the host app (PySide6)
                 self.log(f"Error opening Frequency Visualizer: {e}")
 
         if result_data.get("tddft_data", None):
@@ -663,7 +663,7 @@ class VisTab(QWidget):
                     self.context.get_main_window(), result_data["tddft_data"]
                 )
                 self.tddft_dlg.show()
-            except Exception as e:  # noqa: BLE001 -- Qt slot: an escaping exception aborts the host app (PyQt6)
+            except Exception as e:  # noqa: BLE001 -- Qt slot: an escaping exception aborts the host app (PySide6)
                 self.log(f"Error opening TDDFT Results: {e}")
 
         if result_data.get("scan_results", None):
@@ -695,7 +695,7 @@ class VisTab(QWidget):
                 dlg.show()
                 self.scan_dlg = dlg  # Keep reference
 
-            except Exception as e:  # noqa: BLE001 -- Qt slot: an escaping exception aborts the host app (PyQt6)
+            except Exception as e:  # noqa: BLE001 -- Qt slot: an escaping exception aborts the host app (PySide6)
                 self.log(f"Error opening Scan Results: {e}")
 
         if cubes:
@@ -1067,7 +1067,7 @@ class VisTab(QWidget):
                 self.switch_to_mapped_mode(surf_file, prop_file)
             else:
                 self.switch_to_standard_mode(path)
-        except Exception as e:  # noqa: BLE001 -- Qt slot: an escaping exception aborts the host app (PyQt6)
+        except Exception as e:  # noqa: BLE001 -- Qt slot: an escaping exception aborts the host app (PySide6)
             self.log(f"Error loading visualization file: {e}")
             self.switch_to_standard_mode(path)
 

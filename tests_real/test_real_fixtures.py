@@ -11,7 +11,7 @@ import pytest
 
 pyscf = pytest.importorskip("pyscf")
 pytest.importorskip("rdkit")
-pytest.importorskip("PyQt6.QtCore")
+pytest.importorskip("PySide6.QtCore")
 
 from conftest import load_plugin_modules, read_cube
 from pyscf import lib
