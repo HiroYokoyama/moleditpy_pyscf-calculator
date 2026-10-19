@@ -1,7 +1,5 @@
 # MoleditPy PySCF Calculator Plugin
 
-This branch targets **MoleditPy 5.0.0a1–5.x** and uses **PySide6**. Plugin licensing is unchanged.
-
 [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.18312165.svg)](https://doi.org/10.5281/zenodo.18312165)
 [![Python CI](https://github.com/HiroYokoyama/moleditpy_pyscf-calculator/actions/workflows/pytest.yml/badge.svg)](https://github.com/HiroYokoyama/moleditpy_pyscf-calculator/actions/workflows/pytest.yml)
 [![Real PySCF tests](https://github.com/HiroYokoyama/moleditpy_pyscf-calculator/actions/workflows/real-pyscf.yml/badge.svg)](https://github.com/HiroYokoyama/moleditpy_pyscf-calculator/actions/workflows/real-pyscf.yml)
