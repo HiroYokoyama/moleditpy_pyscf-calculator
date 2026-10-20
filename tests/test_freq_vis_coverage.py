@@ -251,6 +251,7 @@ def _install_stubs():
             pass
 
     qt_core = types.ModuleType("PySide6.QtCore")
+    qt_core.Slot = lambda *args, **kwargs: lambda fn: fn
 
     class _Qt:
         class AlignmentFlag:

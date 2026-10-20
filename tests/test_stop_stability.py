@@ -37,6 +37,8 @@ def _load_module_direct(relpath, module_name):
     spec = importlib.util.spec_from_file_location(module_name, src)
     mod = importlib.util.module_from_spec(spec)
     sys.modules[module_name] = mod
+    if os.path.basename(src) in ("calc_tab.py", "vis_tab.py"):
+        mod.__package__ = "_pyscf_callback_unit"
     spec.loader.exec_module(mod)
     return mod
 
@@ -45,6 +47,7 @@ def _load_module_direct(relpath, module_name):
 def _install_stubs():
     # PySide6.QtCore stubs
     qt_core = types.ModuleType("PySide6.QtCore")
+    qt_core.Slot = lambda *args, **kwargs: lambda fn: fn
 
     # QThread stub: a plain class so PySCFWorker can inherit from it
     class _QThread:

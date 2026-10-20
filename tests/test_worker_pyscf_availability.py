@@ -48,6 +48,7 @@ def _install_qt_stubs(force=False):
     on stubs already installed by other test files.
     """
     qt_core = types.ModuleType("PySide6.QtCore")
+    qt_core.Slot = lambda *args, **kwargs: lambda fn: fn
 
     class _QThread:
         def __init__(self):

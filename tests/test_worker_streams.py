@@ -32,6 +32,7 @@ sys.modules["pyscf.dft"] = MagicMock()
 sys.modules["pyscf.solvent"] = MagicMock()
 
 qt_core = types.ModuleType("PySide6.QtCore")
+qt_core.Slot = lambda *args, **kwargs: lambda fn: fn
 qt_core.QThread = MagicMock()
 qt_core.Signal = lambda *a, **k: MagicMock()
 pyside6 = types.ModuleType("PySide6")

@@ -86,6 +86,7 @@ def _install_stubs():
         setattr(qt_gui, name, MagicMock)
 
     qt_core = types.ModuleType("PySide6.QtCore")
+    qt_core.Slot = lambda *args, **kwargs: lambda fn: fn
     qt_core.Qt = MagicMock()
     qt_core.QTimer = MagicMock
     qt_core.QPointF = MagicMock

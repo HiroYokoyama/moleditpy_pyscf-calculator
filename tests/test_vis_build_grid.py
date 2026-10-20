@@ -34,6 +34,7 @@ def _install_stubs():
     sys.modules.setdefault("PySide6.QtGui", qt_gui)
 
     qt_core = types.ModuleType("PySide6.QtCore")
+    qt_core.Slot = lambda *args, **kwargs: lambda fn: fn
     qt_core.Qt = MagicMock()
     sys.modules.setdefault("PySide6.QtCore", qt_core)
 

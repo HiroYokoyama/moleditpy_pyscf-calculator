@@ -168,6 +168,7 @@ class _FakeQToolTip:
 
 def _install_stubs():
     qt_core = types.ModuleType("PySide6.QtCore")
+    qt_core.Slot = lambda *args, **kwargs: lambda fn: fn
 
     class _Qt:
         class CursorShape:
