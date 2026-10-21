@@ -4,7 +4,7 @@ import logging
 import os
 import traceback
 
-from PySide6.QtCore import QTimer
+from PySide6.QtCore import QTimer, Slot
 from PySide6.QtWidgets import (
     QDialog,
     QMessageBox,
@@ -182,6 +182,7 @@ class PySCFDialog(QDialog):
         elif getattr(self, "vis_tab", None) is not None:
             logger.warning("%s", message)
 
+    @Slot(dict)
     def on_results(self, result_data):
         if self.closing or getattr(getattr(getattr(self, "calc_tab", None), "worker", None), "_stop_requested", False) is True:
             return
@@ -205,6 +206,7 @@ class PySCFDialog(QDialog):
         if getattr(self, "vis_tab", None) is not None:
             self.vis_tab.on_calculation_finished(result_data)
 
+    @Slot(str)
     def on_error(self, err_msg):
         self.log(f"\nERROR: {err_msg}")
         QMessageBox.critical(self, "Error", err_msg)

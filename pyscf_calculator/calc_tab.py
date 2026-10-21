@@ -1,8 +1,10 @@
+
+from ._qt_callbacks import connect_queued
 import contextlib
 import logging
 import os
 
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtCore import Qt, QTimer, Slot
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -711,11 +713,11 @@ class CalcTab(QWidget):
         xyz_str = rdkit_to_xyz(self.context.current_molecule)
 
         self.worker = PySCFWorker(xyz_str, config)
-        self.worker.log_signal.connect(self.log_append)
-        self.worker.finished_signal.connect(self.on_finished)
-        self.worker.error_signal.connect(self.on_error)
-        self.worker.result_signal.connect(self.parent_dialog.on_results)
-        self.worker.finished.connect(self._on_worker_stopped)
+        connect_queued(self.worker.log_signal, self.log_append, self, (str,), cleanup=(self.worker.finished,))
+        connect_queued(self.worker.finished_signal, self.on_finished, self, cleanup=(self.worker.finished,))
+        connect_queued(self.worker.error_signal, self.on_error, self, (str,), cleanup=(self.worker.finished,))
+        connect_queued(self.worker.result_signal, self.parent_dialog.on_results, self, (dict,), cleanup=(self.worker.finished,))
+        connect_queued(self.worker.finished, self._on_worker_stopped, self, cleanup=(self.worker.finished,))
 
         self.worker.start()
 
@@ -749,6 +751,7 @@ class CalcTab(QWidget):
         self.stop_btn.setEnabled(False)
         self.log("Cancellation requested; waiting for the current calculation step to exit safely.")
 
+    @Slot()
     def _on_worker_stopped(self):
         """Clean up once the worker thread has fully exited.
 
@@ -772,12 +775,14 @@ class CalcTab(QWidget):
         cursor.movePosition(cursor.MoveOperation.End)
         self.log_text.setTextCursor(cursor)
 
+    @Slot(str)
     def log_append(self, text):
         cursor = self.log_text.textCursor()
         cursor.movePosition(cursor.MoveOperation.End)
         cursor.insertText(text)
         self.log_text.setTextCursor(cursor)
 
+    @Slot()
     def on_finished(self):
         self.parent_dialog.update_internal_state()
 
@@ -795,6 +800,7 @@ class CalcTab(QWidget):
 
         self.log("\n---------------------------------\nCalculation Finished.")
 
+    @Slot(str)
     def on_error(self, err_msg):
         self.log(f"\nERROR: {err_msg}")
         QMessageBox.critical(self, "Calculation Error", err_msg)

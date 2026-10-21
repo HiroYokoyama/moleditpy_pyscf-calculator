@@ -33,6 +33,7 @@ from unittest.mock import MagicMock, patch
 
 def _install_stubs(force=False):
     qt_core = types.ModuleType("PySide6.QtCore")
+    qt_core.Slot = lambda *args, **kwargs: lambda fn: fn
 
     class _QThread:
         def __init__(self):

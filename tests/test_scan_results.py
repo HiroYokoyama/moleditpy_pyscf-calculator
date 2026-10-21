@@ -23,6 +23,7 @@ def _load_module_direct(relpath, module_name):
 
 def _install_stubs():
     qt_core = types.ModuleType("PySide6.QtCore")
+    qt_core.Slot = lambda *args, **kwargs: lambda fn: fn
     qt_core.Signal = lambda *a, **kw: MagicMock()
 
     class _Qt:

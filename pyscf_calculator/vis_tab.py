@@ -1,3 +1,5 @@
+
+from ._qt_callbacks import connect_queued
 import contextlib
 import csv
 import glob
@@ -5,7 +7,7 @@ import logging
 import os
 import re
 
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtCore import Qt, QTimer, Slot
 from PySide6.QtWidgets import (
     QColorDialog,
     QComboBox,
@@ -296,6 +298,7 @@ class VisTab(QWidget):
         layout.addWidget(self.mapped_group)
         layout.addWidget(self.vis_controls)
 
+    @Slot(str)
     def log(self, msg):
         self.parent_dialog.log(msg)
 
@@ -370,8 +373,8 @@ class VisTab(QWidget):
             return
 
         self.load_worker = LoadWorker(chk_path)
-        self.load_worker.finished_signal.connect(self.on_load_finished)
-        self.load_worker.error_signal.connect(self.parent_dialog.on_error)
+        connect_queued(self.load_worker.finished_signal, self.on_load_finished, self, (dict,), cleanup=(self.load_worker.finished,))
+        connect_queued(self.load_worker.error_signal, self.parent_dialog.on_error, self, (str,), cleanup=(self.load_worker.finished,))
         self.load_worker.finished.connect(self._on_load_thread_finished)
 
         self.log(f"\nLoading result from: {d}...")
@@ -426,6 +429,7 @@ class VisTab(QWidget):
                 self.context.mark_project_modified()
             self._history_changed = False
 
+    @Slot(dict)
     def on_load_finished(self, result_data):
         if getattr(self.parent_dialog, "closing", False) is True or getattr(self.load_worker, "_stop_requested", False) is True:
             return
@@ -598,6 +602,7 @@ class VisTab(QWidget):
         QTimer.singleShot(150, lambda: self.parent_dialog.tabs.setCurrentIndex(1)
                           if generation == getattr(self, "_load_generation", 0) and not self.parent_dialog.closing else None)
 
+    @Slot()
     def _on_load_thread_finished(self):
         if self.sender() is not self.load_worker:
             return
@@ -964,10 +969,10 @@ class VisTab(QWidget):
                 out_d = self.parent_dialog.out_dir_edit.text()
 
         self.prop_worker = PropertyWorker(self.chkfile_path, tasks, out_d)
-        self.prop_worker.log_signal.connect(self.log)  # Direct log
-        self.prop_worker.finished_signal.connect(self.on_prop_finished)
-        self.prop_worker.error_signal.connect(self.parent_dialog.on_error)
-        self.prop_worker.result_signal.connect(self.on_prop_results)
+        connect_queued(self.prop_worker.log_signal, self.log, self, (str,), cleanup=(self.prop_worker.finished,))  # Direct log
+        connect_queued(self.prop_worker.finished_signal, self.on_prop_finished, self, cleanup=(self.prop_worker.finished,))
+        connect_queued(self.prop_worker.error_signal, self.parent_dialog.on_error, self, (str,), cleanup=(self.prop_worker.finished,))
+        connect_queued(self.prop_worker.result_signal, self.on_prop_results, self, (dict,), cleanup=(self.prop_worker.finished,))
         self.prop_worker.finished.connect(self._on_prop_thread_finished)
 
         self.btn_run_analysis.setEnabled(False)
@@ -980,9 +985,11 @@ class VisTab(QWidget):
         task = f"#{index}{spin_suffix}"
         self.run_specific_analysis([task])
 
+    @Slot()
     def on_prop_finished(self):
         self.log("\nAnalysis Finished.")
 
+    @Slot()
     def _on_prop_thread_finished(self):
         if self.sender() is not self.prop_worker:
             return
@@ -995,6 +1002,7 @@ class VisTab(QWidget):
             return
         self.disable_existing_analysis_items(files)
 
+    @Slot(dict)
     def on_prop_results(self, result_data):
         if getattr(self.parent_dialog, "closing", False) is True or getattr(self.prop_worker, "_stop_requested", False) is True:
             return
