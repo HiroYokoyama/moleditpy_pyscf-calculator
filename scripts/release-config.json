@@ -1,0 +1,20 @@
+{
+  "source": "pyscf_calculator/__init__.py",
+  "title": "PySCF Calculator",
+  "package": "pyscf_calculator",
+  "archive": "pyscf_calculator_{version}.zip",
+  "assets": [
+    "pyscf_calculator_{version}.zip"
+  ],
+  "include": [
+    "README.md",
+    "LICENSE",
+    "LICENSING.md",
+    "GEOMETRIC_EXCEPTION",
+    "licenses"
+  ],
+  "exclude": [
+    "*/__pycache__/*",
+    "*/.git/*"
+  ]
+}

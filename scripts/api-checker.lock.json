@@ -1,0 +1,7 @@
+{
+  "repository": "HiroYokoyama/moleditpy-plugins",
+  "version": "1.1.3",
+  "commit": "6284c515ef6d8dbdb379d6c97c764964605e967d",
+  "source": "api-checker/plugin_api_checker.py",
+  "sha256_lf": "a6a598056a9db8ff1ef83b580c7eeb6bf96fdd0f9f130dac9b14f652fa3508fd"
+}
