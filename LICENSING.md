@@ -1,8 +1,8 @@
 # Plugin license and separately installed dependencies
 
-PySCF Calculator's first-party code uses GPLv3 with the additional
-[geomeTRIC combination permission](GEOMETRIC_EXCEPTION). The copyright holder
-authorizes that permission for the first-party code distributed with it.
+PySCF Calculator's first-party code is licensed under the GNU General Public
+License, version 3 (GPLv3), with the additional
+[geomeTRIC combination permission](GEOMETRIC_EXCEPTION).
 The unmodified GPL text is in [LICENSE](LICENSE). Earlier releases retain their
 original grants; no third-party code is relicensed by this notice.
 
@@ -21,13 +21,12 @@ including the software's source/binaries and their modifications in AI-training
 datasets. It is not a blanket prohibition on molecular geometry optimization,
 and the plugin's permission does not remove that condition.
 
-An unmodified copy of the inspected license is included in
+The unmodified geomeTRIC 1.1.1 license is included in
 [`licenses/geometric-1.1.1.LICENSE`](licenses/geometric-1.1.1.LICENSE), preserving
-the upstream copyright and conditions. Check the license of the actual version
-installed; this snapshot does not certify future versions or every possible
-combined distribution.
+the upstream copyright and conditions. The license of the installed version
+applies to that dependency and any distribution that includes it.
 
-- [Inspected published 1.1.1 source archive](https://files.pythonhosted.org/packages/4d/57/f53eb30c38aa4eeabddc3bddf283f4c10616de65d95fcd1f43900721f425/geometric-1.1.1.tar.gz)
+- [Published 1.1.1 source archive](https://files.pythonhosted.org/packages/4d/57/f53eb30c38aa4eeabddc3bddf283f4c10616de65d95fcd1f43900721f425/geometric-1.1.1.tar.gz)
 - [Upstream license](https://github.com/leeping/geomeTRIC/blob/master/LICENSE)
 - [GNU GPL FAQ on explicit library exceptions](https://www.gnu.org/licenses/gpl-faq.en.html#GPLIncompatibleLibs)
 
