@@ -157,6 +157,24 @@ def _make_freq_viz(freqs, modes=None, intensities=None):
 class TestFreqVisualizerNormalization(unittest.TestCase):
     """FreqVisualizer.__init__ normalizes freqs to a list of plain floats."""
 
+    def test_missing_mode_is_rejected_before_animation(self):
+        with self.assertRaisesRegex(ValueError, "match"):
+            _make_freq_viz([100.0, 200.0], modes=[np.zeros((2, 3))])
+
+    def test_mode_for_different_molecule_is_rejected(self):
+        with self.assertRaisesRegex(ValueError, "match"):
+            _make_freq_viz([100.0], modes=[np.zeros((3, 3))])
+
+    def test_nonfinite_mode_is_rejected(self):
+        mode = np.zeros((2, 3))
+        mode[0, 0] = np.nan
+        with self.assertRaisesRegex(ValueError, "finite"):
+            _make_freq_viz([100.0], modes=[mode])
+
+    def test_nonfinite_frequency_is_rejected(self):
+        with self.assertRaisesRegex(ValueError, "finite"):
+            _make_freq_viz([float("inf")])
+
     def test_plain_float_list(self):
         fv = _make_freq_viz([500.0, 1000.0, 2000.0])
         self.assertEqual(fv.freqs, [500.0, 1000.0, 2000.0])

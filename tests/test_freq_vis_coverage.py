@@ -646,7 +646,7 @@ class TestUpdateVectors(unittest.TestCase):
 
     def test_idx_out_of_range_returns(self):
         mw, plotter = self._mw_with_plotter()
-        fv = _make_fv(mw=mw, modes=[np.zeros((2, 3))])
+        fv = _make_fv(freqs=[500.0], mw=mw, modes=[np.zeros((2, 3))])
         fv.chk_vectors.isChecked.return_value = True
         fv.list_freq.currentItem.return_value = MagicMock()
         fv.list_freq.indexOfTopLevelItem.return_value = 99
@@ -714,7 +714,7 @@ class TestAnimateFrame(unittest.TestCase):
     def test_advances_animation_step_and_updates_geometry(self):
         ctx = MagicMock()
         modes = [np.ones((2, 3))]
-        fv = _make_fv(modes=modes, context=ctx)
+        fv = _make_fv(freqs=[500.0], modes=modes, context=ctx)
         fv.is_playing = True
         fv.list_freq.currentItem.return_value = MagicMock()
         fv._cached_anim_idx = 0
@@ -796,7 +796,7 @@ class TestSaveAsGifFullPath(unittest.TestCase):
         vm = types.SimpleNamespace(plotter=plotter, draw_molecule_3d=MagicMock())
         mw = types.SimpleNamespace(view_3d_manager=vm)
         modes = [np.ones((2, 3))]
-        fv = _make_fv(mw=mw, modes=modes)
+        fv = _make_fv(freqs=[500.0], mw=mw, modes=modes)
         fv.list_freq.currentItem.return_value = MagicMock()
         fv.list_freq.indexOfTopLevelItem.return_value = 0
         return fv, plotter

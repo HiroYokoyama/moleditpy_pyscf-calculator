@@ -219,6 +219,18 @@ class TestLoadWorkerAuxiliaryOnly(unittest.TestCase):
         results = self._run_with_files({"scan_results.csv": csv_content})
         self.assertIn("out_dir", results)
 
+    def test_nonobject_json_is_skipped_without_losing_other_results(self):
+        for content in ("null", "[]", '"bad"', "42"):
+            with self.subTest(content=content):
+                results = self._run_with_files(
+                    {
+                        "tddft_results.json": content,
+                        "freq_analysis.json": '{"freq_data": {"freqs": [], "modes": []}}',
+                    }
+                )
+                self.assertIn("freq_data", results)
+                self.assertNotIn("tddft_data", results)
+
     def test_malformed_csv_does_not_raise(self):
         """A CSV that fails to parse must be skipped, not raise."""
         results = self._run_with_files({"scan_results.csv": "not,a,valid\n,,\n"})

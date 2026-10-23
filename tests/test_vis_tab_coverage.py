@@ -539,8 +539,7 @@ class TestPopulateAnalysisOptions(unittest.TestCase):
         self.assertIn("MO 2_HOMO_A", tasks)
         self.assertIn("MO 1_HOMO_B", tasks)
 
-    def test_roks_falls_back_gracefully_on_bad_shape(self):
-        # occupations shape that trips the internal try/except -> occ_a=[]
+    def test_roks_flat_occupations_offer_occupied_orbitals(self):
         vt = _make_vis_tab(
             mo_data={"type": "ROKS", "occupations": [1, 1, 1, 0, 0], "energies": []}
         )
@@ -548,8 +547,10 @@ class TestPopulateAnalysisOptions(unittest.TestCase):
         tasks = self._tasks(vt)
         self.assertEqual(tasks[0], "ESP")
         self.assertEqual(tasks[1], "SpinDensity")
-        # ESP + Spin Density + 5 LUMOs, no HOMOs (occ_a empty)
-        self.assertEqual(len(tasks), 7)
+        self.assertIn("MO 3_HOMO", tasks)
+        self.assertIn("MO 2_HOMO-1", tasks)
+        self.assertIn("MO 1_HOMO-2", tasks)
+        self.assertEqual(len(tasks), 10)
 
 
 # ---------------------------------------------------------------------------
@@ -783,10 +784,10 @@ class TestOnFileSelected(unittest.TestCase):
         with (
             patch.object(_vis_tab_mod.os.path, "exists", side_effect=RuntimeError("x")),
             patch.object(vt, "clear_3d_actors"),
+            self.assertRaises(RuntimeError),
         ):
             # exists() raising inside on_file_selected's own guard re-raises there
-            with self.assertRaises(RuntimeError):
-                vt.on_file_selected(item)
+            vt.on_file_selected(item)
 
 
 class TestSwitchToStandardMode(unittest.TestCase):

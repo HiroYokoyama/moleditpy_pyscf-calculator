@@ -73,6 +73,14 @@ class FreqVisualizer(QWidget):
 
         # Store original coordinates as NumPy array
         self.base_coords = self.mol.GetConformer().GetPositions()
+        if not np.isfinite(self.freqs).all():
+            raise ValueError("Vibrational frequencies must be finite numbers.")
+        if self.freqs:
+            expected = (len(self.freqs), len(self.base_coords), 3)
+            if self.modes.shape != expected or not np.isfinite(self.modes).all():
+                raise ValueError(
+                    "Vibrational modes must match the frequencies and molecule, with finite 3D vectors."
+                )
 
         self.timer = QTimer(self)
         self.timer.timeout.connect(self.animate_frame)

@@ -1,5 +1,3 @@
-
-from ._qt_callbacks import connect_queued
 import contextlib
 import csv
 import glob
@@ -30,6 +28,8 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+
+from ._qt_callbacks import connect_queued
 
 logger = logging.getLogger(__name__)
 
@@ -312,7 +312,11 @@ class VisTab(QWidget):
 
     def load_result_folder(self, path=None, update_structure=True, is_opt_job=False):
         if self.load_worker is not None or self.prop_worker is not None:
-            QMessageBox.warning(self, "Busy", "Please wait for the current result or property worker to exit.")
+            QMessageBox.warning(
+                self,
+                "Busy",
+                "Please wait for the current result or property worker to exit.",
+            )
             return
         self._load_generation = getattr(self, "_load_generation", 0) + 1
         self.loading_update_struct = update_structure
@@ -373,8 +377,20 @@ class VisTab(QWidget):
             return
 
         self.load_worker = LoadWorker(chk_path)
-        connect_queued(self.load_worker.finished_signal, self.on_load_finished, self, (dict,), cleanup=(self.load_worker.finished,))
-        connect_queued(self.load_worker.error_signal, self.parent_dialog.on_error, self, (str,), cleanup=(self.load_worker.finished,))
+        connect_queued(
+            self.load_worker.finished_signal,
+            self.on_load_finished,
+            self,
+            (dict,),
+            cleanup=(self.load_worker.finished,),
+        )
+        connect_queued(
+            self.load_worker.error_signal,
+            self.parent_dialog.on_error,
+            self,
+            (str,),
+            cleanup=(self.load_worker.finished,),
+        )
         self.load_worker.finished.connect(self._on_load_thread_finished)
 
         self.log(f"\nLoading result from: {d}...")
@@ -399,7 +415,9 @@ class VisTab(QWidget):
         except (OSError, ValueError) as e:
             raise RuntimeError(f"Failed to read trajectory: {e}") from e
         if len(trajectory) != len(scan_results):
-            raise ValueError("Scan results and trajectory have different numbers of frames.")
+            raise ValueError(
+                "Scan results and trajectory have different numbers of frames."
+            )
 
         if not ScanResultDialog:
             raise RuntimeError("ScanResultDialog not available")
@@ -431,7 +449,10 @@ class VisTab(QWidget):
 
     @Slot(dict)
     def on_load_finished(self, result_data):
-        if getattr(self.parent_dialog, "closing", False) is True or getattr(self.load_worker, "_stop_requested", False) is True:
+        if (
+            getattr(self.parent_dialog, "closing", False) is True
+            or getattr(self.load_worker, "_stop_requested", False) is True
+        ):
             return
         generation = getattr(self, "_load_generation", 0)
         self.log("Result loaded successfully.")
@@ -469,7 +490,12 @@ class VisTab(QWidget):
         self.thermo_data = None
         self.optimized_xyz = None
         self.parent_dialog.optimized_xyz = None
-        for button in (self.btn_show_diagram, self.btn_run_analysis, self.btn_show_thermo, self.btn_load_geom):
+        for button in (
+            self.btn_show_diagram,
+            self.btn_run_analysis,
+            self.btn_show_thermo,
+            self.btn_load_geom,
+        ):
             button.setEnabled(False)
         self.loaded_file = None
         self.vis_controls.setEnabled(False)
@@ -542,7 +568,10 @@ class VisTab(QWidget):
         if should_update_geom and self.optimized_xyz:
 
             def update_and_finalize():
-                if generation != getattr(self, "_load_generation", 0) or getattr(self.parent_dialog, "closing", False) is True:
+                if (
+                    generation != getattr(self, "_load_generation", 0)
+                    or getattr(self.parent_dialog, "closing", False) is True
+                ):
                     return
                 # Strict Check: ONLY update source if it is an optimization result
                 is_opt = result_data.get("optimized_xyz", None) or getattr(
@@ -599,8 +628,15 @@ class VisTab(QWidget):
                 self.log(f"Warning during finalize_load: {e}")
                 logger.exception("finalize_load error")
 
-        QTimer.singleShot(150, lambda: self.parent_dialog.tabs.setCurrentIndex(1)
-                          if generation == getattr(self, "_load_generation", 0) and not self.parent_dialog.closing else None)
+        QTimer.singleShot(
+            150,
+            lambda: (
+                self.parent_dialog.tabs.setCurrentIndex(1)
+                if generation == getattr(self, "_load_generation", 0)
+                and not self.parent_dialog.closing
+                else None
+            ),
+        )
 
     @Slot()
     def _on_load_thread_finished(self):
@@ -779,15 +815,13 @@ class VisTab(QWidget):
             self.orb_list.addItem(item_sd)
             try:
                 occupations = self.mo_data.get("occupations", [])
-                if isinstance(occupations, list) and len(occupations) >= 2:
-                    if isinstance(occupations[0], list):
+                if isinstance(occupations, list) and occupations:
+                    if isinstance(occupations[0], (list, tuple)):
                         occ_a = occupations[0]
                     elif hasattr(occupations[0], "tolist"):
                         occ_a = occupations[0].tolist()
                     else:
-                        occ_a = list(occupations[0]) if occupations[0] else []
-                elif isinstance(occupations, list):
-                    occ_a = occupations
+                        occ_a = occupations
                 elif hasattr(occupations, "tolist"):
                     occ_a = occupations.tolist()
             except (TypeError, IndexError, AttributeError):
@@ -939,8 +973,16 @@ class VisTab(QWidget):
         self.run_specific_analysis(tasks)
 
     def run_specific_analysis(self, tasks, out_d=None):
-        if getattr(getattr(self.parent_dialog, "calc_tab", None), "worker", None) is not None or self.load_worker is not None:
-            QMessageBox.warning(self, "Busy", "Please wait for the calculation or result load to finish.")
+        if (
+            getattr(getattr(self.parent_dialog, "calc_tab", None), "worker", None)
+            is not None
+            or self.load_worker is not None
+        ):
+            QMessageBox.warning(
+                self,
+                "Busy",
+                "Please wait for the calculation or result load to finish.",
+            )
             return
         if not self.chkfile_path:
             return
@@ -969,10 +1011,33 @@ class VisTab(QWidget):
                 out_d = self.parent_dialog.out_dir_edit.text()
 
         self.prop_worker = PropertyWorker(self.chkfile_path, tasks, out_d)
-        connect_queued(self.prop_worker.log_signal, self.log, self, (str,), cleanup=(self.prop_worker.finished,))  # Direct log
-        connect_queued(self.prop_worker.finished_signal, self.on_prop_finished, self, cleanup=(self.prop_worker.finished,))
-        connect_queued(self.prop_worker.error_signal, self.parent_dialog.on_error, self, (str,), cleanup=(self.prop_worker.finished,))
-        connect_queued(self.prop_worker.result_signal, self.on_prop_results, self, (dict,), cleanup=(self.prop_worker.finished,))
+        connect_queued(
+            self.prop_worker.log_signal,
+            self.log,
+            self,
+            (str,),
+            cleanup=(self.prop_worker.finished,),
+        )  # Direct log
+        connect_queued(
+            self.prop_worker.finished_signal,
+            self.on_prop_finished,
+            self,
+            cleanup=(self.prop_worker.finished,),
+        )
+        connect_queued(
+            self.prop_worker.error_signal,
+            self.parent_dialog.on_error,
+            self,
+            (str,),
+            cleanup=(self.prop_worker.finished,),
+        )
+        connect_queued(
+            self.prop_worker.result_signal,
+            self.on_prop_results,
+            self,
+            (dict,),
+            cleanup=(self.prop_worker.finished,),
+        )
         self.prop_worker.finished.connect(self._on_prop_thread_finished)
 
         self.btn_run_analysis.setEnabled(False)
@@ -1004,7 +1069,10 @@ class VisTab(QWidget):
 
     @Slot(dict)
     def on_prop_results(self, result_data):
-        if getattr(self.parent_dialog, "closing", False) is True or getattr(self.prop_worker, "_stop_requested", False) is True:
+        if (
+            getattr(self.parent_dialog, "closing", False) is True
+            or getattr(self.prop_worker, "_stop_requested", False) is True
+        ):
             return
         new_files = result_data.get("files", [])
         self._disable_generated_tasks(new_files)
@@ -1064,7 +1132,9 @@ class VisTab(QWidget):
         is_esp_pair = False
         esp_match = re.fullmatch(r"esp(_\d+)?\.cube", basename.lower())
         if esp_match:
-            density_path = os.path.join(dirname, f"density{esp_match.group(1) or ''}.cube")
+            density_path = os.path.join(
+                dirname, f"density{esp_match.group(1) or ''}.cube"
+            )
             if os.path.exists(density_path):
                 is_esp_pair = True
                 surf_file = density_path
