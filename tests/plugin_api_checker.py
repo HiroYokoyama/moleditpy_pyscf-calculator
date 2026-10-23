@@ -51,12 +51,12 @@ import sys
 from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Union
 
-# Master copy lives in moleditpy-plugins/api-checker/; external plugin repos
+# Master copy lives in moleditpy-plugins/api-checker/; consumer repositories
 # carry copies as tests/plugin_api_checker.py. Bump on every change so
 # divergence between copies is detectable.
-__version__ = "1.1.1"
+__version__ = "1.1.3"
 
 # Ensure Unicode output works on Windows terminals with narrow code pages.
 if sys.stdout.encoding and sys.stdout.encoding.lower() not in ("utf-8", "utf-16"):
@@ -348,9 +348,8 @@ class AppAPIExtractor:
                 for t in stmt.targets:
                     if _is_self_attr(t):
                         out.add(t.attr)  # type: ignore[attr-defined]
-            elif isinstance(stmt, ast.AnnAssign):
-                if _is_self_attr(stmt.target):
-                    out.add(stmt.target.attr)  # type: ignore[attr-defined]
+            elif isinstance(stmt, ast.AnnAssign) and _is_self_attr(stmt.target):
+                out.add(stmt.target.attr)  # type: ignore[attr-defined]
 
     # ------------------------------------------------------------------ #
     # PluginContext parsing
@@ -374,8 +373,10 @@ class AppAPIExtractor:
     # ------------------------------------------------------------------ #
 
     def _find_file_containing(
-        self, needle: str, under: Path | None = None
-    ) -> Path | None:
+        self,
+        needle: str,
+        under: Optional[Path] = None,  # noqa: UP045 (runs on 3.9)
+    ) -> Optional[Path]:  # noqa: UP045
         root = under or self.app_root
         for f in sorted(root.rglob("*.py")):
             try:
@@ -392,7 +393,7 @@ class AppAPIExtractor:
         )
 
     @staticmethod
-    def _find_class(tree: ast.Module, name: str) -> ast.ClassDef | None:
+    def _find_class(tree: ast.Module, name: str) -> Optional[ast.ClassDef]:  # noqa: UP045
         for node in ast.walk(tree):
             if isinstance(node, ast.ClassDef) and node.name == name:
                 return node
@@ -429,7 +430,7 @@ class AppAPIExtractor:
 #   "mw"       -> {direct_mw_attr_name, ...}
 # ---------------------------------------------------------------------------
 
-_MANAGER_ALLOWLIST: dict[str, dict | set] = {
+_MANAGER_ALLOWLIST: dict[str, Union[dict, set]] = {
     "manager": {
         # StateManager.data is the central MoleculeData object.
         # It is set externally via molecule loading, not in StateManager.__init__.
@@ -455,7 +456,7 @@ _MANAGER_ALLOWLIST: dict[str, dict | set] = {
     },
 }
 
-_MW_ALLOWLIST: dict[str, dict | set] = {
+_MW_ALLOWLIST: dict[str, Union[dict, set]] = {
     # MW-level attrs that are legacy compat bridges or monkey-patched at runtime.
     # Only suppressed when --mw-allowlist is explicitly passed, so that real
     # V3 migration bugs in mw.X access patterns remain visible by default.
@@ -590,7 +591,7 @@ class PluginFileChecker:
         filepath: Path,
         api: APIInfo,
         check_context: bool = False,
-        allowlist: dict | None = None,
+        allowlist: Optional[dict] = None,  # noqa: UP045
     ):
         self.filepath = filepath
         self.api = api
@@ -655,26 +656,27 @@ class PluginFileChecker:
                         self._dynamic_manager_attrs.setdefault(mgr, set()).add(
                             node.target.attr
                         )
-            elif isinstance(node, ast.Call):
-                if isinstance(node.func, ast.Name) and node.func.id == "setattr":
-                    if len(node.args) >= 2:
-                        arg0 = node.args[0]
-                        arg1 = node.args[1]
-                        attr_name = None
-                        if isinstance(arg1, ast.Constant) and isinstance(
-                            arg1.value, str
-                        ):
-                            attr_name = arg1.value
+            elif (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Name)
+                and node.func.id == "setattr"
+                and len(node.args) >= 2
+            ):
+                arg0 = node.args[0]
+                arg1 = node.args[1]
+                attr_name = None
+                if isinstance(arg1, ast.Constant) and isinstance(arg1.value, str):
+                    attr_name = arg1.value
 
-                        if attr_name:
-                            if self._is_mw_ref(arg0):
-                                self._dynamic_mw_attrs.add(attr_name)
-                            else:
-                                mgr = self._is_mw_manager_ref(arg0)
-                                if mgr:
-                                    self._dynamic_manager_attrs.setdefault(
-                                        mgr, set()
-                                    ).add(attr_name)
+                if attr_name:
+                    if self._is_mw_ref(arg0):
+                        self._dynamic_mw_attrs.add(attr_name)
+                    else:
+                        mgr = self._is_mw_manager_ref(arg0)
+                        if mgr:
+                            self._dynamic_manager_attrs.setdefault(mgr, set()).add(
+                                attr_name
+                            )
 
     # ------------------------------------------------------------------ #
     # Pass 1 -- alias collection
@@ -706,22 +708,25 @@ class PluginFileChecker:
 
     def _rhs_is_mw(self, node: ast.expr) -> bool:
         # context.get_main_window() or self.context.get_main_window()
-        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
-            if node.func.attr in _MW_GETTER_ATTRS:
-                return True
+        if (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr in _MW_GETTER_ATTRS
+        ):
+            return True
         # Variable whose name strongly implies it's an MW
         if isinstance(node, ast.Name) and node.id in _MW_VAR_NAMES:
             return True
         # self.mw / self.main_window assigned from another mw-ref
-        if isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name):
-            if node.value.id == "self" and node.attr in _MW_VAR_NAMES:
-                return True
-        return False
+        return (
+            isinstance(node, ast.Attribute)
+            and isinstance(node.value, ast.Name)
+            and node.value.id == "self"
+            and node.attr in _MW_VAR_NAMES
+        )
 
     def _rhs_is_ctx(self, node: ast.expr) -> bool:
-        if isinstance(node, ast.Name) and node.id in _CONTEXT_PARAM_NAMES:
-            return True
-        return False
+        return isinstance(node, ast.Name) and node.id in _CONTEXT_PARAM_NAMES
 
     def _record_mw(self, target: ast.expr):
         if isinstance(target, ast.Name):
@@ -821,12 +826,13 @@ class PluginFileChecker:
         if _is_self_attr(node):
             return f"self.{node.attr}" in self._mw_refs  # type: ignore[attr-defined]
         # Inline: context.get_main_window()
-        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
-            if node.func.attr in _MW_GETTER_ATTRS:
-                return True
-        return False
+        return (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr in _MW_GETTER_ATTRS
+        )
 
-    def _is_mw_manager_ref(self, node: ast.expr) -> str | None:
+    def _is_mw_manager_ref(self, node: ast.expr) -> Optional[str]:  # noqa: UP045
         if isinstance(node, ast.Attribute) and self._is_mw_ref(node.value):
             return node.attr
         return None
@@ -875,7 +881,7 @@ def _method_kind(func: ast.FunctionDef) -> str:
     return "method"
 
 
-def _call_class_name(call: ast.Call) -> str | None:
+def _call_class_name(call: ast.Call) -> Optional[str]:  # noqa: UP045
     """Extract class name from SomeClass(...) or pkg.SomeClass(...)."""
     func = call.func
     if isinstance(func, ast.Name):

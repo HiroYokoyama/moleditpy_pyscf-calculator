@@ -34,59 +34,29 @@ jobs:
           fi
           echo "VERSION=$VERSION" >> "$GITHUB_ENV"
 
+      - name: Verify version matches plugin source
+        run: python scripts/release_common.py verify --version "$VERSION"
+
       - name: Create and push tag
         if: github.event_name == 'workflow_dispatch'
         run: |
           git tag "v$VERSION"
           git push origin "v$VERSION"
 
-      - name: Verify version matches plugin source
-        run: |
-          INPUT="$VERSION"
-          FILE_VERSION=$(python3 -c "
-          import re, sys
-          text = open('pyscf_calculator/__init__.py', encoding='utf-8').read()
-          m = re.search(r\"PLUGIN_VERSION\s*=\s*['\\\"](.+?)['\\\"]\", text)
-          print(m.group(1).strip() if m else '')
-          ")
-          echo "Input version : $INPUT"
-          echo "File version  : $FILE_VERSION"
-          if [ "$INPUT" != "$FILE_VERSION" ]; then
-            echo "ERROR: input version '$INPUT' does not match PLUGIN_VERSION '$FILE_VERSION' in pyscf_calculator/__init__.py"
-            exit 1
-          fi
-
       - name: Build release package
-        run: |
-          TAG="$VERSION"
-          cp README.md LICENSE LICENSING.md GEOMETRIC_EXCEPTION pyscf_calculator/
-          cp -R licenses pyscf_calculator/
-          zip -r "pyscf_calculator_${TAG}.zip" pyscf_calculator/ --exclude "*/__pycache__/*" "*/.git/*"
+        run: python scripts/release_common.py package --version "$VERSION"
 
       - name: Create GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: |
-          TAG="$VERSION"
-          gh release create "v$TAG" \
-            --title "PySCF Calculator $TAG" \
-            --generate-notes \
-            "pyscf_calculator_$TAG.zip"
+        run: python scripts/release_common.py publish --version "$VERSION"
 
       - name: Trigger moleditpy-plugins registry update
         if: success()
         continue-on-error: true
         env:
           REGISTRY_PAT: ${{ secrets.REGISTRY_PAT }}
-        run: |
-          TAG="$VERSION"
-          if [ -n "$REGISTRY_PAT" ]; then
-            curl -s -X POST \
-              -H "Authorization: Bearer $REGISTRY_PAT" \
-              -H "Accept: application/vnd.github+json" \
-              "https://api.github.com/repos/HiroYokoyama/moleditpy-plugins/dispatches" \
-              -d "{\"event_type\":\"plugin_release\",\"client_payload\":{\"repo\":\"${{ github.repository }}\",\"tag\":\"v$TAG\"}}"
-          fi
+        run: python scripts/release_common.py notify --version "$VERSION"
 
   # Archiving runs here rather than from zenodo.yml's `release: published`
   # trigger: this workflow mints the release with GITHUB_TOKEN, and GitHub does
