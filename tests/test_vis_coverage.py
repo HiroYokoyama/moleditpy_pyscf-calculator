@@ -200,6 +200,21 @@ class _TempDirMixin:
 
 
 class TestParseCubeDataBasics(_TempDirMixin, unittest.TestCase):
+    def test_fortran_exponents_in_header_atoms_and_values(self):
+        path = self._path()
+        _write_cube(path)
+        with open(path) as handle:
+            content = handle.read()
+        # Replace every decimal field with its numerically equivalent D form.
+        import re
+
+        content = re.sub(r"(?<![\w.])(-?\d+\.\d+)", r"\1D+00", content)
+        with open(path, "w") as handle:
+            handle.write(content)
+        meta = parse_cube_data(path)
+        self.assertEqual(meta["dims"], (2, 2, 2))
+        self.assertEqual(len(meta["data_flat"]), 8)
+
     def test_missing_filename_raises(self):
         with self.assertRaises(FileNotFoundError):
             parse_cube_data("")
@@ -357,6 +372,12 @@ class TestCubeVisualizerPlotter(unittest.TestCase):
 
 
 class TestCubeVisualizerLoadFile(_TempDirMixin, unittest.TestCase):
+    def test_failed_reload_discards_previous_grid(self):
+        cv = CubeVisualizer(_mw_with_plotter(None))
+        cv.current_grid = MagicMock()
+        self.assertFalse(cv.load_file(self._path("missing.cube")))
+        self.assertIsNone(cv.current_grid)
+
     def test_load_file_success_sets_grid_and_data_max(self):
         p = self._path()
         data_line = "1.0 -5.0 2.0 3.0 4.0 5.0 6.0 7.0\n"
@@ -494,6 +515,15 @@ class TestMappedVisualizerPlotter(unittest.TestCase):
 
 
 class TestMappedVisualizerLoadFiles(_TempDirMixin, unittest.TestCase):
+    def test_failed_second_cube_discards_both_previous_grids(self):
+        mv = MappedVisualizer(_mw_with_plotter(None))
+        mv.grid_surf = mv.grid_prop = MagicMock()
+        path = self._path()
+        _write_cube(path)
+        self.assertFalse(mv.load_files(path, self._path("missing.cube")))
+        self.assertIsNone(mv.grid_surf)
+        self.assertIsNone(mv.grid_prop)
+
     def _two_files(self):
         surf = self._path("density.cube")
         prop = self._path("esp.cube")
@@ -535,6 +565,21 @@ class TestMappedVisualizerLoadFiles(_TempDirMixin, unittest.TestCase):
 
 
 class TestMappedVisualizerGetMappedRange(unittest.TestCase):
+    def test_outside_property_grid_is_not_displayed_as_zero(self):
+        mv = MappedVisualizer(_mw_with_plotter(None))
+        mv.grid_surf = MagicMock()
+        mv.grid_prop = MagicMock()
+        iso = mv.grid_surf.contour.return_value
+        iso.n_points = 2
+        sampled = iso.sample.return_value
+        sampled.n_points = 2
+        sampled.point_data = {
+            "values": np.array([-1.0, 0.0]),
+            "vtkValidPointMask": np.array([1, 0]),
+        }
+        with self.assertRaisesRegex(ValueError, "cover"):
+            mv._sampled_surface(0.01)
+
     def test_returns_default_when_no_grids(self):
         mw = _mw_with_plotter(None)
         mv = MappedVisualizer(mw)

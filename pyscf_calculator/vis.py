@@ -32,13 +32,17 @@ def parse_cube_data(filename):
             raise ValueError("Invalid Origin line")
         n_atoms_raw = int(tokens[0])
         n_atoms = abs(n_atoms_raw)
-        origin_raw = np.array([float(tokens[1]), float(tokens[2]), float(tokens[3])])
+        origin_raw = np.array(
+            [float(t.replace("D", "E").replace("d", "e")) for t in tokens[1:4]]
+        )
 
         def parse_vec(line):
             t = line.split()
             if len(t) < 4:
                 raise ValueError("Invalid Axis line")
-            return int(t[0]), np.array([float(t[1]), float(t[2]), float(t[3])])
+            return int(t[0]), np.array(
+                [float(v.replace("D", "E").replace("d", "e")) for v in t[1:4]]
+            )
 
         nx, x_vec_raw = parse_vec(lines[3])
         ny, y_vec_raw = parse_vec(lines[4])
@@ -46,7 +50,10 @@ def parse_cube_data(filename):
 
         is_angstrom_header = nx < 0 or ny < 0 or nz < 0
         nx, ny, nz = abs(nx), abs(ny), abs(nz)
-        if not all(np.all(np.isfinite(v)) for v in (origin_raw, x_vec_raw, y_vec_raw, z_vec_raw)):
+        if not all(
+            np.all(np.isfinite(v))
+            for v in (origin_raw, x_vec_raw, y_vec_raw, z_vec_raw)
+        ):
             raise ValueError("Cube header contains nonfinite coordinates.")
         if min(nx, ny, nz) == 0 or nx * ny * nz > 2_000_000:
             raise ValueError("Cube grid must contain 1 to 2,000,000 points.")
@@ -69,8 +76,10 @@ def parse_cube_data(filename):
                 # Potentially empty line or malformed
                 raise ValueError("Malformed cube atom line")
             atomic_num = int(line[0])
-            x, y, z = float(line[2]), float(line[3]), float(line[4])
-            if not np.all(np.isfinite([float(line[1]), x, y, z])):
+            charge, x, y, z = [
+                float(v.replace("D", "E").replace("d", "e")) for v in line[1:5]
+            ]
+            if not np.all(np.isfinite([charge, x, y, z])):
                 raise ValueError("Nonfinite cube atom coordinates")
             atoms.append((atomic_num, np.array([x, y, z])))
         except (ValueError, IndexError) as exc:
@@ -117,7 +126,9 @@ def parse_cube_data(filename):
         # first non-number, as it did.)
         tokens = " ".join(lines[current_line:]).split()
         try:
-            data_values = np.array(tokens, dtype=float)
+            data_values = np.array(
+                [t.replace("D", "E").replace("d", "e") for t in tokens], dtype=float
+            )
         except ValueError as exc:
             raise ValueError("Malformed cube volumetric data") from exc
 
@@ -126,7 +137,9 @@ def parse_cube_data(filename):
     actual_size = len(data_values)
 
     if actual_size != expected_size:
-        raise ValueError(f"Cube data size mismatch: expected {expected_size}, found {actual_size}")
+        raise ValueError(
+            f"Cube data size mismatch: expected {expected_size}, found {actual_size}"
+        )
     if not np.all(np.isfinite(data_values)):
         raise ValueError("Cube contains nonfinite volumetric values")
 
@@ -230,6 +243,7 @@ class CubeVisualizer(_Visualizer):
         self.data_max = 1.0
 
     def load_file(self, filename):
+        self.current_grid = None
         try:
             meta = parse_cube_data(filename)
             self.current_grid = build_grid_from_meta(meta)
@@ -299,12 +313,14 @@ class MappedVisualizer(_Visualizer):
         self.data_prop_range = (-0.1, 0.1)
 
     def load_files(self, surf_file, prop_file):
+        self.grid_surf = self.grid_prop = None
         try:
-            self.grid_surf = build_grid_from_meta(parse_cube_data(surf_file))
-            self.grid_prop = build_grid_from_meta(parse_cube_data(prop_file))
+            grid_surf = build_grid_from_meta(parse_cube_data(surf_file))
+            grid_prop = build_grid_from_meta(parse_cube_data(prop_file))
         except _CUBE_ERRORS as e:
             logger.warning("Error loading mapped cubes: %s", e)
             return False
+        self.grid_surf, self.grid_prop = grid_surf, grid_prop
         flat_s = self.grid_surf.point_data["values"]
         if len(flat_s) > 0:
             self.data_surf_max = float(np.max(np.abs(flat_s)))
@@ -322,6 +338,11 @@ class MappedVisualizer(_Visualizer):
         mapped = iso.sample(self.grid_prop)
         if mapped is None or mapped.n_points == 0:
             return None
+        valid = mapped.point_data.get("vtkValidPointMask")
+        if valid is not None and not np.all(valid):
+            raise ValueError(
+                "The property cube does not cover the complete density surface."
+            )
         return mapped
 
     def get_mapped_range(self, iso_val):
