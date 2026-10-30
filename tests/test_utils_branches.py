@@ -79,7 +79,7 @@ class TestUpdateMolBondDetermination(unittest.TestCase):
 
     def test_import_error_from_rdDetermineBonds_is_silent(self):
         ctx = self._make_context()
-        utils.Chem.MolFromXYZBlock = MagicMock(return_value=MagicMock())
+        utils.mol_from_xyz_block = MagicMock(return_value=MagicMock())
 
         # Simulate ImportError inside the try block
         with patch.dict("sys.modules", {"rdkit.Chem.rdDetermineBonds": None}):
@@ -89,7 +89,7 @@ class TestUpdateMolBondDetermination(unittest.TestCase):
     def test_generic_exception_from_DetermineConnectivity_is_silent(self):
         ctx = self._make_context()
         mock_mol = MagicMock()
-        utils.Chem.MolFromXYZBlock = MagicMock(return_value=mock_mol)
+        utils.mol_from_xyz_block = MagicMock(return_value=mock_mol)
 
         mock_rddb = MagicMock()
         mock_rddb.DetermineConnectivity.side_effect = Exception("connectivity failed")
@@ -118,7 +118,7 @@ class TestUpdateMolMarkModified(unittest.TestCase):
 
     def test_mark_modified_false_restores_dirty_true(self):
         ctx, _mw, sm = self._make_context_with_state_manager(was_dirty=True)
-        utils.Chem.MolFromXYZBlock = MagicMock(return_value=MagicMock())
+        utils.mol_from_xyz_block = MagicMock(return_value=MagicMock())
 
         utils.update_molecule_from_xyz(
             ctx, "2\ncomment\nH 0 0 0\nO 1 0 0", mark_modified=False
@@ -129,7 +129,7 @@ class TestUpdateMolMarkModified(unittest.TestCase):
 
     def test_mark_modified_false_restores_dirty_false(self):
         ctx, _mw, sm = self._make_context_with_state_manager(was_dirty=False)
-        utils.Chem.MolFromXYZBlock = MagicMock(return_value=MagicMock())
+        utils.mol_from_xyz_block = MagicMock(return_value=MagicMock())
 
         utils.update_molecule_from_xyz(
             ctx, "2\ncomment\nH 0 0 0\nO 1 0 0", mark_modified=False
@@ -139,7 +139,7 @@ class TestUpdateMolMarkModified(unittest.TestCase):
 
     def test_mark_modified_false_calls_update_window_title(self):
         ctx, _mw, sm = self._make_context_with_state_manager(was_dirty=False)
-        utils.Chem.MolFromXYZBlock = MagicMock(return_value=MagicMock())
+        utils.mol_from_xyz_block = MagicMock(return_value=MagicMock())
 
         utils.update_molecule_from_xyz(
             ctx, "2\ncomment\nH 0 0 0\nO 1 0 0", mark_modified=False
@@ -150,7 +150,7 @@ class TestUpdateMolMarkModified(unittest.TestCase):
     def test_mark_modified_true_does_not_restore_dirty(self):
         """mark_modified=True must NOT suppress the dirty flag change."""
         ctx, _mw, sm = self._make_context_with_state_manager(was_dirty=False)
-        utils.Chem.MolFromXYZBlock = MagicMock(return_value=MagicMock())
+        utils.mol_from_xyz_block = MagicMock(return_value=MagicMock())
 
         utils.update_molecule_from_xyz(
             ctx, "2\ncomment\nH 0 0 0\nO 1 0 0", mark_modified=True
@@ -169,7 +169,7 @@ class TestUpdateMolNoneResult(unittest.TestCase):
     def test_current_molecule_not_updated_when_mol_is_none(self):
         ctx = MagicMock()
         ctx.get_main_window.return_value = None
-        utils.Chem.MolFromXYZBlock = MagicMock(return_value=None)
+        utils.mol_from_xyz_block = MagicMock(return_value=None)
 
         utils.update_molecule_from_xyz(ctx, "2\ncomment\nH 0 0 0\nO 1 0 0")
 

@@ -1233,7 +1233,9 @@ class PySCFWorker(QThread):
         steps = int(params["steps"])
 
         # Setup RDKit Mol for Geometry Manipulation (Thread-safe local copy)
-        rd_mol = Chem.MolFromXYZBlock(self.xyz_str)
+        from .utils import mol_from_xyz_block
+
+        rd_mol = mol_from_xyz_block(self.xyz_str)
         if not rd_mol:
             self.error_signal.emit(
                 "Failed to create RDKit molecule from XYZ for scanning."

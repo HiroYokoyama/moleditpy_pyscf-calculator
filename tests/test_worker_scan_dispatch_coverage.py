@@ -239,7 +239,13 @@ def _run(config, fake_mf=None, chem_mock=None, rdmt_mock=None, block_imports=Non
 
     tmpdir = tempfile.mkdtemp()
     w.config["out_dir"] = tmpdir
-    with patch.object(_mod, "CaptureStdOut") as mock_cap:
+    # run_rigid_scan builds its RDKit molecule through utils.mol_from_xyz_block;
+    # route that to the same Chem stub so each test still controls the result.
+    utils_mod = importlib.import_module(_mod.__package__ + ".utils")
+    xyz_reader = patch.object(
+        utils_mod, "mol_from_xyz_block", _mod.Chem.MolFromXYZBlock
+    )
+    with xyz_reader, patch.object(_mod, "CaptureStdOut") as mock_cap:
         mock_cap.return_value.__enter__ = MagicMock(return_value=MagicMock())
         mock_cap.return_value.__exit__ = MagicMock(return_value=False)
         if block_imports:
