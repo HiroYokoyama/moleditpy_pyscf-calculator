@@ -44,7 +44,7 @@ class TestBondDeterminationRealErrors(unittest.TestCase):
     def setUp(self):
         self.ctx = MagicMock()
         self.ctx.get_main_window.return_value = None
-        utils.Chem.MolFromXYZBlock = MagicMock(return_value=MagicMock())
+        utils.mol_from_xyz_block = MagicMock(return_value=MagicMock())
 
     def test_real_import_error_is_swallowed(self):
         with patch.dict(sys.modules, {"rdkit.Chem": _NoBondsChem()}):
@@ -88,7 +88,7 @@ class TestStateManagerExceptionPaths(unittest.TestCase):
         mw.state_manager = _RaisingStateManager()
         ctx.get_main_window.return_value = mw
 
-        utils.Chem.MolFromXYZBlock = MagicMock(return_value=MagicMock())
+        utils.mol_from_xyz_block = MagicMock(return_value=MagicMock())
 
         # Must not raise, despite has_unsaved_changes/update_window_title
         # both raising on access.
